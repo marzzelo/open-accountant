@@ -10,6 +10,8 @@ Open Accountant is a lightweight, browser-based accounting application built on
 **FastAPI** (backend) and **vanilla JavaScript + Tailwind CSS** (frontend).  
 It runs entirely on your local machine — no cloud, no subscriptions, no data leaving your network.
 
+The project has been developed in large part with AI assistance, especially through the OpenClaw agent system. That same workflow is welcome from contributors too, as long as each change is reviewed carefully and explained clearly.
+
 ---
 
 ## ✨ Features
@@ -92,6 +94,19 @@ cp config.ini.example config.ini
 
 Then open **http://127.0.0.1:5001/** in your browser.
 
+### Docker
+
+```bash
+docker build -t open-accountant:local .
+docker run --rm -p 5001:5001 -v open-accountant-data:/app/data open-accountant:local
+```
+
+Then open **http://127.0.0.1:5001/** in your browser.
+
+Container images can be published from GitHub Actions to GHCR from the main repository:
+
+`ghcr.io/marzzelo/open-accountant`
+
 ---
 
 ## ▶️ Running
@@ -103,6 +118,15 @@ bash start.sh                  # Linux / macOS
 ```
 
 The server starts with **hot-reload** enabled — changes to Python files are applied immediately without restarting.
+
+## 🧪 Testing
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+pytest
+```
+
+The repository now includes automated API smoke tests and a GitHub Actions workflow that runs them on pull requests and pushes to `main`.
 
 ---
 
@@ -257,18 +281,14 @@ python3 i18n_tools.py stats
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please follow these guidelines:
+Contributions are welcome.
 
-1. **Fork** the repository and create a feature branch:
-   
-   ```bash
-   git checkout -b feature/my-new-feature
-   ```
-2. **Keep code clean**: follow existing style (4-space indent, type hints in Python, `'use strict'` in JS)
-3. **Translations**: add new UI strings to **both** `en.json` and `es.json`, then rebuild catalogs
-4. **No personal data**: never commit `.env`, `config.ini`, or `data/*.db` files
-5. **Test manually**: verify the feature works in both English and Spanish
-6. Open a **Pull Request** with a clear description of the change
+- Read `CONTRIBUTING.md` for the full workflow.
+- Follow `CODE_OF_CONDUCT.md` in all project spaces.
+- Use `SECURITY.md` for private vulnerability reporting.
+- Review release notes in `CHANGELOG.md`.
+
+AI-assisted contributions are welcome here. Open Accountant itself was built in large part with AI tools, especially OpenClaw. If you use AI in a contribution, please review the result carefully and note any meaningful AI assistance in your pull request.
 
 ### Reporting issues
 
@@ -277,6 +297,20 @@ Please include:
 - OS and Python version
 - Steps to reproduce
 - Expected vs. actual behavior
+
+GitHub issue forms and a pull request template are included in `.github/` to keep reports and reviews structured.
+
+## 📦 Releases and Versioning
+
+Open Accountant is intended to follow **Semantic Versioning**.
+
+- Release notes live in `CHANGELOG.md`
+- Git tags should use the `vX.Y.Z` format
+- The current release baseline is `v1.0.0`
+- GitHub Actions can build test artifacts and Docker images from the repository
+- Tagged releases can also publish a packaged source zip asset automatically
+
+For this project, Docker is the primary packaging format for reproducible deployment.
 
 ---
 
@@ -334,6 +368,14 @@ open-accountant/
 ## 📄 License
 
 MIT License — see [LICENSE](LICENSE) for details.
+
+## 👤 About the Author
+
+Marcelo Valdez is an Electronics Engineer and Software Developer focused on data acquisition, instrumentation, signal analysis, APIs, and AI-powered applications. He builds practical software that connects real-world engineering needs with modern development tools, with a strong emphasis on Python, automation, and technical problem-solving.
+
+- GitHub: https://github.com/marzzelo
+- LinkedIn: https://www.linkedin.com/in/marcelovaldez/
+- Email: zedlavolecram@gmail.com
 
 ---
 

@@ -1,0 +1,36 @@
+name: Feature request
+description: Suggest an improvement for Open Accountant.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for sharing an idea.
+
+        Clear, practical requests are much easier to review and plan.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What is difficult, missing, or unclear today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature you would like to see.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Share any workarounds or related ideas.
+  - type: textarea
+    id: context
+    attributes:
+      label: Extra context
+      description: Screenshots, examples, accounting workflows, or references.

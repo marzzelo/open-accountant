@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
+import app_version
+
 BASE       = Path(__file__).parent
 LOCALES_JS = BASE / "static" / "locales"     # JSON source of truth
 LOCALES_PO = BASE / "locales"                 # .po / .mo output
@@ -23,7 +25,7 @@ PO_HEADER = """\
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: Open Accountant 2.0\\n"
+"Project-Id-Version: Open Accountant {version}\\n"
 "Language: {lang}\\n"
 "Content-Type: text/plain; charset=UTF-8\\n"
 "Content-Transfer-Encoding: 8bit\\n"
@@ -45,7 +47,13 @@ def _write_po(lang: str, translations: dict, en_keys: dict):
     po_dir = LOCALES_PO / lang / "LC_MESSAGES"
     po_dir.mkdir(parents=True, exist_ok=True)
     po_path = po_dir / "messages.po"
-    lines = [PO_HEADER.format(lang=lang, date=datetime.now().strftime("%Y-%m-%d"))]
+    lines = [
+        PO_HEADER.format(
+            lang=lang,
+            date=datetime.now().strftime("%Y-%m-%d"),
+            version=app_version.numeric_version(),
+        )
+    ]
     for key, en_val in en_keys.items():
         if key.startswith("_"):
             continue

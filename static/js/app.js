@@ -32,6 +32,7 @@ const State = {
   accounts:   [],
   types:      [],
   subtypes:   [],
+  appVersion: null,
   filterFrom: null,
   filterTo:   null,
   usageOrder: JSON.parse(localStorage.getItem('acct_usage') || '{}'), // {id: timestamp}
@@ -78,20 +79,35 @@ const API = {
   del(path)         { return this._fetch(path, { method: 'DELETE' }); },
 
   async loadAll() {
-    const [accounts, types, subtypes] = await Promise.all([
+    const [accounts, types, subtypes, version] = await Promise.all([
       this.get('/accounts' + State.apiDateParams),
       this.get('/types'),
       this.get('/subtypes'),
+      this.get('/version'),
     ]);
     State.accounts = accounts;
     State.types    = types;
     State.subtypes = subtypes;
+    State.appVersion = version;
   },
 
   async reloadAccounts() {
     State.accounts = await this.get('/accounts' + State.apiDateParams);
   },
 };
+
+function applyAppVersion() {
+  const version = State.appVersion;
+  if (!version) return;
+
+  document.title = `💰 ${version.full_title}`;
+
+  const headerTitle = document.getElementById('app-title');
+  if (headerTitle) headerTitle.textContent = version.full_title;
+
+  const drawerTitle = document.getElementById('drawer-app-title');
+  if (drawerTitle) drawerTitle.textContent = `💰 ${version.full_title}`;
+}
 
 /* ─── VIEW ROUTER ────────────────────────────────────────────────── */
 const View = {
@@ -346,6 +362,7 @@ async function _initBookBadge() {
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     await API.loadAll();
+    applyAppVersion();
     await I18n.init();         // load translations + apply static labels
     await _initBookBadge();
     await View.show('board');

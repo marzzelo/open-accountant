@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security report
+    url: mailto:zedlavolecram@gmail.com
+    about: Report vulnerabilities privately by email.
+  - name: Contribution guide
+    url: https://github.com/marzzelo/open-accountant/blob/main/CONTRIBUTING.md
+    about: Read the contributor workflow before opening a pull request.

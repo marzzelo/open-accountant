@@ -1,0 +1,17 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+config.ini
+.env
+data/*.db
+data/*.db-wal
+data/*.db-shm
+dist
+build
+private
+tests

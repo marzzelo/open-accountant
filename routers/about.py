@@ -15,6 +15,7 @@ import hashlib
 import hmac as _hmac
 import json
 
+import app_version
 from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
@@ -72,5 +73,11 @@ def get_about():
         "org":     d["o"],
         "github":  d["g"],
         "year":    d["y"],
-        "version": d["v"],
+        "version": app_version.full_app_title(),
+        "tag":     app_version.release_tag(),
     }
+
+
+@router.get("/version")
+def get_version():
+    return app_version.version_payload()

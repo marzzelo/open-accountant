@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import app_config  # must be imported before database
+import app_version
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -35,8 +36,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Open Accountant API",
-    version="2.0.0",
-    description="Sistema de contabilidad personal de doble entrada",
+    version=app_version.numeric_version(),
+    description="Personal double-entry accounting system",
     lifespan=lifespan,
 )
 

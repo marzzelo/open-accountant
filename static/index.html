@@ -1,11 +1,11 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>💰 Open Accountant</title>
+  <title>💰 Open Accountant v1.0.0</title>
 
-  <!-- Tailwind Play CDN (JIT en el browser, sin build step) -->
+  <!-- Tailwind Play CDN (JIT in the browser, no build step) -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -50,7 +50,7 @@
 
   <div class="flex items-center gap-2 shrink-0">
     <span class="text-2xl">💰</span>
-    <span class="font-bold text-dark-100 text-[15px]">Open Accountant</span>
+    <span id="app-title" class="font-bold text-dark-100 text-[15px]">Open Accountant v1.0.0</span>
   </div>
 
   <!-- Desktop nav -->
@@ -121,7 +121,7 @@
          onclick="event.stopPropagation()">
 
     <div class="flex items-center justify-between p-4 border-b border-dark-600">
-      <span class="font-bold text-dark-100">💰 Open Accountant</span>
+      <span id="drawer-app-title" class="font-bold text-dark-100">💰 Open Accountant v1.0.0</span>
       <button onclick="Nav.close()" class="text-dark-400 hover:text-dark-300 text-xl">✕</button>
     </div>
 
