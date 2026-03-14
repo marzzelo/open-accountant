@@ -1,12 +1,13 @@
 """
 main.py — Open Accountant · FastAPI entry point.
-Run: uvicorn main:app --host 0.0.0.0 --port 5001 --reload
+Run: python main.py
 """
+
 import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import app_config          # must be imported before database
+import app_config  # must be imported before database
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,14 +48,14 @@ app.add_middleware(
 )
 
 # ── API routers ────────────────────────────────────────────────────────────────
-app.include_router(types.router,            prefix="/api", tags=["Types"])
-app.include_router(subtypes.router,         prefix="/api", tags=["Subtypes"])
-app.include_router(accounts.router,         prefix="/api", tags=["Accounts"])
-app.include_router(transactions.router,     prefix="/api", tags=["Transactions"])
-app.include_router(reports.router,          prefix="/api", tags=["Reports"])
-app.include_router(books.router,            prefix="/api", tags=["Books"])
-app.include_router(settings_router.router,  prefix="/api", tags=["Settings"])
-app.include_router(about_router.router,     prefix="/api", tags=["About"])
+app.include_router(types.router, prefix="/api", tags=["Types"])
+app.include_router(subtypes.router, prefix="/api", tags=["Subtypes"])
+app.include_router(accounts.router, prefix="/api", tags=["Accounts"])
+app.include_router(transactions.router, prefix="/api", tags=["Transactions"])
+app.include_router(reports.router, prefix="/api", tags=["Reports"])
+app.include_router(books.router, prefix="/api", tags=["Books"])
+app.include_router(settings_router.router, prefix="/api", tags=["Settings"])
+app.include_router(about_router.router, prefix="/api", tags=["About"])
 
 # ── Static frontend ────────────────────────────────────────────────────────────
 STATIC_DIR = Path(__file__).parent / "static"
@@ -64,4 +65,11 @@ if STATIC_DIR.exists():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=5001, reload=True)
+
+    app_config.load()
+    uvicorn.run(
+        "main:app",
+        host=app_config.server_host(),
+        port=app_config.server_port(),
+        reload=True,
+    )

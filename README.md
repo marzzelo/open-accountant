@@ -26,6 +26,18 @@ It runs entirely on your local machine — no cloud, no subscriptions, no data l
 | **LAN / Tailscale**         | Configurable bind address; accessible from phone or tablet on your network   |
 | **Responsive**              | Mobile-first layout with hamburger drawer, FAB, and bottom-sheet modals      |
 
+### Interface preview
+
+<p align="center">
+  <img src="docs/images/board.png" alt="Open Accountant board view" width="70%">
+</p>
+<p align="center"><em>Main board with accounts grouped by accounting class for quick navigation.</em></p>
+
+<p align="center">
+  <img src="docs/images/stats.png" alt="Open Accountant statistics view" width="70%">
+</p>
+<p align="center"><em>Statistics dashboard with monthly cash flow and category distribution charts.</em></p>
+
 ---
 
 ## 📋 Requirements
@@ -65,16 +77,17 @@ install.bat
 
 ```bash
 # 1. Install dependencies
-pip install -r requirements.txt
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
 
 # 2. Create config
 cp config.ini.example config.ini
 
 # 3. Seed demo database
-python3 scripts/seed_demo.py
+.venv/bin/python scripts/seed_demo.py
 
 # 4. Start
-python3 main.py
+.venv/bin/python main.py
 ```
 
 Then open **http://127.0.0.1:5001/** in your browser.
@@ -84,8 +97,9 @@ Then open **http://127.0.0.1:5001/** in your browser.
 ## ▶️ Running
 
 ```bash
-bash start.sh        # Linux / macOS
-python main.py       # Any platform
+bash start.sh                  # Linux / macOS
+.venv/bin/python main.py       # Manual run on Linux / macOS
+.venv\Scripts\python main.py  # Manual run on Windows
 ```
 
 The server starts with **hot-reload** enabled — changes to Python files are applied immediately without restarting.
@@ -118,6 +132,23 @@ After installation, a demo book named **Home** (`data/home.db`) is created with:
 
 - Open any report view (Balance, Journal, Ledger, Transactions)
 - Click **CSV** or **PDF** in the top-right of the panel
+
+#### Report examples
+
+<p align="center">
+  <img src="docs/images/balance.png" alt="Open Accountant balance sheet report" width="70%">
+</p>
+<p align="center"><em>Balance Sheet report showing the current state of assets, liabilities, and equity.</em></p>
+
+<p align="center">
+  <img src="docs/images/journal.png" alt="Open Accountant journal report" width="70%">
+</p>
+<p align="center"><em>General Journal view with chronological transaction entries ready to export.</em></p>
+
+<p align="center">
+  <img src="docs/images/ledger.png" alt="Open Accountant ledger report" width="70%">
+</p>
+<p align="center"><em>General Ledger report with account-level movement detail for auditing and review.</em></p>
 
 ### Backup & restore
 
@@ -261,6 +292,8 @@ open-accountant/
 ├── requirements.txt
 ├── config.ini.example       # Config template (safe to commit)
 ├── .env.example             # Env template (safe to commit)
+├── docs/
+│   └── images/              # README screenshots
 ├── install.sh               # Linux/macOS installer
 ├── install.bat              # Windows installer
 ├── start.sh                 # Quick-start script

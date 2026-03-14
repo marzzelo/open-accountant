@@ -7,6 +7,7 @@ Endpoints:
   GET  /api/settings/env             Read .env (sensitive values masked)
   PUT  /api/settings/env             Write .env (preserves masked values)
 """
+
 import json
 from pathlib import Path
 
@@ -20,6 +21,7 @@ router = APIRouter()
 
 
 # ── Config.ini ─────────────────────────────────────────────────────────────────
+
 
 @router.get("/settings/config")
 def get_config():
@@ -35,6 +37,7 @@ def update_config(data: dict[str, dict[str, str]]):
 
 
 # ── .env ───────────────────────────────────────────────────────────────────────
+
 
 @router.get("/settings/env")
 def get_env():
@@ -53,6 +56,7 @@ def update_env(pairs: list[EnvPair]):
 
 
 # ── Language ────────────────────────────────────────────────────────────────────
+
 
 @router.get("/settings/language")
 def get_language():
@@ -80,7 +84,7 @@ def get_translations(lang: str):
     locale_file = LOCALES_DIR / f"{lang}.json"
     if not locale_file.exists():
         raise HTTPException(404, f"Idioma '{lang}' no disponible")
-    with open(locale_file) as f:
+    with open(locale_file, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -90,8 +94,10 @@ def list_languages():
     langs = []
     for f in sorted(LOCALES_DIR.glob("*.json")):
         try:
-            data = json.loads(f.read_text())
-            langs.append({"code": data.get("_lang", f.stem), "name": data.get("_name", f.stem)})
+            data = json.loads(f.read_text(encoding="utf-8"))
+            langs.append(
+                {"code": data.get("_lang", f.stem), "name": data.get("_name", f.stem)}
+            )
         except Exception:
             pass
     return langs

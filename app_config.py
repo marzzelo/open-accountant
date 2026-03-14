@@ -7,14 +7,15 @@ Handles:
   - Book path resolution
   - Legacy DB migration (accountant.db → home.db)
 """
+
 import configparser
 import os
 from pathlib import Path
 
-BASE_DIR  = Path(__file__).parent
-DATA_DIR  = BASE_DIR / "data"        # directory that holds *.db files
-CONFIG_PATH      = BASE_DIR / "config.ini"
-ENV_PATH         = BASE_DIR / ".env"
+BASE_DIR = Path(__file__).parent
+DATA_DIR = BASE_DIR / "data"  # directory that holds *.db files
+CONFIG_PATH = BASE_DIR / "config.ini"
+ENV_PATH = BASE_DIR / ".env"
 ENV_EXAMPLE_PATH = BASE_DIR / ".env.example"
 
 _cfg = configparser.ConfigParser()
@@ -23,11 +24,11 @@ _cfg = configparser.ConfigParser()
 _DEFAULTS: dict[str, dict[str, str]] = {
     "general": {
         "current_book": "home",
-        "host":         "0.0.0.0",
-        "port":         "5001",
+        "host": "0.0.0.0",
+        "port": "5001",
     },
     "app": {
-        "name":     "Open Accountant",
+        "name": "Open Accountant",
         "language": "en",
     },
 }
@@ -82,6 +83,13 @@ def get(section: str, key: str, fallback: str = "") -> str:
     return _cfg.get(section, key, fallback=fallback)
 
 
+def get_int(section: str, key: str, fallback: int) -> int:
+    try:
+        return _cfg.getint(section, key, fallback=fallback)
+    except ValueError:
+        return fallback
+
+
 def set_value(section: str, key: str, value: str):
     if not _cfg.has_section(section):
         _cfg.add_section(section)
@@ -92,6 +100,14 @@ def set_value(section: str, key: str, value: str):
 def get_all() -> dict:
     """Return all config.ini sections as nested dict (excluding DEFAULT)."""
     return {s: dict(_cfg[s]) for s in _cfg.sections()}
+
+
+def server_host() -> str:
+    return get("general", "host", _DEFAULTS["general"]["host"])
+
+
+def server_port() -> int:
+    return get_int("general", "port", int(_DEFAULTS["general"]["port"]))
 
 
 # ── Book helpers ───────────────────────────────────────────────────────────────
@@ -135,7 +151,11 @@ def env_for_api() -> list[dict]:
     """Return env as list of {key, value, sensitive} — sensitive values masked."""
     raw = read_env()
     return [
-        {"key": k, "value": ("••••••••" if _is_sensitive(k) else v), "sensitive": _is_sensitive(k)}
+        {
+            "key": k,
+            "value": ("••••••••" if _is_sensitive(k) else v),
+            "sensitive": _is_sensitive(k),
+        }
         for k, v in raw.items()
     ]
 
@@ -150,7 +170,7 @@ def write_env(pairs: list[dict]):
     for p in pairs:
         k, v = p["key"].strip(), p["value"]
         if v == "••••••••" and k in original:
-            data[k] = original[k]          # preserve masked values
+            data[k] = original[k]  # preserve masked values
         else:
             data[k] = v
 
