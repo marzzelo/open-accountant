@@ -1,0 +1,20 @@
+# Open Accountant — Configuration
+# Copy this file to config.ini and adjust as needed.
+# config.ini is excluded from version control (.gitignore).
+
+[general]
+# Name of the active accounting book (corresponds to data/<name>.db)
+current_book = home
+
+# Server bind address. Use 0.0.0.0 to allow LAN/Tailscale access.
+host = 127.0.0.1
+
+# Server port
+port = 5001
+
+[app]
+# Application display name
+name = Open Accountant
+
+# Default UI language: en | es
+language = en

@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>💰 Open Accountant</title>
+
+  <!-- Tailwind Play CDN (JIT en el browser, sin build step) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            dark: {
+              950: '#0a0e14',
+              900: '#0d1117',
+              800: '#161b22',
+              700: '#21262d',
+              600: '#30363d',
+              500: '#484f58',
+              400: '#8b949e',
+              300: '#c9d1d9',
+              100: '#e6edf3',
+            },
+            activo:     '#4fc3f7',
+            pasivo:     '#ef5350',
+            ingreso:    '#66bb6a',
+            gasto:      '#ffd54f',
+            patrimonio: '#ce93d8',
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif'],
+          },
+        }
+      }
+    }
+  </script>
+  <!-- Favicon emoji -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='85'>💰</text></svg>">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+</head>
+
+<body class="bg-dark-900 text-dark-300 h-dvh overflow-hidden flex flex-col font-sans">
+
+<!-- ── TOOLBAR ──────────────────────────────────────────────────────────── -->
+<header class="h-[52px] bg-dark-800 border-b border-dark-600 flex items-center gap-2
+               px-3 shrink-0 z-10">
+
+  <div class="flex items-center gap-2 shrink-0">
+    <span class="text-2xl">💰</span>
+    <span class="font-bold text-dark-100 text-[15px]">Open Accountant</span>
+  </div>
+
+  <!-- Desktop nav -->
+  <nav id="tl-nav" class="hidden lg:flex items-center gap-1 flex-1 overflow-x-auto">
+    <button class="tbtn" data-view="board"   onclick="View.show('board')" data-i18n-parent><span class="emoji">📊</span> <span data-i18n="nav.board">Board</span></button>
+    <button class="tbtn" data-view="balance" onclick="View.show('balance')" data-i18n-parent><span class="emoji">⚖️</span> <span data-i18n="nav.balance">Balance</span></button>
+    <button class="tbtn" data-view="journal" onclick="View.show('journal')" data-i18n-parent><span class="emoji">📒</span> <span data-i18n="nav.journal">Journal</span></button>
+    <button class="tbtn" data-view="ledger"  onclick="View.show('ledger')" data-i18n-parent><span class="emoji">📖</span> <span data-i18n="nav.ledger">Ledger</span></button>
+    <button class="tbtn" data-view="stats"   onclick="View.show('stats')" data-i18n-parent><span class="emoji">📈</span> <span data-i18n="nav.stats">Stats</span></button>
+    <div class="w-px h-5 bg-dark-600 mx-1 shrink-0"></div>
+    <button class="tbtn !bg-blue-600 !text-white hover:!bg-blue-500 !border-blue-600"
+            onclick="Forms.newAccount()" data-i18n="nav.new_account">＋ Account</button>
+    <button class="tbtn" onclick="View.show('subtypes')"><span class="emoji">🏷</span> <span data-i18n="nav.subtypes">Subtypes</span></button>
+    <button class="tbtn" onclick="View.show('txlist')"><span class="emoji">🔁</span> <span data-i18n="nav.transactions">Transactions</span></button>
+    <div class="w-px h-5 bg-dark-600 mx-1 shrink-0"></div>
+    <button class="tbtn" data-view="settings" onclick="View.show('settings')" data-i18n-parent><span class="emoji">⚙️</span> <span data-i18n="nav.settings">Settings</span></button>
+    <button class="tbtn" data-view="about" onclick="View.show('about')"><span class="emoji">ℹ️</span> <span data-i18n="nav.about">About</span></button>
+  </nav>
+
+  <!-- Current book badge (desktop) -->
+  <div class="hidden lg:flex items-center gap-1.5 shrink-0 mr-1">
+    <span class="text-[10px] text-dark-500">📚</span>
+    <span id="current-book-badge"
+          class="text-[11px] text-blue-400 font-medium cursor-pointer hover:underline"
+          onclick="View.show('settings')" title="Contabilidad activa"></span>
+  </div>
+
+  <!-- Desktop date filter -->
+  <div id="tl-filter" class="hidden xl:flex items-center gap-1.5 shrink-0">
+    <span class="text-[10px] text-dark-500 shrink-0">📅</span>
+
+    <!-- Quick-filter buttons -->
+    <button onclick="Filter.setCurrentYear()"
+            class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-label="Año actual" data-i18n="filter.current_year">Current year</button>
+    <button onclick="Filter.setCurrentMonth()"
+            class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-label="Mes actual" data-i18n="filter.current_month">Current month</button>
+    <button onclick="Filter.setPrevMonth()"
+            class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-label="Mes anterior" data-i18n="filter.prev_month">Prev. month</button>
+
+    <div class="w-px h-4 bg-dark-600 mx-1 shrink-0"></div>
+
+    <input type="date" id="filter-from" onchange="Filter.apply()"
+           class="bg-dark-700 border border-dark-600 rounded-md text-dark-300
+                  text-[11px] px-2 py-1 cursor-pointer font-sans">
+    <span class="text-dark-500 text-[11px]">→</span>
+    <input type="date" id="filter-to" onchange="Filter.apply()"
+           class="bg-dark-700 border border-dark-600 rounded-md text-dark-300
+                  text-[11px] px-2 py-1 cursor-pointer font-sans">
+    <button onclick="Filter.clear()" title="${t('filter.clear_title')}"
+            class="text-dark-400 hover:text-dark-300 text-[13px] px-1 shrink-0">✕</button>
+    <span id="filter-text" class="hidden"></span>
+  </div>
+
+  <!-- Hamburger (mobile/tablet) -->
+  <button id="tl-hamburger" onclick="Nav.toggle()"
+          class="lg:hidden ml-auto flex flex-col gap-[5px] p-2 cursor-pointer">
+    <span class="block w-[22px] h-[2px] bg-dark-400 rounded"></span>
+    <span class="block w-[22px] h-[2px] bg-dark-400 rounded"></span>
+    <span class="block w-[22px] h-[2px] bg-dark-400 rounded"></span>
+  </button>
+</header>
+
+<!-- ── MOBILE NAV DRAWER ─────────────────────────────────────────────────── -->
+<div id="nav-drawer" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden"
+     onclick="Nav.close()">
+  <aside class="absolute top-0 right-0 h-full w-[min(300px,85vw)] bg-dark-800
+                border-l border-dark-600 flex flex-col overflow-y-auto"
+         onclick="event.stopPropagation()">
+
+    <div class="flex items-center justify-between p-4 border-b border-dark-600">
+      <span class="font-bold text-dark-100">💰 Open Accountant</span>
+      <button onclick="Nav.close()" class="text-dark-400 hover:text-dark-300 text-xl">✕</button>
+    </div>
+
+    <nav class="flex flex-col py-2">
+      <button class="drawer-btn" onclick="Nav.go('board')"><span>📊</span> <span data-i18n='nav.board'>Board</span></button>
+      <button class="drawer-btn" onclick="Nav.go('balance')"><span>⚖️</span> <span data-i18n='nav.balance'>Balance</span></button>
+      <button class="drawer-btn" onclick="Nav.go('journal')"><span>📒</span> <span data-i18n='nav.journal'>Journal</span></button>
+      <button class="drawer-btn" onclick="Nav.go('ledger')"><span>📖</span> <span data-i18n='nav.ledger'>Ledger</span></button>
+      <button class="drawer-btn" onclick="Nav.go('stats')"><span>📈</span> <span data-i18n='nav.stats'>Stats</span></button>
+      <hr class="border-dark-600 my-1">
+      <button class="drawer-btn font-semibold text-blue-400" onclick="Nav.go('new-account')"><span data-i18n='form.new_account'>＋ New Account</span></button>
+      <button class="drawer-btn" onclick="Nav.go('subtypes')"><span class="emoji">🏷</span> <span data-i18n="nav.subtypes">Subtypes</span></button>
+      <button class="drawer-btn" onclick="Nav.go('txlist')"><span class="emoji">🔁</span> <span data-i18n="nav.transactions">Transactions</span></button>
+      <hr class="border-dark-600 my-1">
+      <button class="drawer-btn" onclick="Nav.go('settings')"><span>⚙️</span> <span data-i18n='nav.settings'>Settings</span></button>
+      <button class="drawer-btn" onclick="View.show('about');_closeDrawer()"><span>ℹ️</span> <span data-i18n='nav.about'>About</span></button>
+    </nav>
+
+    <!-- Current book badge (mobile) -->
+    <div class="px-4 py-2 border-b border-dark-600 flex items-center gap-2">
+      <span class="text-[10px] text-dark-500">📚</span>
+      <span class="text-xs text-dark-400">Contabilidad activa:</span>
+      <span id="current-book-badge-m" class="text-xs text-blue-400 font-medium"></span>
+    </div>
+
+    <!-- Mobile date filter -->
+    <div class="mt-auto border-t border-dark-600 p-4">
+      <p class="text-[11px] text-dark-400 mb-3">📅 Filtro de fechas</p>
+
+      <!-- Quick-filter buttons -->
+      <div class="grid grid-cols-3 gap-1.5 mb-3">
+        <button onclick="Nav.close();Filter.setCurrentYear()"
+                class="qfilter-btn text-[11px] px-2 py-2 border border-dark-600 rounded-lg
+                       text-dark-400 hover:text-dark-300 hover:bg-dark-700 font-sans cursor-pointer
+                       bg-transparent text-center" data-label="Año actual" data-i18n="filter.current_year">Current year</button>
+        <button onclick="Nav.close();Filter.setCurrentMonth()"
+                class="qfilter-btn text-[11px] px-2 py-2 border border-dark-600 rounded-lg
+                       text-dark-400 hover:text-dark-300 hover:bg-dark-700 font-sans cursor-pointer
+                       bg-transparent text-center" data-label="Mes actual" data-i18n="filter.current_month">Current month</button>
+        <button onclick="Nav.close();Filter.setPrevMonth()"
+                class="qfilter-btn text-[11px] px-2 py-2 border border-dark-600 rounded-lg
+                       text-dark-400 hover:text-dark-300 hover:bg-dark-700 font-sans cursor-pointer
+                       bg-transparent text-center" data-label="Mes anterior" data-i18n="filter.prev_month">Prev. month</button>
+      </div>
+
+      <p class="text-[10px] text-dark-500 mb-2" data-i18n="filter.custom_range">Custom range:</p>
+      <input type="date" id="filter-from-m" onchange="Filter.applyMobile()"
+             class="block w-full bg-dark-700 border border-dark-600 rounded-lg
+                    text-dark-300 text-sm px-3 py-2 mb-2 font-sans">
+      <input type="date" id="filter-to-m" onchange="Filter.applyMobile()"
+             class="block w-full bg-dark-700 border border-dark-600 rounded-lg
+                    text-dark-300 text-sm px-3 py-2 mb-2 font-sans">
+      <button onclick="Filter.clear()"
+              class="w-full px-4 py-2 border border-dark-600 rounded-lg text-dark-400
+                     hover:text-dark-300 hover:bg-dark-700 text-sm font-sans cursor-pointer">
+        ✕ Limpiar filtro
+      </button>
+    </div>
+  </aside>
+</div>
+
+<!-- ── FILTER BANNER ────────────────────────────────────────────────────── -->
+<div id="filter-banner"
+     class="hidden bg-amber-900/40 border-b border-amber-500/30 text-amber-300
+            text-xs text-center py-1 shrink-0">
+  ⚠️ Saldos para el período seleccionado — no acumulado total
+</div>
+
+<!-- ── MOBILE TYPE TABS (JS controla display via inline style) ── -->
+<div id="mobile-type-tabs"
+     class="mobile-type-tabs bg-dark-800 border-b border-dark-600 shrink-0 overflow-x-auto"
+     style="display:none">
+  <div class="flex">
+    <button class="mttab" data-col="0" onclick="Board.selectTab(0)">🏦<br><small data-i18n="board.tab.asset">Asset</small></button>
+    <button class="mttab" data-col="1" onclick="Board.selectTab(1)">🧾<br><small data-i18n="board.tab.expense">Expense</small></button>
+    <button class="mttab" data-col="2" onclick="Board.selectTab(2)">📈<br><small data-i18n="board.tab.income">Income</small></button>
+    <button class="mttab" data-col="3" onclick="Board.selectTab(3)">💳<br><small data-i18n="board.tab.liab_eq">Liab./Eq.</small></button>
+  </div>
+</div>
+
+<!-- ── MAIN ──────────────────────────────────────────────────────────────── -->
+<main id="main" class="flex-1 overflow-hidden flex flex-col min-h-0"></main>
+
+<!-- ── FAB (JS controla display via inline style) ─────────────── -->
+<button id="fab" onclick="Forms.newTransactionFAB()"
+        class="fab fixed bottom-6 right-5 w-14 h-14 rounded-full bg-blue-600
+               text-white text-3xl font-light shadow-lg
+               hover:bg-blue-500 active:scale-95 transition-all z-20
+               items-center justify-center"
+        style="display:none">＋</button>
+
+<!-- ── DRAG GHOST ───────────────────────────────────────────────────────── -->
+<div id="ghost" class="ghost hidden"></div>
+
+<!-- ── MODAL ────────────────────────────────────────────────────────────── -->
+<div id="modal-overlay"
+     class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1000] hidden
+            flex items-center sm:items-center items-end"
+     onclick="Modal.overlayClick(event)">
+  <div id="modal-box"
+       class="modal-box bg-dark-800 border border-dark-600 rounded-2xl
+              w-full max-w-lg mx-4 sm:mx-auto max-h-[92dvh] overflow-y-auto
+              shadow-2xl"
+       onclick="event.stopPropagation()">
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<!-- ── TOAST ────────────────────────────────────────────────────────────── -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="/js/i18n.js?v=1773509929"></script>
+<script src="/js/app.js?v=1773509929"></script>
+<script src="/js/board.js?v=1773509929"></script>
+<script src="/js/forms.js?v=1773509929"></script>
+<script src="/js/reports.js?v=1773509929"></script>
+<script src="/js/charts.js?v=1773509929"></script>
+<script src="/js/about.js?v=1773509929"></script>
+<script src="/js/settings.js?v=1773509929"></script>
+</body>
+</html>

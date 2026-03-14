@@ -1,0 +1,56 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Virtual environments ───────────────────────────────────────────────────────
+venv/
+env/
+.venv/
+ENV/
+
+# ── Environment & secrets ─────────────────────────────────────────────────────
+.env
+# Keep the example file:
+!.env.example
+
+# ── Database files (contain personal / user data) ─────────────────────────────
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.db-bak
+data/*.bak
+# Keep the demo seed script output directory but not its contents:
+!data/.gitkeep
+
+# ── Config (contains personal host/port/book preferences) ─────────────────────
+config.ini
+# Keep the example:
+!config.ini.example
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+nohup.out
+/tmp/*.log
+
+# ── Compiled gettext catalogs ─────────────────────────────────────────────────
+locales/**/messages.mo
+
+# ── OS artifacts ──────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/
+.vscode/settings.json
+
+# ── Test / scratch databases ──────────────────────────────────────────────────
+data/test*.db
+data/home_empty*.db

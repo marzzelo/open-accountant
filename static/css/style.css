@@ -1,0 +1,200 @@
+/* ─── CUSTOM COMPONENTS (Tailwind no puede manejar esto solo) ─────────── */
+
+/* ── Toolbar buttons ── */
+.tbtn {
+  padding: 5px 11px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #8b949e;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.tbtn:hover  { background: #21262d; color: #c9d1d9; }
+.tbtn.active { background: #1f6feb22; border-color: #1f6feb55; color: #58a6ff; }
+
+/* ── Drawer nav buttons ── */
+.drawer-btn {
+  display: block; width: 100%;
+  padding: 12px 20px;
+  background: none; border: none;
+  color: #c9d1d9; font-size: 14px;
+  font-family: inherit; text-align: left;
+  cursor: pointer;
+}
+.drawer-btn:hover { background: #21262d; }
+
+/* ── Mobile type tabs ── */
+.mttab {
+  flex: 1; min-width: 58px;
+  padding: 8px 4px 6px;
+  border: none; border-bottom: 2px solid transparent;
+  background: none;
+  color: #484f58;
+  font-family: inherit; font-size: 11px; text-align: center;
+  cursor: pointer; transition: all .15s; line-height: 1.4;
+}
+.mttab small { display: block; font-size: 9px; }
+.mttab:hover { color: #c9d1d9; }
+.mttab.active {
+  color: var(--tab-accent, #58a6ff);
+  border-bottom-color: var(--tab-accent, #58a6ff);
+}
+
+/* ── CARD — accent line via ::before (no se puede con Tailwind inline) ── */
+.card {
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;          /* ← Las cards NO se comprimen verticalmente */
+  transition: transform .15s, box-shadow .15s, border-color .15s;
+}
+.card::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--card-accent, #58a6ff);
+  border-radius: 10px 10px 0 0;
+}
+.card:hover         { border-color: var(--card-accent) !important; }
+.card.drag-over     {
+  border-color: var(--card-accent) !important;
+  box-shadow: 0 0 20px color-mix(in srgb, var(--card-accent) 30%, transparent);
+  transform: scale(1.02);
+}
+.card.dragging      { opacity: .35; cursor: grabbing; }
+
+/* ── History bars ── */
+.history-bars {
+  display: flex; align-items: flex-end; gap: 2px;
+  height: 28px; margin: 8px 0; padding: 0 2px;
+}
+.hbar {
+  flex: 1; opacity: .25; min-height: 2px;
+  border-radius: 2px 2px 0 0;
+  transition: opacity .2s;
+}
+.hbar:last-child { opacity: .75; }
+.hbar:hover      { opacity: .95; }
+
+/* ── Drag ghost ── */
+.ghost {
+  position: fixed; pointer-events: none; z-index: 9999;
+  background: #21262d; border: 1px solid #30363d;
+  border-radius: 8px; padding: 6px 14px;
+  font-size: 13px; display: flex; align-items: center; gap: 8px;
+  box-shadow: 0 4px 20px #00000066;
+  transform: rotate(-3deg);
+  white-space: nowrap; color: #c9d1d9;
+}
+
+/* ── Card context menu ── */
+.card-ctx-menu {
+  position: absolute; top: 36px; right: 10px;
+  background: #21262d; border: 1px solid #30363d;
+  border-radius: 8px; padding: 4px 0; z-index: 50;
+  min-width: 155px; box-shadow: 0 4px 20px #00000066;
+}
+.card-ctx-menu button {
+  display: block; width: 100%; padding: 9px 14px;
+  text-align: left; background: none; border: none;
+  color: #c9d1d9; font-size: 13px; cursor: pointer; font-family: inherit;
+}
+.card-ctx-menu button:hover { background: #0d1117; }
+.card-ctx-menu button.danger { color: #ef5350; }
+
+/* ── Toast ── */
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: #21262d; border: 1px solid #30363d;
+  border-radius: 8px; padding: 10px 20px;
+  font-size: 13px; z-index: 9999;
+  box-shadow: 0 4px 20px #00000066;
+  animation: toast-in .2s ease;
+  white-space: nowrap; color: #c9d1d9;
+}
+.toast.ok  { border-color: #238636; color: #66bb6a; }
+.toast.err { border-color: #b91c1c; color: #ef5350; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%); }
+}
+
+/* ── Modal bottom-sheet on mobile ── */
+.modal-box { animation: modal-in .2s ease; }
+@keyframes modal-in {
+  from { opacity: 0; transform: scale(.96) translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (max-width: 640px) {
+  #modal-overlay { align-items: flex-end; }
+  .modal-box {
+    max-width: 100%; margin: 0;
+    border-radius: 20px 20px 0 0;
+    border-bottom: none;
+    animation: sheet-in .25s ease;
+  }
+  @keyframes sheet-in {
+    from { transform: translateY(100%); opacity: .6; }
+    to   { transform: none; opacity: 1; }
+  }
+  .toast { bottom: 88px; }
+}
+
+/* ── Board layout ── */
+.board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(280px, 1fr));
+  gap: 14px;
+  padding: 14px;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* align-items: stretch (default) → columnas ocupan 100% del alto del board */
+}
+.column {
+  display: flex; flex-direction: column; gap: 10px;
+  min-width: 0;
+  min-height: 0;        /* necesario para que overflow-y funcione en grid/flex */
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 8px;
+  /* sin max-height: la altura la define el grid (stretch al 100% del board) */
+}
+.column::-webkit-scrollbar { width: 4px; }
+.column::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
+
+/* Board columns: el tablero de fichas */
+@media (max-width: 1023px) {
+  .board { grid-template-columns: repeat(4, minmax(240px, 1fr)); gap: 10px; padding: 10px; }
+}
+@media (max-width: 767px) {
+  .board {
+    display: block; padding: 10px;
+    height: 100%; overflow-y: auto; overflow-x: hidden;
+  }
+  .column { display: none; max-height: none; overflow-y: visible; padding-bottom: 88px; }
+  .column.mobile-active { display: flex; }
+}
+/* Tabs y FAB: controlados 100% via JS (inline style) — sin conflicto de cascada */
+.mobile-type-tabs { display: none; }
+.fab { display: none; }
+
+/* ── Scrollbars ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+
+/* Nota: .hidden lo genera Tailwind como display:none (sin !important).
+   No re-declarar aquí — rompería lg:flex y demás overrides responsivos. */
+
+/* ── Quick-filter button active state ── */
+.qfilter-btn.qfilter-active {
+  color: #93c5fd;
+  border-color: #3b82f680;
+  background: #1d4ed820;
+}

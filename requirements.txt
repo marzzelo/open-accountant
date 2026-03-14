@@ -1,0 +1,15 @@
+# Open Accountant — Python dependencies
+# Install with: pip install -r requirements.txt
+
+# Core web framework
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+
+# Form/file upload support (needed for book import)
+python-multipart>=0.0.9
+
+# PDF export (optional — gracefully skipped if not installed)
+reportlab>=4.0.0
+
+# Internationalization tools (optional — only needed to rebuild .po/.mo files)
+babel>=2.14.0
