@@ -14,18 +14,17 @@ It runs entirely on your local machine — no cloud, no subscriptions, no data l
 
 ## ✨ Features
 
-| Feature | Details |
-|---|---|
-| **Double-entry accounting** | Every transaction debits one account and credits another — always balanced |
-| **Multi-book** | Manage multiple independent accounting books (`.db` files) |
-| **Kanban board** | Visual card board with Asset / Expense / Income / Liability & Equity columns |
-| **Reports** | Balance Sheet, General Journal, General Ledger, Transactions list |
-| **Statistics** | Bar charts (monthly cash flow), donut charts (by category), top accounts |
-| **CSV / PDF export** | One-click export for all reports |
-| **Internationalization** | English and Spanish UI — switchable at runtime |
-| **LAN / Tailscale** | Configurable bind address; accessible from phone or tablet on your network |
-| **Responsive** | Mobile-first layout with hamburger drawer, FAB, and bottom-sheet modals |
-| **About panel** | Developer info with HMAC-SHA256 integrity seal |
+| Feature                     | Details                                                                      |
+| --------------------------- | ---------------------------------------------------------------------------- |
+| **Double-entry accounting** | Every transaction debits one account and credits another — always balanced   |
+| **Multi-book**              | Manage multiple independent accounting books (`.db` files)                   |
+| **Kanban board**            | Visual card board with Asset / Expense / Income / Liability & Equity columns |
+| **Reports**                 | Balance Sheet, General Journal, General Ledger, Transactions list            |
+| **Statistics**              | Bar charts (monthly cash flow), donut charts (by category), top accounts     |
+| **CSV / PDF export**        | One-click export for all reports                                             |
+| **Internationalization**    | English and Spanish UI — switchable at runtime                               |
+| **LAN / Tailscale**         | Configurable bind address; accessible from phone or tablet on your network   |
+| **Responsive**              | Mobile-first layout with hamburger drawer, FAB, and bottom-sheet modals      |
 
 ---
 
@@ -98,6 +97,7 @@ The server starts with **hot-reload** enabled — changes to Python files are ap
 ### First run
 
 After installation, a demo book named **Home** (`data/home.db`) is created with:
+
 - 19 pre-configured accounts (Assets, Liabilities, Income, Expenses, Equity)
 - 34 anonymized example transactions spanning two months
 
@@ -176,13 +176,13 @@ You can create a custom OpenClaw skill to query your account balances, register 
 
 **`config.ini`** (created from `config.ini.example`):
 
-| Key | Default | Description |
-|---|---|---|
-| `[general] current_book` | `home` | Active book name (→ `data/<name>.db`) |
-| `[general] host` | `127.0.0.1` | Bind address |
-| `[general] port` | `5001` | HTTP port |
-| `[app] name` | `Open Accountant` | Display name |
-| `[app] language` | `en` | Default language (`en` \| `es`) |
+| Key                      | Default           | Description                           |
+| ------------------------ | ----------------- | ------------------------------------- |
+| `[general] current_book` | `home`            | Active book name (→ `data/<name>.db`) |
+| `[general] host`         | `127.0.0.1`       | Bind address                          |
+| `[general] port`         | `5001`            | HTTP port                             |
+| `[app] name`             | `Open Accountant` | Display name                          |
+| `[app] language`         | `en`              | Default language (`en` \| `es`)       |
 
 **`.env`** (optional, for future integrations):
 
@@ -221,7 +221,6 @@ python3 i18n_tools.py stats
 - Nothing is sent to any external server
 - `data/*.db` files are excluded from version control (`.gitignore`)
 - `config.ini` is excluded from version control (contains personal settings)
-- The **About** panel developer information is XOR-encrypted and HMAC-SHA256 sealed in `routers/about.py`
 
 ---
 
@@ -230,6 +229,7 @@ python3 i18n_tools.py stats
 Contributions are welcome! Please follow these guidelines:
 
 1. **Fork** the repository and create a feature branch:
+   
    ```bash
    git checkout -b feature/my-new-feature
    ```
@@ -242,6 +242,7 @@ Contributions are welcome! Please follow these guidelines:
 ### Reporting issues
 
 Please include:
+
 - OS and Python version
 - Steps to reproduce
 - Expected vs. actual behavior
