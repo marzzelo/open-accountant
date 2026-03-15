@@ -1,3 +1,6 @@
+import app_version
+
+
 def _accounts_by_name(client):
     response = client.get("/api/accounts")
     assert response.status_code == 200
@@ -23,9 +26,7 @@ def test_seed_data_is_available(client):
     version_response = client.get("/api/version")
     assert version_response.status_code == 200
     version_data = version_response.json()
-    assert version_data["tag"] == "v1.0.0"
-    assert version_data["version"] == "1.0.0"
-    assert version_data["full_title"] == "Open Accountant v1.0.0"
+    assert version_data == app_version.version_payload()
 
 
 def test_create_account_and_transaction_updates_balances(client):
