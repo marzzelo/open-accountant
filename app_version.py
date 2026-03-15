@@ -10,7 +10,7 @@ import subprocess
 from pathlib import Path
 
 APP_NAME = "Open Accountant"
-DEFAULT_TAG = "v1.0.0"
+DEFAULT_TAG = "v1.1.0"
 TAG_PATTERN = re.compile(r"^v\d+\.\d+\.\d+$")
 BASE_DIR = Path(__file__).parent
 VERSION_FILE = BASE_DIR / "VERSION"

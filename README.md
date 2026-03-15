@@ -22,12 +22,15 @@ The project has been developed in large part with AI assistance, especially thro
 | **Double-entry accounting** | Every transaction debits one account and credits another — always balanced   |
 | **Multi-book**              | Manage multiple independent accounting books (`.db` files)                   |
 | **Kanban board**            | Visual card board with Asset / Expense / Income / Liability & Equity columns |
+| **Common transactions**    | Collapsible shortcut panel with recent transaction patterns and PIN / UNPIN   |
 | **Reports**                 | Balance Sheet, General Journal, General Ledger, Transactions list            |
+| **Report sorting**          | Toggle ascending / descending date order in Journal, Ledger, and Transactions |
 | **Statistics**              | Bar charts (monthly cash flow), donut charts (by category), top accounts     |
 | **CSV / PDF export**        | One-click export for all reports                                             |
 | **Internationalization**    | English and Spanish UI — switchable at runtime                               |
 | **LAN / Tailscale**         | Configurable bind address; accessible from phone or tablet on your network   |
-| **Responsive**              | Mobile-first layout with hamburger drawer, FAB, and bottom-sheet modals      |
+| **Status bar**              | Live footer with Current Assets, Total Assets, Total Liabilities, and Net Result on medium and large screens |
+| **Responsive**              | Mobile-first layout with hamburger drawer, FAB, bottom-sheet modals, and screen-aware toolbars |
 
 ### Interface preview
 
@@ -153,10 +156,28 @@ After installation, a demo book named **Home** (`data/home.db`) is created with:
 - Use the **💸 FAB button** (mobile) or click any account card to register a transaction
 - Every transaction specifies a **Credit account** (source) and a **Debit account** (destination)
 
+### Workflow shortcuts
+
+- The **Common transactions** panel on the Board stores recent transaction patterns as reusable cards
+- Frequently used flows can be **pinned** so they remain at the top of the list
+- Clicking a shortcut card reopens the transaction modal with the same source, destination, and description prefilled
+- On mobile, the panel is collapsed by default and can be expanded when needed to save vertical space
+
+### Board and navigation
+
+- Desktop navigation uses a compact **icon toolbar** with tooltips instead of visible text labels
+- Board account cards now emphasize the account name more strongly for faster scanning
+- The mobile hamburger menu closes immediately when opening any view, including **About**
+
 ### Exporting data
 
 - Open any report view (Balance, Journal, Ledger, Transactions)
 - Click **CSV** or **PDF** in the top-right of the panel
+
+### Reviewing movements
+
+- Journal, Ledger, and Transactions now include a **date order toggle** for ascending or descending review
+- On medium and large screens, the bottom **status bar** keeps core balances visible while navigating between views
 
 #### Report examples
 
@@ -307,7 +328,7 @@ Open Accountant is intended to follow **Semantic Versioning**.
 
 - Release notes live in `CHANGELOG.md`
 - Git tags should use the `vX.Y.Z` format
-- The current release baseline is `v1.0.0`
+- The current release baseline is `v1.1.0`
 - GitHub Actions can build test artifacts and Docker images from the repository
 - Tagged releases can also publish a packaged source zip asset automatically
 
@@ -372,7 +393,11 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## 👤 About the Author
 
-Marcelo Valdez is an Electronics Engineer and Software Developer focused on data acquisition, instrumentation, signal analysis, APIs, and AI-powered applications. He builds practical software that connects real-world engineering needs with modern development tools, with a strong emphasis on Python, automation, and technical problem-solving.
+<p align="left">
+  <img src="docs/images/marzzelo.png" alt="the author" width="30%">
+</p>
+
+Marcelo Valdez is an Electronics Engineer and Software Developer focused on data acquisition, instrumentation, signal analysis, APIs, and AI-powered applications. He builds practical software that connects real-world engineering needs with modern development tools, with a strong emphasis on Python, automation, and technical problem-solving. He lives in Córdoba, Argentina.
 
 - GitHub: https://github.com/marzzelo
 - LinkedIn: https://www.linkedin.com/in/marcelovaldez/

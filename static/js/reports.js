@@ -55,6 +55,40 @@ const TYPE_COLORS = {
 };
 
 const Reports = {
+  dateSort: {
+    journal: 'desc',
+    ledger: 'desc',
+    txlist: 'desc',
+  },
+
+  _sortToggleButton(view) {
+    const dir = this.dateSort[view] || 'desc';
+    const arrow = dir === 'asc' ? '↑' : '↓';
+    return `<button type="button"
+                    onclick="Reports.toggleDateSort('${view}')"
+                    class="tbtn px-3 py-2 text-xs"
+                    title="${t('report.col.date')} ${arrow}"
+                    aria-label="${t('report.col.date')} ${arrow}">
+              ${t('report.col.date')} ${arrow}
+            </button>`;
+  },
+
+  _sortByDate(items, view, dateField = 'date') {
+    const dir = this.dateSort[view] || 'desc';
+    return [...items].sort((left, right) => {
+      const dateCmp = String(left[dateField] || '').localeCompare(String(right[dateField] || ''));
+      if (dateCmp !== 0) return dir === 'asc' ? dateCmp : -dateCmp;
+
+      const leftId = Number(left.id || left.tx_id || 0);
+      const rightId = Number(right.id || right.tx_id || 0);
+      return dir === 'asc' ? leftId - rightId : rightId - leftId;
+    });
+  },
+
+  async toggleDateSort(view) {
+    this.dateSort[view] = this.dateSort[view] === 'asc' ? 'desc' : 'asc';
+    await this[view]();
+  },
 
   /* ── Balance General ──────────────────────────────────────────── */
   async balance() {
@@ -137,8 +171,9 @@ const Reports = {
     const main = document.getElementById('main');
     const expFrom = State.filterFrom || `${new Date().getFullYear()}-01-01`;
     const expTo   = State.filterTo   || `${new Date().getFullYear()}-12-31`;
+    const sorted = this._sortByDate(data, 'journal');
 
-    const rows = data.map(r => R.row([
+    const rows = sorted.map(r => R.row([
       { v: `<span class="font-mono text-xs">${r.date.slice(0,16)}</span>` },
       { v: r.debit_name },
       { v: `<span class="text-dark-400">${r.credit_name}</span>` },
@@ -150,8 +185,9 @@ const Reports = {
     ])).join('');
 
     main.innerHTML = R.view(`📒 ${t('report.journal')}`,
-      `${data.length} transacciones · ${expFrom} → ${expTo}`,
+      `${sorted.length} transacciones · ${expFrom} → ${expTo}`,
       `<div class="flex gap-2 flex-wrap mb-4">
+         ${this._sortToggleButton('journal')}
          ${R.btn('⬇ CSV', `http://localhost:5001/api/reports/export/csv?report=journal&from=${expFrom}&to=${expTo}`, true)}
          ${R.btn('⬇ PDF', `http://localhost:5001/api/reports/export/pdf?report=journal&from=${expFrom}&to=${expTo}`, true)}
        </div>` +
@@ -175,8 +211,9 @@ const Reports = {
     const data    = await API.get(`/reports/ledger/${accId}` + State.apiDateParams);
     const expFrom = State.filterFrom || `${new Date().getFullYear()}-01-01`;
     const expTo   = State.filterTo   || `${new Date().getFullYear()}-12-31`;
+    const entries = this._sortByDate(data.entries, 'ledger');
 
-    const rows = data.entries.map(e => R.row([
+    const rows = entries.map(e => R.row([
       { v: `<span class="font-mono text-xs">${e.date.slice(0,16)}</span>` },
       { v: e.description },
       { v: `<span class="text-dark-400">${e.counterpart}</span>` },
@@ -185,13 +222,14 @@ const Reports = {
       { v: `<span class="font-semibold">${R.amt(e.balance)}</span>`, cls: 'text-right' },
     ])).join('');
 
-    main.innerHTML = R.view(`📖 ${t('report.ledger')}`, `${data.entries.length} movimientos`, `
+    main.innerHTML = R.view(`📖 ${t('report.ledger')}`, `${entries.length} movimientos`, `
       <div class="flex flex-wrap items-center gap-3 mb-4">
         <select onchange="State._ledgerAccount=parseInt(this.value);Reports.ledger()"
                 class="bg-dark-700 border border-dark-600 rounded-lg text-dark-300
                        text-sm px-3 py-2 font-sans outline-none focus:border-blue-500 cursor-pointer">
           ${opts}
         </select>
+        ${this._sortToggleButton('ledger')}
         <span class="text-sm text-dark-400">${t('report.opening')}: <strong class="text-dark-300">${fmt(data.opening_balance)}</strong></span>
         <span class="text-sm text-dark-400">${t('report.closing')}: <strong class="text-dark-300">${fmt(data.closing_balance)}</strong></span>
         ${R.btn('⬇ CSV', `http://localhost:5001/api/reports/export/csv?report=ledger&account_id=${accId}&from=${expFrom}&to=${expTo}`, true)}
@@ -210,8 +248,9 @@ const Reports = {
     const sep  = State.apiDateParams ? '&' : '?';
     const data = await API.get('/transactions' + State.apiDateParams + sep + 'limit=300');
     const main = document.getElementById('main');
+    const sorted = this._sortByDate(data, 'txlist');
 
-    const rows = data.map(tx => R.row([
+    const rows = sorted.map(tx => R.row([
       { v: `<span class="font-mono text-xs">${tx.date.slice(0,16)}</span>` },
       { v: tx.debit_name },
       { v: `<span class="text-dark-400">${tx.credit_name}</span>` },
@@ -226,7 +265,8 @@ const Reports = {
                        hover:text-pasivo bg-transparent cursor-pointer font-sans">🗑</button>` }
     ])).join('');
 
-    main.innerHTML = R.view(`🔁 ${t('nav.transactions')}`, `${data.length} registros`,
+    main.innerHTML = R.view(`🔁 ${t('nav.transactions')}`, `${sorted.length} registros`,
+      `<div class="flex gap-2 flex-wrap mb-4">${this._sortToggleButton('txlist')}</div>` +
       R.table(
         [{label:t('report.col.date')},{label:t('report.col.debited')},{label:t('report.col.credited')},
          {label:t('report.col.amount'),right:true},{label:t('report.col.description')},{label:''}],

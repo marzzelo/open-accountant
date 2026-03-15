@@ -65,6 +65,260 @@ function _colLabel(col) {
 
 let drag = { active: false, sourceId: null, sourceEl: null };
 
+const COMMON_TX_STORAGE_KEY = 'acct_common_tx_pins_v1';
+const COMMON_TX_MAX_VISIBLE = 20;
+
+const CommonTx = {
+  _cache: new Map(),
+
+  _isExpanded() {
+    return false;
+  },
+
+  _setExpanded() {},
+
+  _loadPinned() {
+    try {
+      return JSON.parse(localStorage.getItem(COMMON_TX_STORAGE_KEY) || '{}');
+    } catch (_) {
+      return {};
+    }
+  },
+
+  _savePinned(items) {
+    localStorage.setItem(COMMON_TX_STORAGE_KEY, JSON.stringify(items));
+  },
+
+  _signature(tx) {
+    return [
+      tx.credit_account,
+      tx.debit_account,
+      (tx.description || '').trim().toLowerCase(),
+    ].join('|');
+  },
+
+  _formatLastDate(dateValue) {
+    const [datePart = ''] = String(dateValue || '').split(' ');
+    const [, month = '--', day = '--'] = datePart.split('-');
+    return `${Number(day) || '--'}-${month}`;
+  },
+
+  _toShortcut(tx) {
+    return {
+      signature: this._signature(tx),
+      creditId: tx.credit_account,
+      creditName: tx.credit_name,
+      debitId: tx.debit_account,
+      debitName: tx.debit_name,
+      description: (tx.description || '').trim(),
+      lastDate: tx.date,
+      pinned: false,
+    };
+  },
+
+  _hydratePinned(saved) {
+    const credit = State.accounts.find(acc => acc.id === saved.creditId);
+    const debit = State.accounts.find(acc => acc.id === saved.debitId);
+    if (!credit || !debit) return null;
+    return {
+      ...saved,
+      creditName: credit.name,
+      debitName: debit.name,
+      pinned: true,
+    };
+  },
+
+  async list() {
+    const recentTx = await API.get('/transactions?limit=120');
+    const bySignature = new Map();
+
+    recentTx.forEach(tx => {
+      const shortcut = this._toShortcut(tx);
+      if (!bySignature.has(shortcut.signature)) bySignature.set(shortcut.signature, shortcut);
+    });
+
+    const pinnedStore = this._loadPinned();
+    Object.entries(pinnedStore).forEach(([signature, saved]) => {
+      const hydrated = this._hydratePinned(saved);
+      if (!hydrated) return;
+      const live = bySignature.get(signature);
+      bySignature.set(signature, { ...hydrated, ...live, signature, pinned: true });
+    });
+
+    const all = [...bySignature.values()]
+      .filter(item => item.creditId && item.debitId)
+      .sort((left, right) => {
+        if (left.pinned !== right.pinned) return left.pinned ? -1 : 1;
+        return String(right.lastDate || '').localeCompare(String(left.lastDate || ''));
+      });
+
+    const visible = all.slice(0, COMMON_TX_MAX_VISIBLE);
+    this._cache = new Map(visible.map(item => [item.signature, item]));
+    return visible;
+  },
+
+  _card(shortcut) {
+    const card = document.createElement('article');
+    card.className = `common-tx-card${shortcut.pinned ? ' pinned' : ''}`;
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    card.setAttribute('aria-label', `${shortcut.creditName} → ${shortcut.debitName}`);
+    card.addEventListener('click', () => this.use(shortcut.signature));
+    card.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        this.use(shortcut.signature);
+      }
+    });
+
+    const top = document.createElement('div');
+    top.className = 'common-tx-top';
+
+    const pinBtn = document.createElement('button');
+    pinBtn.type = 'button';
+    pinBtn.className = 'common-tx-pin';
+    pinBtn.textContent = shortcut.pinned ? t('common.unpin') : t('common.pin');
+    pinBtn.title = shortcut.pinned ? t('common.unpin') : t('common.pin');
+    pinBtn.addEventListener('click', event => {
+      event.stopPropagation();
+      this.togglePin(shortcut.signature);
+    });
+    top.appendChild(pinBtn);
+
+    if (shortcut.pinned) {
+      const badge = document.createElement('span');
+      badge.className = 'common-tx-badge';
+      badge.textContent = t('common.pinned');
+      top.appendChild(badge);
+    }
+
+    const title = document.createElement('div');
+    title.className = 'common-tx-title';
+    title.textContent = `${shortcut.creditName} → ${shortcut.debitName}`;
+
+    const meta = document.createElement('div');
+    meta.className = 'common-tx-meta';
+    meta.textContent = `${t('common.last')}: ${this._formatLastDate(shortcut.lastDate)}`;
+
+    card.appendChild(top);
+    card.appendChild(title);
+
+    if (shortcut.description) {
+      const desc = document.createElement('div');
+      desc.className = 'common-tx-desc';
+      desc.textContent = shortcut.description;
+      card.appendChild(desc);
+    }
+
+    card.appendChild(meta);
+    return card;
+  },
+
+  async _populateList(listEl) {
+    try {
+      const shortcuts = await this.list();
+      listEl.innerHTML = '';
+      if (!shortcuts.length) {
+        listEl.innerHTML = `<div class="common-tx-empty">${t('common.empty')}</div>`;
+        return;
+      }
+      shortcuts.forEach(shortcut => listEl.appendChild(this._card(shortcut)));
+    } catch (_) {
+      listEl.innerHTML = `<div class="common-tx-empty">${t('common.empty')}</div>`;
+    }
+  },
+
+  async togglePanel(button, content, forceExpanded = null) {
+    const expanded = forceExpanded ?? !content.classList.contains('hidden');
+    const nextExpanded = forceExpanded ?? !expanded;
+    content.classList.toggle('hidden', !nextExpanded);
+    button.setAttribute('aria-expanded', String(nextExpanded));
+    button.title = nextExpanded ? t('common.collapse') : t('common.expand');
+    this._setExpanded(nextExpanded);
+
+    if (nextExpanded && !content.dataset.loaded) {
+      content.dataset.loaded = '1';
+      await this._populateList(content.querySelector('.common-tx-list'));
+    }
+  },
+
+  async renderPanel() {
+    const expanded = this._isExpanded();
+    const section = document.createElement('section');
+    section.className = `common-tx-panel${expanded ? ' is-open' : ''}`;
+    section.innerHTML = `
+      <div class="common-tx-shell">
+        <button type="button" class="common-tx-toggle" aria-expanded="${expanded}"
+                title="${expanded ? t('common.collapse') : t('common.expand')}">
+          <span class="common-tx-heading">${t('common.title')}</span>
+          <span class="common-tx-chevron" aria-hidden="true">${expanded ? '▾' : '▸'}</span>
+        </button>
+        <div class="common-tx-content${expanded ? '' : ' hidden'}">
+          <p class="common-tx-subtitle">${t('common.subtitle')}</p>
+          <div class="common-tx-list"></div>
+        </div>
+      </div>`;
+
+    const toggleBtn = section.querySelector('.common-tx-toggle');
+    const contentEl = section.querySelector('.common-tx-content');
+    const chevronEl = section.querySelector('.common-tx-chevron');
+
+    toggleBtn.addEventListener('click', async () => {
+      await this.togglePanel(toggleBtn, contentEl);
+      const isOpen = !contentEl.classList.contains('hidden');
+      section.classList.toggle('is-open', isOpen);
+      chevronEl.textContent = isOpen ? '▾' : '▸';
+    });
+
+    if (expanded) {
+      contentEl.dataset.loaded = '1';
+      await this._populateList(section.querySelector('.common-tx-list'));
+    }
+
+    return section;
+  },
+
+  async togglePin(signature) {
+    const item = this._cache.get(signature);
+    if (!item) return;
+
+    const pinnedStore = this._loadPinned();
+    if (pinnedStore[signature]) {
+      delete pinnedStore[signature];
+      Toast.show(t('common.unpinned'));
+    } else {
+      pinnedStore[signature] = {
+        signature,
+        creditId: item.creditId,
+        creditName: item.creditName,
+        debitId: item.debitId,
+        debitName: item.debitName,
+        description: item.description,
+        lastDate: item.lastDate,
+        pinned: true,
+      };
+      Toast.show(t('common.pinned_saved'));
+    }
+
+    this._savePinned(pinnedStore);
+    await View.show('board');
+  },
+
+  use(signature) {
+    const item = this._cache.get(signature);
+    if (!item) return;
+
+    const credit = State.accounts.find(acc => acc.id === item.creditId);
+    const debit = State.accounts.find(acc => acc.id === item.debitId);
+    if (!credit || !debit) {
+      Toast.show(t('common.account_missing'), 'err');
+      return;
+    }
+
+    Forms.newTransaction(item.creditId, item.debitId, { description: item.description });
+  },
+};
+
 const Board = {
 
   async render() {
@@ -73,6 +327,15 @@ const Board = {
     // Total por tipo y por columna (puede agrupar múltiples tipos)
     const typeTotals = {};
     State.accounts.forEach(a => { typeTotals[a.type_id] = (typeTotals[a.type_id] || 0) + a.balance; });
+
+    const shell = document.createElement('div');
+    shell.className = 'flex flex-col h-full min-h-0';
+
+    const shortcutsPanel = await CommonTx.renderPanel();
+    shell.appendChild(shortcutsPanel);
+
+    const boardHost = document.createElement('div');
+    boardHost.className = 'flex-1 min-h-0';
 
     const board = document.createElement('div');
     board.className = 'board';
@@ -115,7 +378,9 @@ const Board = {
     });
 
     main.innerHTML = '';
-    main.appendChild(board);
+    boardHost.appendChild(board);
+    shell.appendChild(boardHost);
+    main.appendChild(shell);
     this.initDrag();
     this.selectTab(_activeTab);
   },
@@ -147,7 +412,7 @@ const Board = {
 
     card.innerHTML = `
       <div class="flex items-start justify-between mb-1">
-        <span class="text-sm font-semibold text-dark-100">${acc.name}</span>
+        <span class="text-xl font-bold tracking-tight leading-tight text-dark-100 pr-2">${acc.name}</span>
         <button class="text-dark-400 hover:text-dark-300 text-lg px-0.5 shrink-0 border-0 bg-transparent cursor-pointer"
                 onclick="Board.ctxMenu(event,${acc.id})">⋯</button>
       </div>

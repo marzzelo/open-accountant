@@ -27,6 +27,16 @@ function fmtSigned(v) {
   return (v < 0 ? '-' : '+') + fmt(v);
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[char]));
+}
+
 /* ─── STATE ──────────────────────────────────────────────────────── */
 const State = {
   accounts:   [],
@@ -89,10 +99,12 @@ const API = {
     State.types    = types;
     State.subtypes = subtypes;
     State.appVersion = version;
+    StatusBar.refresh();
   },
 
   async reloadAccounts() {
     State.accounts = await this.get('/accounts' + State.apiDateParams);
+    StatusBar.refresh();
   },
 };
 
@@ -100,7 +112,7 @@ function applyAppVersion() {
   const version = State.appVersion;
   if (!version) return;
 
-  document.title = `💰 ${version.full_title}`;
+  document.title = version.full_title;
 
   const headerTitle = document.getElementById('app-title');
   if (headerTitle) headerTitle.textContent = version.full_title;
@@ -108,6 +120,83 @@ function applyAppVersion() {
   const drawerTitle = document.getElementById('drawer-app-title');
   if (drawerTitle) drawerTitle.textContent = `💰 ${version.full_title}`;
 }
+
+const StatusBar = {
+  _timer: null,
+
+  _sumAccounts(predicate) {
+    return State.accounts
+      .filter(predicate)
+      .reduce((total, account) => total + (Number(account.balance) || 0), 0);
+  },
+
+  _isCurrentAsset(account) {
+    if (account.type_id !== 1) return false;
+    const subtypeName = String(account.subtype_name || '').toLowerCase();
+    return account.subtype_id === 1 || subtypeName === 'current asset';
+  },
+
+  _metrics() {
+    const currentAssets = this._sumAccounts(account => this._isCurrentAsset(account));
+    const totalAssets = this._sumAccounts(account => account.type_id === 1);
+    const totalLiabilities = this._sumAccounts(account => account.type_id === 2);
+    const totalIncome = this._sumAccounts(account => account.type_id === 3);
+    const totalExpense = this._sumAccounts(account => account.type_id === 4);
+    const netResult = totalIncome - totalExpense;
+
+    return [
+      { label: t('status.current_assets'), value: fmt(currentAssets), cls: 'text-activo' },
+      { label: t('status.total_assets'), value: fmt(totalAssets), cls: 'text-activo' },
+      { label: t('status.total_liabilities'), value: fmt(totalLiabilities), cls: 'text-pasivo' },
+      { label: t('status.net_result'), value: fmt(netResult), cls: netResult >= 0 ? 'text-ingreso' : 'text-pasivo' },
+    ];
+  },
+
+  render() {
+    const metricsEl = document.getElementById('status-metrics');
+    const datetimeEl = document.getElementById('status-datetime');
+    if (!metricsEl || !datetimeEl) return;
+
+    metricsEl.innerHTML = this._metrics().map(item => `
+      <span class="inline-flex items-center gap-1.5 shrink-0">
+        <span class="text-dark-500">${escapeHtml(item.label)}:</span>
+        <strong class="font-semibold ${item.cls}">${escapeHtml(item.value)}</strong>
+      </span>`).join('<span class="text-dark-600 shrink-0">|</span>');
+
+    this._renderClock();
+  },
+
+  _renderClock() {
+    const datetimeEl = document.getElementById('status-datetime');
+    if (!datetimeEl) return;
+
+    const locale = document.documentElement.lang || 'en';
+    const now = new Date();
+    const date = now.toLocaleDateString(locale, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const time = now.toLocaleTimeString(locale, {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+
+    datetimeEl.textContent = `${date} ${time}`;
+  },
+
+  refresh() {
+    this.render();
+  },
+
+  startClock() {
+    if (this._timer) clearInterval(this._timer);
+    this._renderClock();
+    this._timer = setInterval(() => this._renderClock(), 1000);
+  },
+};
 
 /* ─── VIEW ROUTER ────────────────────────────────────────────────── */
 const View = {
@@ -365,6 +454,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     applyAppVersion();
     await I18n.init();         // load translations + apply static labels
     await _initBookBadge();
+    StatusBar.startClock();
+    StatusBar.refresh();
     await View.show('board');
   } catch (e) {
     document.getElementById('main').innerHTML =

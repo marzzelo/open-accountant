@@ -114,11 +114,12 @@ const Forms = {
   },
 
   /* ── Nueva transacción (drag & drop) ─────────────────────────── */
-  newTransaction(creditId, debitId) {
+  newTransaction(creditId, debitId, preset = {}) {
     const credit = State.accounts.find(a => a.id === creditId);
     const debit  = State.accounts.find(a => a.id === debitId);
     if (!credit || !debit) return;
     const now = localNow();
+    const description = preset.description || '';
 
     Modal.open(T.modalShell(`💸 ${t('form.new_transaction')}`, `
       <div class="flex items-center gap-3 bg-dark-700 rounded-xl p-3 mb-5">
@@ -139,7 +140,7 @@ const Forms = {
         inputmode: 'decimal',
         cls: '!text-[22px] !font-bold !text-center !text-ingreso !tracking-tight'
       }))}
-      ${T.group(t('form.label.description'), T.input('f-desc', { ph: 'Opcional' }))}
+      ${T.group(t('form.label.description'), T.input('f-desc', { ph: 'Opcional', val: description }))}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: now }))}
     `, T.btnGhost('Cancelar', 'Modal.close()') +
        T.btnSuccess(t('btn.register'), `Forms._saveTransaction(${creditId},${debitId})`)));

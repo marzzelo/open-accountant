@@ -52,7 +52,16 @@ const I18n = {
         }
       }
     });
+    document.querySelectorAll('[data-i18n-title]').forEach(el => {
+      const key = el.dataset.i18nTitle;
+      const val = this.get(key);
+      if (val) {
+        el.title = val;
+        el.setAttribute('aria-label', val);
+      }
+    });
     document.documentElement.lang = this._lang;
+    if (typeof StatusBar !== 'undefined') StatusBar.refresh();
   },
 
   /* ── Public: get translation (with optional interpolation) ────────── */
