@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Prepare zip asset
         run: |
@@ -22,7 +22,14 @@ jobs:
           git archive --format=zip --prefix=open-accountant-${GITHUB_REF_NAME}/ --output=dist/open-accountant-${GITHUB_REF_NAME}.zip HEAD
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/open-accountant-${{ github.ref_name }}.zip
-          generate_release_notes: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          asset="dist/open-accountant-${GITHUB_REF_NAME}.zip"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$asset" --clobber
+          else
+            gh release create "$tag" "$asset" --generate-notes
+          fi
