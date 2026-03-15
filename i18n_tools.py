@@ -6,6 +6,7 @@ Usage:
   python3 i18n_tools.py compile    # .po → .mo files (gettext binary)
   python3 i18n_tools.py stats      # coverage report
 """
+
 import json
 import sys
 from pathlib import Path
@@ -13,10 +14,10 @@ from datetime import datetime
 
 import app_version
 
-BASE       = Path(__file__).parent
-LOCALES_JS = BASE / "static" / "locales"     # JSON source of truth
-LOCALES_PO = BASE / "locales"                 # .po / .mo output
-LANGUAGES  = ["en", "es"]
+BASE = Path(__file__).parent
+LOCALES_JS = BASE / "static" / "locales"  # JSON source of truth
+LOCALES_PO = BASE / "locales"  # .po / .mo output
+LANGUAGES = ["en", "es"]
 
 PO_HEADER = """\
 # Open Accountant — {lang} translations
@@ -40,7 +41,7 @@ def _load_json(lang: str) -> dict:
 
 
 def _po_escape(s: str) -> str:
-    return s.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    return s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 
 def _write_po(lang: str, translations: dict, en_keys: dict):
@@ -81,7 +82,9 @@ def cmd_compile():
         from babel.messages.mofile import write_mo
         from babel.messages.pofile import read_po
     except ImportError:
-        print("ERROR: babel not installed. Run: pip install babel --break-system-packages")
+        print(
+            "ERROR: babel not installed. Run: pip install babel --break-system-packages"
+        )
         sys.exit(1)
 
     print("Compiling .po → .mo…")
