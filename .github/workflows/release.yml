@@ -4,6 +4,23 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to package
+        required: false
+        default: main
+        type: string
+      release_tag:
+        description: Release tag to publish. Leave empty for validation-only runs.
+        required: false
+        default: ""
+        type: string
+      publish_release:
+        description: Publish or update the GitHub release
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -15,21 +32,54 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.ref || github.ref }}
+
+      - name: Resolve package metadata
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            release_tag="${{ inputs.release_tag }}"
+
+            if [ -n "$release_tag" ]; then
+              package_name="$release_tag"
+            else
+              package_name="manual-$(git rev-parse --short HEAD)"
+            fi
+          else
+            release_tag="${GITHUB_REF_NAME}"
+            package_name="${GITHUB_REF_NAME}"
+          fi
+
+          echo "release_tag=$release_tag" >> "$GITHUB_OUTPUT"
+          echo "package_name=$package_name" >> "$GITHUB_OUTPUT"
 
       - name: Prepare zip asset
         run: |
           mkdir -p dist
-          git archive --format=zip --prefix=open-accountant-${GITHUB_REF_NAME}/ --output=dist/open-accountant-${GITHUB_REF_NAME}.zip HEAD
+          git archive --format=zip --prefix=open-accountant-${{ steps.meta.outputs.package_name }}/ --output=dist/open-accountant-${{ steps.meta.outputs.package_name }}.zip HEAD
+
+      - name: Skip release publish
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish_release }}
+        run: |
+          echo "Validation run completed without publishing a GitHub release."
+          echo "Created dist/open-accountant-${{ steps.meta.outputs.package_name }}.zip"
 
       - name: Publish GitHub release
+        if: ${{ github.event_name == 'push' || inputs.publish_release }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${GITHUB_REF_NAME}"
-          asset="dist/open-accountant-${GITHUB_REF_NAME}.zip"
+          tag="${{ steps.meta.outputs.release_tag }}"
+          asset="dist/open-accountant-${{ steps.meta.outputs.package_name }}.zip"
+
+          if [ -z "$tag" ]; then
+            echo "release_tag is required when publish_release=true"
+            exit 1
+          fi
 
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "$asset" --clobber
           else
-            gh release create "$tag" "$asset" --generate-notes
+            gh release create "$tag" "$asset" --generate-notes --target "${GITHUB_SHA}"
           fi
