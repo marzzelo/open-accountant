@@ -132,6 +132,9 @@ const Charts = {
           },
         },
       });
+    } else {
+      document.getElementById('ch-exp-pie').parentElement.innerHTML +=
+        `<div class="empty">${t('report.no_data')}</div>`;
     }
 
     /* ── 3. Asset composition (donut) ── */

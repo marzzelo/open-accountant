@@ -97,6 +97,62 @@ def test_reports_and_csv_export_work_for_basic_journal_flow(client):
     assert "Salary" in body
 
 
+def test_stats_net_expense_subtypes_ignore_fully_reversed_movements(client):
+    accounts = _accounts_by_name(client)
+
+    create_subtype = client.post(
+        "/api/subtypes",
+        json={"name": "Temp Expenses", "type_id": 4},
+    )
+    assert create_subtype.status_code == 201
+    subtype = create_subtype.json()
+
+    create_account = client.post(
+        "/api/accounts",
+        json={
+            "name": "Fake Expense",
+            "type_id": 4,
+            "subtype_id": subtype["id"],
+            "description": "Temporary expense bucket",
+            "initial_balance": 0.0,
+            "properties": "{}",
+        },
+    )
+    assert create_account.status_code == 201
+    expense_account = create_account.json()
+
+    debit_expense = client.post(
+        "/api/transactions",
+        json={
+            "debit_account": expense_account["id"],
+            "credit_account": accounts["Capital"]["id"],
+            "amount": 10000.0,
+            "description": "Temporary expense entry",
+        },
+    )
+    assert debit_expense.status_code == 201
+
+    reverse_expense = client.post(
+        "/api/transactions",
+        json={
+            "debit_account": accounts["Capital"]["id"],
+            "credit_account": expense_account["id"],
+            "amount": 10000.0,
+            "description": "Temporary expense reversal",
+        },
+    )
+    assert reverse_expense.status_code == 201
+
+    stats_response = client.get("/api/reports/stats")
+    assert stats_response.status_code == 200
+    stats = stats_response.json()
+
+    assert all(
+        row["subtype"] != "Temp Expenses" for row in stats["expenses_by_subtype"]
+    )
+    assert stats["monthly_cashflow"][0]["gastos"] == 0.0
+
+
 def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_paths):
     config_response = client.get("/api/settings/config")
     assert config_response.status_code == 200

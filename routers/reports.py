@@ -263,19 +263,34 @@ def get_stats(
     from_dt, to_dt = _date_params(from_date, to_date)
 
     with get_db() as conn:
-        # Monthly cashflow: Ingresos vs Gastos
-        # Ingresos → cuenta ACREDITADA (credit_account) de tipo 3
-        # Gastos   → cuenta DEBITADA   (debit_account)  de tipo 4
+        # Monthly cashflow: net income vs net expenses.
         cashflow_rows = conn.execute(
-            """SELECT strftime('%Y-%m', t.date) AS month,
-                      SUM(CASE WHEN ac.type_id = 3 THEN t.amount ELSE 0 END) AS ingresos,
-                      SUM(CASE WHEN ad.type_id = 4 THEN t.amount ELSE 0 END) AS gastos
-               FROM transactions t
-               JOIN accounts ac ON t.credit_account = ac.id
-               JOIN accounts ad ON t.debit_account  = ad.id
-               WHERE t.date BETWEEN ? AND ?
-               GROUP BY month ORDER BY month""",
-            (from_dt, to_dt),
+            """WITH tx_legs AS (
+                 SELECT strftime('%Y-%m', t.date) AS month,
+                     da.type_id AS type_id,
+                     t.amount AS debit_amount,
+                     0 AS credit_amount
+                 FROM transactions t
+                 JOIN accounts da ON t.debit_account = da.id
+                 WHERE t.date BETWEEN ? AND ?
+
+                 UNION ALL
+
+                 SELECT strftime('%Y-%m', t.date) AS month,
+                     ca.type_id AS type_id,
+                     0 AS debit_amount,
+                     t.amount AS credit_amount
+                 FROM transactions t
+                 JOIN accounts ca ON t.credit_account = ca.id
+                 WHERE t.date BETWEEN ? AND ?
+             )
+             SELECT month,
+                 SUM(CASE WHEN type_id = 3 THEN credit_amount - debit_amount ELSE 0 END) AS ingresos,
+                 SUM(CASE WHEN type_id = 4 THEN debit_amount - credit_amount ELSE 0 END) AS gastos
+             FROM tx_legs
+             GROUP BY month
+             ORDER BY month""",
+            (from_dt, to_dt, from_dt, to_dt),
         ).fetchall()
         monthly_cashflow = [
             {
@@ -289,14 +304,30 @@ def get_stats(
 
         # Expenses by subtype
         exp_rows = conn.execute(
-            """SELECT COALESCE(s.name, 'Sin subtipo') AS subtype,
-                      SUM(t.amount) AS amount
-               FROM transactions t
-               JOIN accounts a  ON t.debit_account = a.id
-               LEFT JOIN subtypes s ON a.subtype_id = s.id
-               WHERE a.type_id = 4 AND t.date BETWEEN ? AND ?
-               GROUP BY subtype ORDER BY amount DESC""",
-            (from_dt, to_dt),
+            """WITH subtype_legs AS (
+             SELECT COALESCE(s.name, 'Sin subtipo') AS subtype,
+                 t.amount AS signed_amount
+             FROM transactions t
+             JOIN accounts a ON t.debit_account = a.id
+             LEFT JOIN subtypes s ON a.subtype_id = s.id
+             WHERE a.type_id = 4 AND t.date BETWEEN ? AND ?
+
+             UNION ALL
+
+             SELECT COALESCE(s.name, 'Sin subtipo') AS subtype,
+                 -t.amount AS signed_amount
+             FROM transactions t
+             JOIN accounts a ON t.credit_account = a.id
+             LEFT JOIN subtypes s ON a.subtype_id = s.id
+             WHERE a.type_id = 4 AND t.date BETWEEN ? AND ?
+         )
+         SELECT subtype,
+             SUM(signed_amount) AS amount
+         FROM subtype_legs
+         GROUP BY subtype
+         HAVING SUM(signed_amount) > 0
+         ORDER BY amount DESC""",
+            (from_dt, to_dt, from_dt, to_dt),
         ).fetchall()
         expenses_by_subtype = [
             {"subtype": r["subtype"], "amount": r["amount"]} for r in exp_rows
@@ -304,14 +335,30 @@ def get_stats(
 
         # Income by subtype
         inc_rows = conn.execute(
-            """SELECT COALESCE(s.name, 'Sin subtipo') AS subtype,
-                      SUM(t.amount) AS amount
-               FROM transactions t
-               JOIN accounts a  ON t.credit_account = a.id
-               LEFT JOIN subtypes s ON a.subtype_id = s.id
-               WHERE a.type_id = 3 AND t.date BETWEEN ? AND ?
-               GROUP BY subtype ORDER BY amount DESC""",
-            (from_dt, to_dt),
+            """WITH subtype_legs AS (
+             SELECT COALESCE(s.name, 'Sin subtipo') AS subtype,
+                 t.amount AS signed_amount
+             FROM transactions t
+             JOIN accounts a ON t.credit_account = a.id
+             LEFT JOIN subtypes s ON a.subtype_id = s.id
+             WHERE a.type_id = 3 AND t.date BETWEEN ? AND ?
+
+             UNION ALL
+
+             SELECT COALESCE(s.name, 'Sin subtipo') AS subtype,
+                 -t.amount AS signed_amount
+             FROM transactions t
+             JOIN accounts a ON t.debit_account = a.id
+             LEFT JOIN subtypes s ON a.subtype_id = s.id
+             WHERE a.type_id = 3 AND t.date BETWEEN ? AND ?
+         )
+         SELECT subtype,
+             SUM(signed_amount) AS amount
+         FROM subtype_legs
+         GROUP BY subtype
+         HAVING SUM(signed_amount) > 0
+         ORDER BY amount DESC""",
+            (from_dt, to_dt, from_dt, to_dt),
         ).fetchall()
         income_by_subtype = [
             {"subtype": r["subtype"], "amount": r["amount"]} for r in inc_rows
