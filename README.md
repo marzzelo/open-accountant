@@ -21,7 +21,8 @@ The project has been developed in large part with AI assistance, especially thro
 | --------------------------- | ---------------------------------------------------------------------------- |
 | **Double-entry accounting** | Every transaction debits one account and credits another — always balanced   |
 | **Multi-book**              | Manage multiple independent accounting books (`.db` files)                   |
-| **Kanban board**            | Visual card board with Asset / Expense / Income / Liability & Equity columns |
+| **Kanban board**            | Visual card board with Asset / Expense / Income / Liability & Equity columns, plus drag-and-drop and long-press transfer flows |
+| **Currency-aware entry**    | Transaction dialogs accept **AR$** or **USD** and convert USD using the configured official buy rate |
 | **Common transactions**    | Collapsible shortcut panel with recent transaction patterns and PIN / UNPIN   |
 | **Reports**                 | Balance Sheet, General Journal, General Ledger, Transactions list            |
 | **Report sorting**          | Toggle ascending / descending date order in Journal, Ledger, and Transactions |
@@ -153,6 +154,10 @@ After installation, a demo book named **Home** (`data/home.db`) is created with:
 - Click **＋ Account** in the toolbar to create accounts first
 - Use the **💸 FAB button** (mobile) or click any account card to register a transaction
 - Every transaction specifies a **Credit account** (source) and a **Debit account** (destination)
+- On the **Board**, you can **long-press / long-touch** a card to mark it as the Credit source, then click or tap a second card to open the transfer dialog with both accounts preselected
+- Clicking the same selected source card again cancels the pending board transfer
+- On desktop, dragging from one card to another still opens the transfer dialog directly
+- The transaction modal now lets you enter amounts in **AR$** or **USD**; USD values are converted automatically to AR$ using **Settings → Configuration → Finance → USD official buy rate** before saving
 
 ### Workflow shortcuts
 
@@ -165,6 +170,8 @@ After installation, a demo book named **Home** (`data/home.db`) is created with:
 
 - Desktop navigation uses a compact **icon toolbar** with tooltips instead of visible text labels
 - Board account cards now emphasize the account name more strongly for faster scanning
+- When a board transfer source is selected, the card is highlighted and a toast confirms the pending origin account
+- Dragging between cards now shows a floating cash preview image instead of the previous text-based ghost
 - The mobile hamburger menu closes immediately when opening any view, including **About**
 
 ### Exporting data
@@ -251,6 +258,7 @@ Global application settings are stored in `data/app_meta.sqlite3`:
 | `[general] port`         | `5001`            | HTTP port                             |
 | `[app] name`             | `Open Accountant` | Display name                          |
 | `[app] language`         | `en`              | Default language (`en` \| `es`)       |
+| `[finance] usd_official_buy_ars` | `0.00`      | Official USD buy rate used when entering transactions in USD |
 
 `config.ini` is now treated as a legacy migration source only. If present, its values are imported into SQLite on startup.
 
@@ -322,7 +330,7 @@ Open Accountant is intended to follow **Semantic Versioning**.
 
 - Release notes live in `CHANGELOG.md`
 - Git tags should use the `vX.Y.Z` format
-- The current release baseline is `v1.1.0`
+- The current release baseline is `v1.2.0`
 - GitHub Actions can build test artifacts and Docker images from the repository
 - Tagged releases can also publish a packaged source zip asset automatically
 

@@ -12,59 +12,63 @@ const TYPE_CFG = {
   4: { accent: '#ffd54f' },
   5: { accent: '#ce93d8' },
 };
+
 // Helper: resolve type name from State (DB) — fallback to t() key
 function _typeName(typeId) {
   const found = (State.types || []).find(ty => ty.id === typeId);
-  return found ? found.name : t(`account.type.${['','asset','liability','income','expense','equity'][typeId]}`);
+  return found ? found.name : t(`account.type.${['', 'asset', 'liability', 'income', 'expense', 'equity'][typeId]}`);
 }
 
 // Definición de columnas del tablero — fácil de reordenar o fusionar
 // COLUMNS.label is computed at render time from DB type names
 const COLUMNS = [
   {
-    id:     'asset',
-    types:  [1],
-    emoji:  '🏦',
+    id: 'asset',
+    types: [1],
+    emoji: '🏦',
     labelKey: 'board.col.asset',
     typeIds: [1],
-    hdr:    'bg-[#0d2233] text-[#4fc3f7] border border-[#4fc3f722]',
+    hdr: 'bg-[#0d2233] text-[#4fc3f7] border border-[#4fc3f722]',
     accent: '#4fc3f7',
   },
   {
-    id:     'expense',
-    types:  [4],
-    emoji:  '🧾',
+    id: 'expense',
+    types: [4],
+    emoji: '🧾',
     labelKey: 'board.col.expense',
     typeIds: [4],
-    hdr:    'bg-[#2a2000] text-[#ffd54f] border border-[#ffd54f22]',
+    hdr: 'bg-[#2a2000] text-[#ffd54f] border border-[#ffd54f22]',
     accent: '#ffd54f',
   },
   {
-    id:     'income',
-    types:  [3],
-    emoji:  '📈',
+    id: 'income',
+    types: [3],
+    emoji: '📈',
     labelKey: 'board.col.income',
     typeIds: [3],
-    hdr:    'bg-[#0e2a0e] text-[#66bb6a] border border-[#66bb6a22]',
+    hdr: 'bg-[#0e2a0e] text-[#66bb6a] border border-[#66bb6a22]',
     accent: '#66bb6a',
   },
   {
-    id:     'liability-equity',
-    types:  [2, 5],                                         // ← fusionados
-    emoji:  '💳',
+    id: 'liability-equity',
+    types: [2, 5],
+    emoji: '💳',
     labelKey: 'board.col.liab_eq',
     typeIds: [2, 5],
-    hdr:    'bg-[#2a0e1e] text-[#ef5350] border border-[#ef535022]',
+    hdr: 'bg-[#2a0e1e] text-[#ef5350] border border-[#ef535022]',
     accent: '#ef5350',
   },
 ];
+
 // Column header label from i18n (UI label, not DB data)
 function _colLabel(col) {
   return `${col.emoji} ${t(col.labelKey).toUpperCase()}`;
 }
 
-let drag = { active: false, sourceId: null, sourceEl: null };
+let drag = { active: false, sourceId: null, sourceEl: null, pointerId: null };
 
+const LONG_PRESS_MS = 450;
+const POINTER_MOVE_TOLERANCE = 8;
 const COMMON_TX_STORAGE_KEY = 'acct_common_tx_pins_v1';
 const COMMON_TX_MAX_VISIBLE = 20;
 
@@ -326,7 +330,7 @@ const CommonTx = {
       Toast.show(t(pinning ? 'common.pinned_saved' : 'common.unpinned'));
       await View.show('board');
     } catch (error) {
-      Toast.show(t('msg.error_generic', {msg: error.message}), 'error');
+      Toast.show(t('msg.error_generic', { msg: error.message }), 'error');
     }
   },
 
@@ -345,12 +349,178 @@ const CommonTx = {
   },
 };
 
+
 const Board = {
+  _eventsBound: false,
+  _press: null,
+  _pendingCredit: { accountId: null, cardEl: null },
+  _suppressedClick: { accountId: null, until: 0 },
+
+  _isCardActionTarget(target) {
+    return Boolean(target.closest('.card-ctx-menu') || target.closest('button'));
+  },
+
+  _clearPress() {
+    if (!this._press) return;
+    clearTimeout(this._press.timerId);
+    this._press = null;
+  },
+
+  _suppressNextClick(accountId) {
+    this._suppressedClick = { accountId, until: Date.now() + 500 };
+  },
+
+  _shouldSuppressClick(accountId) {
+    if (this._suppressedClick.accountId !== accountId) return false;
+    if (Date.now() > this._suppressedClick.until) {
+      this._suppressedClick = { accountId: null, until: 0 };
+      return false;
+    }
+    return true;
+  },
+
+  _clearPendingCredit() {
+    this._pendingCredit.cardEl?.classList.remove('credit-selected');
+    this._pendingCredit = { accountId: null, cardEl: null };
+  },
+
+  _setPendingCredit(accountId, cardEl) {
+    this._clearPendingCredit();
+    cardEl.classList.add('credit-selected');
+    this._pendingCredit = { accountId, cardEl };
+    this._suppressNextClick(accountId);
+
+    const account = State.accounts.find(item => item.id === accountId);
+    Toast.show(t('msg.credit_source_selected', {
+      name: account?.name || cardEl.querySelector('span')?.textContent || '',
+    }));
+  },
+
+  _resetDragState() {
+    const ghost = document.getElementById('ghost');
+    ghost?.classList.add('hidden');
+    drag.sourceEl?.classList.remove('dragging');
+    document.querySelectorAll('.card.drag-over').forEach(card => card.classList.remove('drag-over'));
+    drag = { active: false, sourceId: null, sourceEl: null, pointerId: null };
+  },
+
+  _startDrag(card, accountId, clientX, clientY, pointerId) {
+    const ghost = document.getElementById('ghost');
+    if (!ghost) return;
+
+    drag = { active: true, sourceId: accountId, sourceEl: card, pointerId };
+    ghost.innerHTML = '<img src="images/dollars.png" alt="" class="ghost-image">';
+    ghost.style.cssText = `left:${clientX}px;top:${clientY}px`;
+    ghost.classList.remove('hidden');
+    card.classList.add('dragging');
+  },
+
+  _updateDrag(clientX, clientY) {
+    if (!drag.active) return;
+
+    const ghost = document.getElementById('ghost');
+    if (!ghost) return;
+
+    ghost.style.left = clientX + 'px';
+    ghost.style.top = clientY + 'px';
+    document.querySelectorAll('.card.drag-over').forEach(card => card.classList.remove('drag-over'));
+
+    const el = document.elementFromPoint(clientX, clientY);
+    const target = el?.closest('.card');
+    if (target && parseInt(target.dataset.accountId, 10) !== drag.sourceId)
+      target.classList.add('drag-over');
+  },
+
+  _finishDrag(clientX, clientY) {
+    if (!drag.active) return;
+
+    const sourceId = drag.sourceId;
+    this._resetDragState();
+
+    const el = document.elementFromPoint(clientX, clientY);
+    const target = el?.closest('.card');
+    if (target && parseInt(target.dataset.accountId, 10) !== sourceId)
+      Forms.newTransaction(sourceId, parseInt(target.dataset.accountId, 10));
+  },
+
+  _handlePointerDown(e) {
+    if (e.button !== 0) return;
+
+    const card = e.target.closest('.card');
+    if (!card || this._isCardActionTarget(e.target)) return;
+
+    const accountId = parseInt(card.dataset.accountId, 10);
+    if (Number.isNaN(accountId)) return;
+
+    this._clearPress();
+    this._press = {
+      pointerId: e.pointerId,
+      pointerType: e.pointerType,
+      accountId,
+      cardEl: card,
+      startX: e.clientX,
+      startY: e.clientY,
+      timerId: setTimeout(() => {
+        if (!this._press || this._press.pointerId !== e.pointerId) return;
+        this._setPendingCredit(accountId, card);
+        this._clearPress();
+      }, LONG_PRESS_MS),
+    };
+  },
+
+  _handlePointerMove(e) {
+    if (drag.active) {
+      if (drag.pointerId === e.pointerId) this._updateDrag(e.clientX, e.clientY);
+      return;
+    }
+
+    if (!this._press || this._press.pointerId !== e.pointerId) return;
+
+    const moved = Math.hypot(e.clientX - this._press.startX, e.clientY - this._press.startY);
+    if (moved < POINTER_MOVE_TOLERANCE) return;
+
+    const press = this._press;
+    this._clearPress();
+
+    if (press.pointerType !== 'mouse' || this._pendingCredit.accountId) return;
+
+    e.preventDefault();
+    this._startDrag(press.cardEl, press.accountId, e.clientX, e.clientY, e.pointerId);
+  },
+
+  _handlePointerUp(e) {
+    if (drag.active && drag.pointerId === e.pointerId) {
+      this._finishDrag(e.clientX, e.clientY);
+      return;
+    }
+
+    if (this._press && this._press.pointerId === e.pointerId) this._clearPress();
+  },
+
+  _handleCardClick(e) {
+    const card = e.target.closest('.card');
+    if (!card || this._isCardActionTarget(e.target)) return;
+
+    const accountId = parseInt(card.dataset.accountId, 10);
+    if (Number.isNaN(accountId)) return;
+
+    if (this._shouldSuppressClick(accountId)) return;
+    if (!this._pendingCredit.accountId) return;
+
+    const creditId = this._pendingCredit.accountId;
+    this._clearPendingCredit();
+
+    if (creditId === accountId) return;
+    Forms.newTransaction(creditId, accountId);
+  },
 
   async render() {
     const main = document.getElementById('main');
 
-    // Total por tipo y por columna (puede agrupar múltiples tipos)
+    this._clearPress();
+    this._clearPendingCredit();
+    this._resetDragState();
+
     const typeTotals = {};
     State.accounts.forEach(a => { typeTotals[a.type_id] = (typeTotals[a.type_id] || 0) + a.balance; });
 
@@ -367,19 +537,14 @@ const Board = {
     board.className = 'board';
 
     COLUMNS.forEach((col_cfg, colIdx) => {
-      // Cuentas de todos los tipos de esta columna, ordenadas por uso reciente
-      const accs = col_cfg.types
-        .flatMap(tid => State.sortedAccounts(tid));
-
-      // Total sumado de todos los tipos de la columna
-      const colTotal = col_cfg.types.reduce((s, tid) => s + (typeTotals[tid] || 0), 0);
+      const accs = col_cfg.types.flatMap(tid => State.sortedAccounts(tid));
+      const colTotal = col_cfg.types.reduce((sum, tid) => sum + (typeTotals[tid] || 0), 0);
 
       const col = document.createElement('div');
       col.className = 'column';
       col.dataset.colIdx = colIdx;
       if (colIdx === _activeTab) col.classList.add('mobile-active');
 
-      // Column header
       const hdr = document.createElement('div');
       hdr.className = `${col_cfg.hdr} flex items-center justify-between
                        px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wide
@@ -413,7 +578,7 @@ const Board = {
 
   buildCard(acc, cfg) {
     const card = document.createElement('div');
-    card.className = `card bg-dark-800 border border-dark-600 rounded-xl p-3.5`;
+    card.className = 'card bg-dark-800 border border-dark-600 rounded-xl p-3.5';
     card.dataset.accountId = acc.id;
     card.style.setProperty('--card-accent', cfg.accent);
 
@@ -425,10 +590,11 @@ const Board = {
     const movs = acc.last_movements.length
       ? acc.last_movements.map(m => {
           const isPos = (acc.type_id === 1 || acc.type_id === 4)
-            ? m.role === 'debit' : m.role === 'credit';
+            ? m.role === 'debit'
+            : m.role === 'credit';
           const amtCls = isPos ? 'text-ingreso' : 'text-pasivo';
-          const sign   = isPos ? '+' : '−';
-          const desc   = m.description || m.counterpart || '—';
+          const sign = isPos ? '+' : '−';
+          const desc = m.description || m.counterpart || '—';
           return `<div class="flex justify-between text-[11px] mb-0.5">
             <span class="text-dark-400 truncate max-w-[60%]" title="${desc}">${desc}</span>
             <span class="font-semibold ${amtCls} shrink-0">${sign}${fmt(m.amount)}</span>
@@ -458,12 +624,12 @@ const Board = {
   _buildBars(history, accent) {
     if (!history?.length) return '';
     const vals = history.map(h => Math.abs(h.net));
-    const max  = Math.max(...vals, 1);
+    const max = Math.max(...vals, 1);
     const bars = history.map((h, i) => {
-      const pct    = Math.max(vals[i] / max, 0.05);
+      const pct = Math.max(vals[i] / max, 0.05);
       const isLast = i === history.length - 1;
       return `<div class="hbar flex-1 rounded-sm"
-               style="height:${Math.round(pct*100)}%;background:${accent};${isLast ? 'opacity:.75' : 'opacity:.22'}"
+               style="height:${Math.round(pct * 100)}%;background:${accent};${isLast ? 'opacity:.75' : 'opacity:.22'}"
                title="${h.month}: ${fmtSigned(h.net)}"></div>`;
     }).join('');
     return `<div class="history-bars">${bars}</div>`;
@@ -471,7 +637,7 @@ const Board = {
 
   ctxMenu(e, accId) {
     e.stopPropagation();
-    document.querySelectorAll('.card-ctx-menu').forEach(m => m.remove());
+    document.querySelectorAll('.card-ctx-menu').forEach(menu => menu.remove());
     const menu = document.createElement('div');
     menu.className = 'card-ctx-menu';
     menu.innerHTML = `
@@ -483,59 +649,40 @@ const Board = {
     setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
   },
 
-  showLedger(accId) { State._ledgerAccount = accId; View.show('ledger'); },
+  showLedger(accId) {
+    State._ledgerAccount = accId;
+    View.show('ledger');
+  },
 
   selectTab(colIdx) {
     _activeTab = colIdx;
     const cfg = COLUMNS[colIdx];
-    document.querySelectorAll('.mttab').forEach(t => {
-      const active = parseInt(t.dataset.col) === colIdx;
-      t.classList.toggle('active', active);
-      t.style.setProperty('--tab-accent', active ? cfg.accent : '');
+    document.querySelectorAll('.mttab').forEach(tab => {
+      const active = parseInt(tab.dataset.col, 10) === colIdx;
+      tab.classList.toggle('active', active);
+      tab.style.setProperty('--tab-accent', active ? cfg.accent : '');
     });
     document.querySelectorAll('.column').forEach(col => {
-      col.classList.toggle('mobile-active', parseInt(col.dataset.colIdx) === colIdx);
+      col.classList.toggle('mobile-active', parseInt(col.dataset.colIdx, 10) === colIdx);
     });
   },
 
   initDrag() {
-    const ghost = document.getElementById('ghost');
-    const main  = document.getElementById('main');
+    if (this._eventsBound) return;
 
-    main.addEventListener('mousedown', e => {
-      const card = e.target.closest('.card');
-      if (!card || e.target.closest('.card-ctx-menu') || e.target.closest('button')) return;
-      e.preventDefault();
-      const acc = State.accounts.find(a => a.id === parseInt(card.dataset.accountId));
-      if (!acc) return;
-      drag = { active: true, sourceId: acc.id, sourceEl: card };
-      ghost.innerHTML = `<span>💵</span><span>${acc.name}</span>`;
-      ghost.style.cssText = `left:${e.clientX+14}px;top:${e.clientY+14}px`;
-      ghost.classList.remove('hidden');
-      card.classList.add('dragging');
-    });
+    const main = document.getElementById('main');
+    if (!main) return;
 
-    document.addEventListener('mousemove', e => {
-      if (!drag.active) return;
-      ghost.style.left = e.clientX + 14 + 'px';
-      ghost.style.top  = e.clientY + 14 + 'px';
-      document.querySelectorAll('.card.drag-over').forEach(c => c.classList.remove('drag-over'));
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const target = el?.closest('.card');
-      if (target && parseInt(target.dataset.accountId) !== drag.sourceId)
-        target.classList.add('drag-over');
-    });
+    this._eventsBound = true;
 
-    document.addEventListener('mouseup', e => {
-      if (!drag.active) return;
-      ghost.classList.add('hidden');
-      drag.sourceEl?.classList.remove('dragging');
-      document.querySelectorAll('.card.drag-over').forEach(c => c.classList.remove('drag-over'));
-      const el     = document.elementFromPoint(e.clientX, e.clientY);
-      const target = el?.closest('.card');
-      if (target && parseInt(target.dataset.accountId) !== drag.sourceId)
-        Forms.newTransaction(drag.sourceId, parseInt(target.dataset.accountId));
-      drag = { active: false, sourceId: null, sourceEl: null };
+    main.addEventListener('pointerdown', e => this._handlePointerDown(e));
+    main.addEventListener('click', e => this._handleCardClick(e));
+
+    document.addEventListener('pointermove', e => this._handlePointerMove(e));
+    document.addEventListener('pointerup', e => this._handlePointerUp(e));
+    document.addEventListener('pointercancel', () => {
+      this._clearPress();
+      this._resetDragState();
     });
   },
 };

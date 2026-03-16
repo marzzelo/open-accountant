@@ -6,6 +6,9 @@ const Settings = {
   _books:  [],
   _config: {},
   _env:    [],
+  _preferences: {},
+  _configFormSnapshot: '',
+  _syncingFinanceRate: false,
 
   /* ── Helpers ──────────────────────────────────────────────────────────────── */
   async _get(path)          { return API.get(path); },
@@ -16,19 +19,22 @@ const Settings = {
   /* ── Load all settings data ───────────────────────────────────────────────── */
   async load() {
     try {
-      const [books, config, env] = await Promise.all([
+      const [books, config, env, preferences] = await Promise.all([
         this._get('/books'),
         this._get('/settings/config'),
         this._get('/settings/env'),
+        this._get('/settings/preferences'),
       ]);
       this._books  = books  || [];
       this._config = config || {};
       this._env    = env    || [];
+      this._preferences = preferences || {};
     } catch (e) {
       console.error('Settings.load error:', e);
       this._books  = [];
       this._config = {};
       this._env    = [];
+      this._preferences = {};
     }
   },
 
@@ -79,6 +85,17 @@ const Settings = {
     document.getElementById('env-form')?.addEventListener('submit', e => {
       e.preventDefault(); this._saveEnv();
     });
+
+    const dollarRateInput = document.getElementById('cfg-finance-usd-official-buy-ars');
+    dollarRateInput?.addEventListener('input', () => this._handleManualDollarRateInput());
+
+    document.querySelectorAll('.cfg-input, .pref-input').forEach(el => {
+      el.addEventListener('input', () => this._syncConfigSaveButton());
+      el.addEventListener('change', () => this._syncConfigSaveButton());
+    });
+
+    this._configFormSnapshot = this._serializeConfigForm();
+    this._syncConfigSaveButton();
   },
 
   _switchTab(tab) {
@@ -313,40 +330,227 @@ const Settings = {
 
   /* ── CONFIG panel ─────────────────────────────────────────────────────────── */
   _configHTML() {
-    const sections = Object.entries(this._config);
-    if (!sections.length) {
+    if (!Object.keys(this._config).length) {
       return `<p class="text-dark-400 text-sm">${t('settings.config.no_config')}</p>`;
     }
 
-    // 'language' is controlled by the Language buttons above — hide it here
-    const HIDDEN = { app: ['language'] };
+    const sectionOrder = ['general', 'finance', 'app'];
+    const orderedSections = [
+      ...sectionOrder,
+      ...Object.keys(this._config).filter(section => !sectionOrder.includes(section)),
+    ];
 
-    const fields = sections.flatMap(([section, values]) =>
-      Object.entries(values)
-        .filter(([key]) => !(HIDDEN[section] || []).includes(key))
-        .map(([key, val]) => `
-        <div class="flex items-center gap-3">
-          <span class="w-44 text-xs text-dark-500 font-mono shrink-0">[${section}] ${key}</span>
-          <input type="text" data-section="${section}" data-key="${key}" value="${val}"
-                 class="flex-1 bg-dark-700 border border-dark-600 rounded-lg
-                        text-dark-200 text-sm px-3 py-2 font-sans
-                        focus:outline-none focus:border-blue-500/60 cfg-input"/>
-        </div>`)
-    ).join('');
+    const cards = orderedSections
+      .map(section => this._configSectionCard(section, this._config[section] || {}))
+      .join('');
 
     return `
       <form id="cfg-form" class="flex flex-col gap-5">
-        <div>
-          <p class="text-xs text-dark-400 mb-2">${t('settings.language')}</p>
-          <div class="flex gap-2">${I18n.langSelectorHTML()}</div>
-        </div>
-        <hr class="border-dark-700"/>
-        <div class="flex flex-col gap-3">${fields}</div>
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">${cards}</div>
         <div class="flex items-center gap-3 pt-1">
-          <button type="submit" class="tbtn px-5 py-2 text-sm">${t('btn.save_config')}</button>
+          <button id="cfg-save-btn" type="submit" disabled
+                  class="px-5 py-2 text-sm rounded-lg border transition-colors duration-150
+                         border-dark-600 bg-dark-800 text-dark-500 cursor-not-allowed opacity-60">
+            ${t('btn.save_config')}
+          </button>
           <span class="text-xs text-dark-500">${t('settings.config.restart')}</span>
         </div>
       </form>`;
+  },
+
+  _configSectionCard(section, values) {
+    const fields = Object.entries(values)
+      .filter(([key]) => !this._isHiddenConfigField(section, key))
+      .map(([key, value]) => this._configFieldHTML(section, key, value))
+      .join('');
+
+    const extras = [];
+    if (section === 'finance') extras.push(this._financeSectionHTML());
+    if (section === 'app') extras.push(`
+      <div class="flex flex-col gap-2">
+        <label class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.language')}</label>
+        <div class="flex gap-2 flex-wrap">${I18n.langSelectorHTML()}</div>
+      </div>`);
+
+    return `
+      <section class="bg-dark-750/40 border border-dark-700 rounded-xl p-4 flex flex-col gap-4 ${section === 'finance' ? 'xl:col-span-2' : ''}">
+        <div>
+          <h3 class="text-sm font-semibold text-dark-100">${this._configSectionTitle(section)}</h3>
+        </div>
+        ${extras.join('')}
+        ${fields ? `<div class="flex flex-col gap-3">${fields}</div>` : ''}
+      </section>`;
+  },
+
+  _configSectionTitle(section) {
+    const titles = {
+      general: t('settings.section.general'),
+      finance: t('settings.section.finance'),
+      app: t('settings.section.app'),
+    };
+    return titles[section] || section;
+  },
+
+  _isHiddenConfigField(section, key) {
+    const hidden = {
+      app: ['language'],
+      finance: ['usd_official_buy_ars', 'usd_official_last_update'],
+    };
+    return (hidden[section] || []).includes(key);
+  },
+
+  _configFieldHTML(section, key, value) {
+    return `
+      <label class="flex flex-col gap-1.5">
+        <span class="text-xs text-dark-400 uppercase tracking-wide">${this._configFieldLabel(section, key)}</span>
+        <input type="text" data-section="${section}" data-key="${key}" value="${escapeHtml(value)}"
+               class="bg-dark-700 border border-dark-600 rounded-lg
+                      text-dark-200 text-sm px-3 py-2 font-sans
+                      focus:outline-none focus:border-blue-500/60 cfg-input"/>
+      </label>`;
+  },
+
+  _configFieldLabel(section, key) {
+    const labels = {
+      general: {
+        current_book: t('settings.config.field.general.current_book'),
+        host: t('settings.config.field.general.host'),
+        port: t('settings.config.field.general.port'),
+      },
+      app: {
+        name: t('settings.config.field.app.name'),
+      },
+    };
+    return labels[section]?.[key] || key;
+  },
+
+  _financeSectionHTML() {
+    const rate = this._financePreferenceValue('finance_usd_official_buy_ars', '0.00');
+    const lastUpdate = this._financePreferenceValue('finance_usd_official_last_update', '');
+
+    return `
+      <div class="flex flex-col gap-3">
+        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
+          <label class="flex flex-col gap-1.5 min-w-0">
+            <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.finance.official_usd_buy')}</span>
+            <input id="cfg-finance-usd-official-buy-ars"
+                   type="number" step="0.01" min="0"
+                   data-pref-key="finance_usd_official_buy_ars" value="${escapeHtml(rate)}"
+                   class="bg-dark-700 border border-dark-600 rounded-lg
+                          text-dark-200 text-sm px-3 py-2 font-sans
+                          focus:outline-none focus:border-blue-500/60 pref-input"/>
+          </label>
+          <button id="cfg-finance-fetch-rate" type="button" onclick="Settings.fetchOfficialDollarRate()"
+                  class="tbtn px-4 py-2 text-sm whitespace-nowrap">${t('settings.finance.fetch_button')}</button>
+        </div>
+        <div class="text-xs text-dark-500">
+          ${t('settings.finance.last_update')}: <span id="cfg-finance-last-update-label">${this._formatConfigTimestamp(lastUpdate)}</span>
+        </div>
+        <input id="cfg-finance-usd-official-last-update" type="hidden"
+               data-pref-key="finance_usd_official_last_update" value="${escapeHtml(lastUpdate)}"
+               class="pref-input"/>
+      </div>`;
+  },
+
+  _financePreferenceValue(key, fallback = '') {
+    const prefs = this._preferences || {};
+    const value = prefs[key];
+    if (value != null && value !== '') return String(value);
+
+    const legacyFinanceConfig = this._config.finance || {};
+    const legacyKey = {
+      finance_usd_official_buy_ars: 'usd_official_buy_ars',
+      finance_usd_official_last_update: 'usd_official_last_update',
+    }[key];
+    const legacyValue = legacyKey ? legacyFinanceConfig[legacyKey] : undefined;
+    if (legacyValue != null && legacyValue !== '') return String(legacyValue);
+
+    return fallback;
+  },
+
+  _formatConfigTimestamp(value) {
+    if (!value) return '—';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return escapeHtml(value);
+    return parsed.toLocaleString();
+  },
+
+  _setFinanceLastUpdate(value) {
+    const rawValue = value || '';
+    const hiddenInput = document.getElementById('cfg-finance-usd-official-last-update');
+    const label = document.getElementById('cfg-finance-last-update-label');
+    if (hiddenInput) hiddenInput.value = rawValue;
+    if (label) label.textContent = rawValue ? this._formatConfigTimestamp(rawValue) : '—';
+    this._syncConfigSaveButton();
+  },
+
+  _serializeConfigForm() {
+    const payload = [];
+
+    document.querySelectorAll('.cfg-input').forEach(el => {
+      payload.push([
+        'cfg',
+        el.dataset.section || '',
+        el.dataset.key || '',
+        el.value ?? '',
+      ]);
+    });
+
+    document.querySelectorAll('.pref-input').forEach(el => {
+      payload.push([
+        'pref',
+        el.dataset.prefKey || '',
+        el.value ?? '',
+      ]);
+    });
+
+    return JSON.stringify(payload.sort((a, b) => a.join('|').localeCompare(b.join('|'))));
+  },
+
+  _syncConfigSaveButton() {
+    const button = document.getElementById('cfg-save-btn');
+    if (!button) return;
+
+    const dirty = this._serializeConfigForm() !== this._configFormSnapshot;
+    button.disabled = !dirty;
+
+    if (dirty) {
+      button.className = 'px-5 py-2 text-sm rounded-lg border transition-colors duration-150 border-amber-300/70 bg-amber-500 text-dark-950 font-semibold shadow-[0_0_0_1px_rgba(251,191,36,0.12)] hover:bg-amber-400 cursor-pointer';
+    } else {
+      button.className = 'px-5 py-2 text-sm rounded-lg border transition-colors duration-150 border-dark-600 bg-dark-800 text-dark-500 cursor-not-allowed opacity-60';
+    }
+  },
+
+  _handleManualDollarRateInput() {
+    if (this._syncingFinanceRate) return;
+    const rateInput = document.getElementById('cfg-finance-usd-official-buy-ars');
+    if (!rateInput) return;
+    const hasValue = rateInput.value.trim() !== '';
+    this._setFinanceLastUpdate(hasValue ? new Date().toISOString() : '');
+  },
+
+  async fetchOfficialDollarRate() {
+    const button = document.getElementById('cfg-finance-fetch-rate');
+    const rateInput = document.getElementById('cfg-finance-usd-official-buy-ars');
+    if (!button || !rateInput) return;
+
+    const previousLabel = button.textContent;
+    button.disabled = true;
+    button.textContent = t('settings.finance.fetching_button');
+
+    try {
+      const data = await this._get('/settings/finance/usd-official');
+      this._syncingFinanceRate = true;
+      rateInput.value = Number(data.value_buy || 0).toFixed(2);
+      this._setFinanceLastUpdate(data.last_update || new Date().toISOString());
+      Toast.show(t('msg.official_dollar_loaded'));
+    } catch (e) {
+      Toast.show(t('msg.error_generic', {msg: e.message}), 'error');
+    } finally {
+      this._syncingFinanceRate = false;
+      button.disabled = false;
+      button.textContent = previousLabel;
+    }
   },
 
   async _saveConfig() {
@@ -356,8 +560,23 @@ const Settings = {
       if (!data[s]) data[s] = {};
       data[s][k] = el.value;
     });
+
+    const prefPatch = {};
+    document.querySelectorAll('.pref-input').forEach(el => {
+      const key = el.dataset.prefKey;
+      if (key) prefPatch[key] = el.value;
+    });
+
     try {
-      await this._put('/settings/config', data);
+      if (Object.keys(data).length) {
+        const response = await this._put('/settings/config', data);
+        this._config = response.config || this._config;
+      }
+      if (Object.keys(prefPatch).length) {
+        this._preferences = await Preferences.save(prefPatch);
+      }
+      this._configFormSnapshot = this._serializeConfigForm();
+      this._syncConfigSaveButton();
       Toast.show(t('msg.config_saved'));
     } catch (e) { Toast.show(t('msg.error_generic', {msg: e.message}), 'error'); }
   },

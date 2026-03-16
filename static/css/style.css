@@ -93,6 +93,18 @@
   box-shadow: 0 0 20px color-mix(in srgb, var(--card-accent) 30%, transparent);
   transform: scale(1.02);
 }
+.card.credit-selected {
+  border-color: var(--card-accent) !important;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--card-accent) 18%, transparent) 0%,
+      color-mix(in srgb, var(--card-accent) 8%, transparent) 42%,
+      transparent 100%),
+    #1b222c;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--card-accent) 45%, transparent),
+              0 0 24px color-mix(in srgb, var(--card-accent) 24%, transparent);
+  transform: translateY(-1px);
+}
 .card.dragging      { opacity: .35; cursor: grabbing; }
 
 /* ── History bars ── */
@@ -111,12 +123,24 @@
 /* ── Drag ghost ── */
 .ghost {
   position: fixed; pointer-events: none; z-index: 9999;
-  background: #21262d; border: 1px solid #30363d;
-  border-radius: 8px; padding: 6px 14px;
-  font-size: 13px; display: flex; align-items: center; gap: 8px;
-  box-shadow: 0 4px 20px #00000066;
+  background: transparent; border: 0;
+  border-radius: 0; padding: 0;
+  font-size: 0; line-height: 0;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: none;
+  transform: translate(-50%, -50%);
+  white-space: normal; color: inherit;
+  will-change: left, top;
+}
+
+.ghost-image {
+  display: block;
+  width: 168px;
+  height: auto;
   transform: rotate(-3deg);
-  white-space: nowrap; color: #c9d1d9;
+  transform-origin: center center;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
 
 /* ── Card context menu ── */

@@ -6,6 +6,21 @@ The format is based on Keep a Changelog, and this project is intended to follow 
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-03-16
+
+### Added
+
+- Long-press and long-touch board transfers that let you select a credit source card and complete the transfer by tapping a destination card.
+- Visual feedback for pending board transfers, including source-card highlighting and confirmation toasts.
+- Transaction amount entry in either AR$ or USD, with automatic USD-to-ARS conversion using the configured official buy rate.
+- A cash-image drag ghost for board transfers using the new static dollars asset.
+- README updates covering the new board workflow, currency-aware transaction entry, and finance configuration.
+
+### Changed
+
+- Board dragging now keeps the ghost centered on the pointer and renders the transfer preview at a larger size.
+- Drag ghost rendering was adjusted to avoid the white compositing seam visible on some browsers.
+
 ## [1.1.0] - 2026-03-15
 
 ### Added

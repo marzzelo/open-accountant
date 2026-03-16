@@ -13,6 +13,8 @@ Endpoints:
 import json
 from pathlib import Path
 from typing import Any
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 import app_config
 from database import (
@@ -26,6 +28,13 @@ from pydantic import BaseModel
 LOCALES_DIR = Path(__file__).parent.parent / "static" / "locales"
 
 router = APIRouter()
+BLUELYTICS_LATEST_URL = "https://api.bluelytics.com.ar/v2/latest"
+BLUELYTICS_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Accept": "application/json,text/plain,*/*",
+    "Referer": "https://bluelytics.com.ar/",
+}
 
 
 # ── Config.ini ─────────────────────────────────────────────────────────────────
@@ -42,6 +51,29 @@ def update_config(data: dict[str, dict[str, str]]):
         for key, value in values.items():
             app_config.set_value(section, key, value)
     return {"ok": True, "config": app_config.get_all()}
+
+
+@router.get("/settings/finance/usd-official")
+def get_official_usd_buy_rate():
+    try:
+        request = Request(BLUELYTICS_LATEST_URL, headers=BLUELYTICS_HEADERS)
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (TimeoutError, URLError, json.JSONDecodeError) as exc:
+        raise HTTPException(502, f"Unable to fetch official USD rate: {exc}") from exc
+
+    official = payload.get("oficial") or {}
+    value_buy = official.get("value_buy")
+    last_update = payload.get("last_update")
+
+    if value_buy is None:
+        raise HTTPException(502, "Bluelytics response missing oficial.value_buy")
+
+    return {
+        "value_buy": value_buy,
+        "last_update": last_update,
+        "source": BLUELYTICS_LATEST_URL,
+    }
 
 
 # ── User preferences ───────────────────────────────────────────────────────────

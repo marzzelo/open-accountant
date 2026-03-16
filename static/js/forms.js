@@ -52,6 +52,126 @@ const T = {
 };
 
 const Forms = {
+  _cachedUsdBuyRate: null,
+
+  _transactionAmountField() {
+    return `
+      <div class="mb-2">
+        <div class="inline-flex w-full rounded-xl border border-dark-600 bg-dark-800/80 p-1">
+          <button type="button" id="f-currency-ars"
+                  onclick="Forms._setAmountCurrency('ARS')"
+                  class="flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors
+                         bg-blue-600 text-white shadow-sm">
+            AR$
+          </button>
+          <button type="button" id="f-currency-usd"
+                  onclick="Forms._setAmountCurrency('USD')"
+                  class="flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors
+                         text-dark-400 hover:text-dark-200 hover:bg-dark-700/80">
+            USD
+          </button>
+        </div>
+        <input id="f-amount-currency" type="hidden" value="ARS">
+      </div>
+      ${T.input('f-amount', {
+        type: 'number', step: '0.01', min: '0.01', ph: '0.00', auto: true,
+        inputmode: 'decimal',
+        cls: '!text-[22px] !font-bold !text-center !text-ingreso !tracking-tight'
+      })}
+      <div id="f-amount-currency-note" class="mt-2 text-[11px] text-dark-500">
+        ${escapeHtml(t('form.amount_currency_help_ars'))}
+      </div>`;
+  },
+
+  _selectedAmountCurrency() {
+    return document.getElementById('f-amount-currency')?.value || 'ARS';
+  },
+
+  _getUsdBuyRate() {
+    const prefRate = parseFloat(State.userPreferences?.finance_usd_official_buy_ars);
+    if (Number.isFinite(prefRate) && prefRate > 0) return prefRate;
+
+    const cachedRate = parseFloat(this._cachedUsdBuyRate);
+    if (Number.isFinite(cachedRate) && cachedRate > 0) return cachedRate;
+
+    return null;
+  },
+
+  async _resolveUsdBuyRate() {
+    const liveRate = this._getUsdBuyRate();
+    if (liveRate) return liveRate;
+
+    try {
+      const config = await API.get('/settings/config');
+      const legacyRate = parseFloat(config?.finance?.usd_official_buy_ars);
+      if (Number.isFinite(legacyRate) && legacyRate > 0) {
+        this._cachedUsdBuyRate = legacyRate;
+        return legacyRate;
+      }
+    } catch (_) {}
+
+    return null;
+  },
+
+  _amountCurrencyHelp(currency, usdRate = this._getUsdBuyRate()) {
+    if (currency === 'USD') {
+      if (usdRate) return t('form.amount_currency_help_usd', { rate: fmt(usdRate) });
+      return t('form.amount_currency_help_usd_missing');
+    }
+    return t('form.amount_currency_help_ars');
+  },
+
+  _setAmountCurrency(currency) {
+    const nextCurrency = currency === 'USD' ? 'USD' : 'ARS';
+    const hiddenInput = document.getElementById('f-amount-currency');
+    const arsButton = document.getElementById('f-currency-ars');
+    const usdButton = document.getElementById('f-currency-usd');
+    const note = document.getElementById('f-amount-currency-note');
+    const amountInput = document.getElementById('f-amount');
+
+    if (hiddenInput) hiddenInput.value = nextCurrency;
+
+    [
+      [arsButton, nextCurrency === 'ARS'],
+      [usdButton, nextCurrency === 'USD'],
+    ].forEach(([button, active]) => {
+      if (!button) return;
+      button.className = `flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${active
+        ? 'bg-blue-600 text-white shadow-sm'
+        : 'text-dark-400 hover:text-dark-200 hover:bg-dark-700/80'}`;
+      button.setAttribute('aria-pressed', String(active));
+    });
+
+    if (note) note.textContent = this._amountCurrencyHelp(nextCurrency);
+    if (amountInput) amountInput.placeholder = nextCurrency === 'USD' ? '0.00 USD' : '0.00';
+  },
+
+  async _primeAmountCurrencyHelp() {
+    const usdRate = await this._resolveUsdBuyRate();
+    const note = document.getElementById('f-amount-currency-note');
+    if (!note) return;
+    note.textContent = this._amountCurrencyHelp(this._selectedAmountCurrency(), usdRate);
+  },
+
+  async _normalizeTransactionAmount(rawAmount) {
+    if (this._selectedAmountCurrency() !== 'USD') return rawAmount;
+
+    const usdRate = await this._resolveUsdBuyRate();
+    if (!usdRate) {
+      Toast.show(t('msg.usd_rate_missing'), 'err');
+      return null;
+    }
+
+    return Math.round(rawAmount * usdRate * 100) / 100;
+  },
+
+  _focusTransactionAmount() {
+    const input = document.getElementById('f-amount');
+    input?.focus();
+    input?.select();
+    this._setAmountCurrency(this._selectedAmountCurrency());
+    this._primeAmountCurrencyHelp();
+  },
 
   /* ── Nueva cuenta ─────────────────────────────────────────────── */
   newAccount() {
@@ -135,17 +255,13 @@ const Forms = {
           <div class="text-[11px] text-dark-400">${debit.type_name}</div>
         </div>
       </div>
-      ${T.group(`${t('form.label.amount')} *`, T.input('f-amount', {
-        type: 'number', step: '0.01', min: '0.01', ph: '0.00', auto: true,
-        inputmode: 'decimal',
-        cls: '!text-[22px] !font-bold !text-center !text-ingreso !tracking-tight'
-      }))}
+      ${T.group(`${t('form.label.amount')} *`, this._transactionAmountField())}
       ${T.group(t('form.label.description'), T.input('f-desc', { ph: 'Opcional', val: description }))}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: now }))}
     `, T.btnGhost('Cancelar', 'Modal.close()') +
        T.btnSuccess(t('btn.register'), `Forms._saveTransaction(${creditId},${debitId})`)));
 
-    setTimeout(() => { const i = document.getElementById('f-amount'); i?.focus(); i?.select(); }, 80);
+    setTimeout(() => this._focusTransactionAmount(), 80);
   },
 
   /* ── FAB: transacción manual (mobile) ────────────────────────── */
@@ -155,17 +271,15 @@ const Forms = {
     const now = localNow();
 
     Modal.open(T.modalShell('💸 Nueva Transacción', `
-      ${T.group(`${t('form.label.amount')} *`, T.input('f-amount', {
-        type: 'number', step: '0.01', min: '0.01', ph: '0.00', auto: true,
-        inputmode: 'decimal',
-        cls: '!text-[22px] !font-bold !text-center !text-ingreso !tracking-tight'
-      }))}
+      ${T.group(`${t('form.label.amount')} *`, this._transactionAmountField())}
       ${T.group(t('form.label.credit'), T.select('f-credit', opts))}
       ${T.group(t('form.label.debit'),  T.select('f-debit',  opts))}
       ${T.group(t('form.label.description'), T.input('f-desc', { ph: 'Opcional' }))}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: now }))}
     `, T.btnGhost('Cancelar', 'Modal.close()') +
        T.btnSuccess(t('btn.register'), 'Forms._saveTransactionFAB()')));
+
+    setTimeout(() => this._focusTransactionAmount(), 80);
   },
 
   /* ── Gestión de subtipos ──────────────────────────────────────── */
@@ -287,29 +401,37 @@ const Forms = {
   },
 
   async _saveTransaction(creditId, debitId) {
-    const amount = parseFloat(document.getElementById('f-amount')?.value);
+    const rawAmount = parseFloat(document.getElementById('f-amount')?.value);
     const desc   = document.getElementById('f-desc')?.value || '';
     const date   = document.getElementById('f-date')?.value?.replace('T', ' ');
-    if (!amount || amount <= 0) return Toast.show(t('msg.invalid_amount'), 'err');
+    if (!rawAmount || rawAmount <= 0) return Toast.show(t('msg.invalid_amount'), 'err');
+
+    const amount = await this._normalizeTransactionAmount(rawAmount);
+    if (!amount || amount <= 0) return;
+
     try {
       await API.post('/transactions', { debit_account: debitId, credit_account: creditId, amount, description: desc, date });
       State.recordUsage(creditId); State.recordUsage(debitId);
-      Modal.close(); Toast.show(t('msg.tx_registered', {amount: fmt(amount)})); await View.refresh();
+      Modal.close(); Toast.show(t('msg.tx_registered', { amount: fmt(amount) })); await View.refresh();
     } catch (e) { Toast.show(e.message, 'err'); }
   },
 
   async _saveTransactionFAB() {
-    const amount   = parseFloat(document.getElementById('f-amount')?.value);
+    const rawAmount = parseFloat(document.getElementById('f-amount')?.value);
     const creditId = parseInt(document.getElementById('f-credit')?.value);
     const debitId  = parseInt(document.getElementById('f-debit')?.value);
     const desc     = document.getElementById('f-desc')?.value || '';
     const date     = document.getElementById('f-date')?.value?.replace('T', ' ');
-    if (!amount || amount <= 0)  return Toast.show('Ingrese un monto válido', 'err');
+    if (!rawAmount || rawAmount <= 0)  return Toast.show(t('msg.invalid_amount'), 'err');
     if (creditId === debitId)    return Toast.show(t('msg.same_account'), 'err');
+
+    const amount = await this._normalizeTransactionAmount(rawAmount);
+    if (!amount || amount <= 0) return;
+
     try {
       await API.post('/transactions', { debit_account: debitId, credit_account: creditId, amount, description: desc, date });
       State.recordUsage(creditId); State.recordUsage(debitId);
-      Modal.close(); Toast.show(`Registrada: ${fmt(amount)}`); await View.refresh();
+      Modal.close(); Toast.show(t('msg.tx_registered', { amount: fmt(amount) })); await View.refresh();
     } catch (e) { Toast.show(e.message, 'err'); }
   },
 
