@@ -77,13 +77,14 @@ if errorlevel 1 (
 )
 echo   Dependencies installed.
 
-REM ── 4. Config ───────────────────────────────────────────────────────────────
-if not exist config.ini (
-    copy config.ini.example config.ini >nul
-    echo   config.ini created.
-) else (
-    echo   config.ini already exists -- skipping.
+REM ── 4. App settings storage ────────────────────────────────────────────────
+echo   Initializing SQLite app settings...
+"%VENV_PYTHON%" -c "import app_config; app_config.load()"
+if errorlevel 1 (
+    echo   ERROR: failed to initialize SQLite app settings.
+    pause & exit /b 1
 )
+echo   SQLite app settings ready.
 
 REM ── 5. .env ─────────────────────────────────────────────────────────────────
 if not exist .env (

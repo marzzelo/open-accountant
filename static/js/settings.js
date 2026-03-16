@@ -158,7 +158,7 @@ const Settings = {
       this._updateBadge(name);
       Toast.show(t('msg.book_activated', {name}));
       await this.render();
-      View.refresh();
+      await View.refresh();
     } catch (e) { Toast.show(t('msg.book_activate_error'), 'error'); }
   },
 

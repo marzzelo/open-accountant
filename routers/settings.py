@@ -1,17 +1,25 @@
 """
-routers/settings.py — Config.ini and .env management.
+routers/settings.py — App settings, user preferences, and .env management.
 
 Endpoints:
-  GET  /api/settings/config          Read all config.ini sections
-  PUT  /api/settings/config          Update config.ini (nested section→key→value)
-  GET  /api/settings/env             Read .env (sensitive values masked)
-  PUT  /api/settings/env             Write .env (preserves masked values)
+    GET  /api/settings/config          Read global app settings
+    PUT  /api/settings/config          Update global app settings
+    GET  /api/settings/preferences     Read user preferences for current book
+    PUT  /api/settings/preferences     Update user preferences for current book
+    GET  /api/settings/env             Read .env (sensitive values masked)
+    PUT  /api/settings/env             Write .env (preserves masked values)
 """
 
 import json
 from pathlib import Path
+from typing import Any
 
 import app_config
+from database import (
+    get_db,
+    get_user_preferences,
+    update_user_preferences as save_user_preferences,
+)
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -34,6 +42,22 @@ def update_config(data: dict[str, dict[str, str]]):
         for key, value in values.items():
             app_config.set_value(section, key, value)
     return {"ok": True, "config": app_config.get_all()}
+
+
+# ── User preferences ───────────────────────────────────────────────────────────
+
+
+@router.get("/settings/preferences")
+def get_preferences():
+    with get_db() as conn:
+        return get_user_preferences(conn)
+
+
+@router.put("/settings/preferences")
+def update_preferences(data: dict[str, Any]):
+    with get_db() as conn:
+        preferences = save_user_preferences(conn, data)
+    return {"ok": True, "preferences": preferences}
 
 
 # ── .env ───────────────────────────────────────────────────────────────────────

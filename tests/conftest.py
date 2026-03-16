@@ -1,5 +1,3 @@
-import configparser
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -14,6 +12,17 @@ def isolated_paths(tmp_path, monkeypatch):
     env_path = tmp_path / ".env"
     env_example_path = tmp_path / ".env.example"
 
+    config_path.write_text(
+        "[general]\n"
+        "current_book = home\n"
+        "host = 127.0.0.1\n"
+        "port = 5999\n\n"
+        "[app]\n"
+        "name = Open Accountant Test\n"
+        "language = es\n",
+        encoding="utf-8",
+    )
+
     env_example_path.write_text(
         "SECRET_KEY=test-secret\nOPENAI_API_KEY=\n",
         encoding="utf-8",
@@ -23,7 +32,6 @@ def isolated_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(app_config, "CONFIG_PATH", config_path)
     monkeypatch.setattr(app_config, "ENV_PATH", env_path)
     monkeypatch.setattr(app_config, "ENV_EXAMPLE_PATH", env_example_path)
-    monkeypatch.setattr(app_config, "_cfg", configparser.ConfigParser())
 
     return tmp_path
 

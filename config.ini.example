@@ -1,6 +1,6 @@
-# Open Accountant — Configuration
-# Copy this file to config.ini and adjust as needed.
-# config.ini is excluded from version control (.gitignore).
+# Open Accountant — Legacy configuration template
+# This file is kept only for one-time migration into data/app_meta.sqlite3.
+# New installs store app settings in SQLite and do not require config.ini.
 
 [general]
 # Name of the active accounting book (corresponds to data/<name>.db)

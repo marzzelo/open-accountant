@@ -61,6 +61,30 @@ const Reports = {
     txlist: 'desc',
   },
 
+  _isZeroBalance(value) {
+    return Math.abs(Number(value) || 0) < 0.005;
+  },
+
+  _filterBalanceGroups(groups) {
+    if (State.showZeroBalanceItems) return groups;
+
+    return groups
+      .map(group => {
+        const subgroups = group.subgroups
+          .filter(subgroup => !this._isZeroBalance(subgroup.subtotal))
+          .map(subgroup => ({
+            ...subgroup,
+            items: subgroup.items.filter(item => !this._isZeroBalance(item.balance)),
+          }));
+
+        return {
+          ...group,
+          subgroups,
+        };
+      })
+      .filter(group => group.subgroups.length > 0 || !this._isZeroBalance(group.total));
+  },
+
   _sortToggleButton(view) {
     const dir = this.dateSort[view] || 'desc';
     const arrow = dir === 'asc' ? '↑' : '↓';
@@ -86,14 +110,24 @@ const Reports = {
   },
 
   async toggleDateSort(view) {
-    this.dateSort[view] = this.dateSort[view] === 'asc' ? 'desc' : 'asc';
-    await this[view]();
+    const previous = this.dateSort[view] || 'desc';
+    const next = previous === 'asc' ? 'desc' : 'asc';
+    this.dateSort[view] = next;
+
+    try {
+      await Preferences.save({ report_sort_directions: { ...this.dateSort } });
+      await this[view]();
+    } catch (error) {
+      this.dateSort[view] = previous;
+      Toast.show(t('msg.error_generic', {msg: error.message}), 'error');
+    }
   },
 
   /* ── Balance General ──────────────────────────────────────────── */
   async balance() {
     const bs = await API.get('/reports/balance' + State.apiDateParams);
     const main = document.getElementById('main');
+    const visibleGroups = this._filterBalanceGroups(bs.groups);
 
     const groupHtml = g => {
       const color = TYPE_COLORS[g.type_id] || '#fff';
@@ -124,8 +158,8 @@ const Reports = {
         </div>`;
     };
 
-    const left  = bs.groups.filter(g => [1, 4].includes(g.type_id));
-    const right = bs.groups.filter(g => [2, 3, 5].includes(g.type_id));
+      const left  = visibleGroups.filter(g => [1, 4].includes(g.type_id));
+      const right = visibleGroups.filter(g => [2, 3, 5].includes(g.type_id));
 
     const eqOk     = Math.abs(bs.equation_check) < 0.01;
     const resColor  = bs.resultado >= 0 ? 'text-ingreso' : 'text-pasivo';
@@ -141,6 +175,14 @@ const Reports = {
 
     main.innerHTML = R.view(`⚖️ ${t('report.balance')}`,
       `Período: ${bs.period_from} al ${bs.period_to}`, `
+      <label class="inline-flex items-center gap-2 mb-4 text-xs text-dark-300 select-none cursor-pointer">
+        <input type="checkbox"
+               class="h-3.5 w-3.5 rounded border-dark-500 bg-dark-700 text-blue-500 focus:ring-blue-500/40"
+               ${State.showZeroBalanceItems ? 'checked' : ''}
+               onchange="Reports.toggleZeroBalanceItems(this.checked)">
+        <span>${t('report.show_zero_balance_items')}</span>
+      </label>
+
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
         <div>${left.map(groupHtml).join('')}</div>
         <div>${right.map(groupHtml).join('')}</div>
@@ -163,6 +205,19 @@ const Reports = {
         ${R.btn('⬇ PDF', `http://localhost:5001/api/reports/export/pdf?report=balance&from=${expFrom}&to=${expTo}`, true)}
       </div>`
     );
+  },
+
+  async toggleZeroBalanceItems(checked) {
+    const previous = State.showZeroBalanceItems;
+    State.showZeroBalanceItems = checked;
+
+    try {
+      await Preferences.save({ show_zero_balance_accounts: checked });
+      await this.balance();
+    } catch (error) {
+      State.showZeroBalanceItems = previous;
+      Toast.show(t('msg.error_generic', {msg: error.message}), 'error');
+    }
   },
 
   /* ── Libro Diario ─────────────────────────────────────────────── */

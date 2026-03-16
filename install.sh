@@ -83,16 +83,11 @@ info "Installing Python dependencies in $VENV_DIR…"
 "$VENV_PYTHON" -m pip install -r requirements.txt --quiet || die "pip install failed inside $VENV_DIR."
 ok "Dependencies installed"
 
-# ── 4. Create config.ini ──────────────────────────────────────────────────────
-if [[ ! -f config.ini ]]; then
-    info "Creating config.ini from template…"
-    cp config.ini.example config.ini
-    sed -i "s/^host = .*/host = $HOST/"   config.ini
-    sed -i "s/^port = .*/port = $PORT/"   config.ini
-    ok "config.ini created (host=$HOST, port=$PORT)"
-else
-    warn "config.ini already exists — skipping"
-fi
+# ── 4. Initialize SQLite app settings ────────────────────────────────────────
+info "Initializing SQLite app settings…"
+"$VENV_PYTHON" -c "import app_config; app_config.load(); app_config.set_value('general', 'host', '$HOST'); app_config.set_value('general', 'port', '$PORT')" \
+    || die "Failed to initialize SQLite app settings."
+ok "SQLite app settings ready (host=$HOST, port=$PORT)"
 
 # ── 5. Create .env if missing ─────────────────────────────────────────────────
 if [[ ! -f .env && -f .env.example ]]; then

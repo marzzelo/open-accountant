@@ -1,4 +1,5 @@
 import app_version
+import sqlite3
 
 
 def _accounts_by_name(client):
@@ -94,3 +95,90 @@ def test_reports_and_csv_export_work_for_basic_journal_flow(client):
     assert "Monthly salary" in body
     assert "Bank" in body
     assert "Salary" in body
+
+
+def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_paths):
+    config_response = client.get("/api/settings/config")
+    assert config_response.status_code == 200
+    assert config_response.json()["general"]["port"] == "5999"
+    assert config_response.json()["app"]["language"] == "es"
+
+    update_config = client.put(
+        "/api/settings/config",
+        json={
+            "general": {"host": "0.0.0.0", "port": "6001"},
+            "app": {"name": "SQLite Settings", "language": "en"},
+        },
+    )
+    assert update_config.status_code == 200
+
+    config_json = client.get("/api/settings/config").json()
+    assert config_json["general"]["host"] == "0.0.0.0"
+    assert config_json["general"]["port"] == "6001"
+    assert config_json["app"]["name"] == "SQLite Settings"
+    assert config_json["app"]["language"] == "en"
+
+    pref_payload = {
+        "show_zero_balance_accounts": True,
+        "report_sort_directions": {"journal": "asc", "ledger": "desc", "txlist": "asc"},
+        "common_transactions_pins": {
+            "1|2|salary": {
+                "signature": "1|2|salary",
+                "creditId": 1,
+                "debitId": 2,
+                "description": "salary",
+                "lastDate": "2026-03-15 10:30:00",
+                "pinned": True,
+            }
+        },
+    }
+    update_prefs = client.put("/api/settings/preferences", json=pref_payload)
+    assert update_prefs.status_code == 200
+
+    prefs_response = client.get("/api/settings/preferences")
+    assert prefs_response.status_code == 200
+    assert prefs_response.json() == pref_payload
+
+    meta_db = isolated_paths / "data" / "app_meta.sqlite3"
+    with sqlite3.connect(meta_db) as conn:
+        rows = conn.execute(
+            "SELECT section, key, value FROM app_settings ORDER BY section, key"
+        ).fetchall()
+    assert ("general", "port", "6001") in rows
+    assert ("app", "language", "en") in rows
+
+    book_db = isolated_paths / "data" / "home.db"
+    with sqlite3.connect(book_db) as conn:
+        rows = conn.execute(
+            "SELECT key, value FROM user_preferences ORDER BY key"
+        ).fetchall()
+    assert any(row[0] == "show_zero_balance_accounts" for row in rows)
+    assert any(row[0] == "report_sort_directions" for row in rows)
+    assert any(row[0] == "common_transactions_pins" for row in rows)
+
+
+def test_user_preferences_are_scoped_per_book(client):
+    home_prefs = {
+        "show_zero_balance_accounts": True,
+        "report_sort_directions": {"journal": "asc", "ledger": "asc", "txlist": "desc"},
+    }
+    response = client.put("/api/settings/preferences", json=home_prefs)
+    assert response.status_code == 200
+
+    create_book = client.post("/api/books", json={"name": "biz", "basic_seed": False})
+    assert create_book.status_code == 200
+
+    select_biz = client.post("/api/books/select", json={"name": "biz"})
+    assert select_biz.status_code == 200
+    assert client.get("/api/settings/preferences").json() == {}
+
+    biz_prefs = {
+        "show_zero_balance_accounts": False,
+        "report_sort_directions": {"journal": "desc"},
+    }
+    update_biz = client.put("/api/settings/preferences", json=biz_prefs)
+    assert update_biz.status_code == 200
+
+    select_home = client.post("/api/books/select", json={"name": "home"})
+    assert select_home.status_code == 200
+    assert client.get("/api/settings/preferences").json() == home_prefs

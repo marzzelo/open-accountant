@@ -59,6 +59,7 @@
   "report.export_pdf": "PDF",
   "report.filter_account": "Account:",
   "report.all_accounts": "All accounts",
+  "report.show_zero_balance_items": "Show zero-balance accounts and subtypes",
   "stats.monthly_cashflow": "Income vs Expenses — Monthly",
   "stats.expense_by_type": "Expenses by Category",
   "stats.income_by_type": "Income by Category",

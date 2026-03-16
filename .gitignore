@@ -25,6 +25,9 @@ data/*.db
 data/*.db-wal
 data/*.db-shm
 data/*.db-bak
+data/*.sqlite3
+data/*.sqlite3-wal
+data/*.sqlite3-shm
 data/*.bak
 # Keep the demo seed script output directory but not its contents:
 !data/.gitkeep

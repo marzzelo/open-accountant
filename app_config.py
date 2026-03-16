@@ -1,15 +1,17 @@
 """
-app_config.py — Configuration management.
+app_config.py — Application settings and environment management.
 
 Handles:
-  - config.ini  (app settings, current book, host/port…)
-  - .env        (sensitive variables)
+  - App settings stored in SQLite metadata DB
+  - Legacy config.ini migration
+  - .env management
   - Book path resolution
   - Legacy DB migration (accountant.db → home.db)
 """
 
 import configparser
 import os
+import sqlite3
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
@@ -17,8 +19,7 @@ DATA_DIR = BASE_DIR / "data"  # directory that holds *.db files
 CONFIG_PATH = BASE_DIR / "config.ini"
 ENV_PATH = BASE_DIR / ".env"
 ENV_EXAMPLE_PATH = BASE_DIR / ".env.example"
-
-_cfg = configparser.ConfigParser()
+APP_META_DB_NAME = "app_meta.sqlite3"
 
 # ── Default values ─────────────────────────────────────────────────────────────
 _DEFAULTS: dict[str, dict[str, str]] = {
@@ -33,39 +34,79 @@ _DEFAULTS: dict[str, dict[str, str]] = {
     },
 }
 
+_APP_SETTINGS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS app_settings (
+    section    TEXT NOT NULL,
+    key        TEXT NOT NULL,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (section, key)
+);
+"""
+
+
+def _app_meta_db_path() -> Path:
+    return DATA_DIR / APP_META_DB_NAME
+
+
+def _settings_conn() -> sqlite3.Connection:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(_app_meta_db_path()))
+    conn.row_factory = sqlite3.Row
+    return conn
+
 
 def current_language() -> str:
-    return get("app", "language", "en")
+    return get("app", "language", _DEFAULTS["app"]["language"])
 
 
 def set_language(lang: str):
     set_value("app", "language", lang)
 
 
-def _ensure_defaults() -> bool:
-    changed = False
-    for section, values in _DEFAULTS.items():
-        if not _cfg.has_section(section):
-            _cfg.add_section(section)
-            changed = True
-        for key, default in values.items():
-            if not _cfg.has_option(section, key):
-                _cfg.set(section, key, default)
-                changed = True
-    return changed
+def _init_settings_db():
+    with _settings_conn() as conn:
+        conn.executescript(_APP_SETTINGS_SCHEMA)
 
 
-def save():
-    with open(CONFIG_PATH, "w") as f:
-        _cfg.write(f)
+def _migrate_legacy_config():
+    if not CONFIG_PATH.exists():
+        return
+
+    parser = configparser.ConfigParser()
+    parser.read(CONFIG_PATH)
+
+    with _settings_conn() as conn:
+        for section in parser.sections():
+            for key, value in parser.items(section):
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO app_settings (section, key, value)
+                    VALUES (?, ?, ?)
+                    """,
+                    (section, key, value),
+                )
+
+
+def _ensure_defaults():
+    with _settings_conn() as conn:
+        for section, values in _DEFAULTS.items():
+            for key, default in values.items():
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO app_settings (section, key, value)
+                    VALUES (?, ?, ?)
+                    """,
+                    (section, key, default),
+                )
 
 
 def load():
-    """Load config.ini from disk; create with defaults if missing."""
+    """Initialise app settings storage and migrate legacy config if present."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    _cfg.read(CONFIG_PATH)
-    if _ensure_defaults():
-        save()
+    _init_settings_db()
+    _migrate_legacy_config()
+    _ensure_defaults()
     _migrate_legacy_db()
 
 
@@ -80,26 +121,45 @@ def _migrate_legacy_db():
 
 # ── Config accessors ───────────────────────────────────────────────────────────
 def get(section: str, key: str, fallback: str = "") -> str:
-    return _cfg.get(section, key, fallback=fallback)
+    with _settings_conn() as conn:
+        row = conn.execute(
+            "SELECT value FROM app_settings WHERE section = ? AND key = ?",
+            (section, key),
+        ).fetchone()
+    return row["value"] if row else fallback
 
 
 def get_int(section: str, key: str, fallback: int) -> int:
     try:
-        return _cfg.getint(section, key, fallback=fallback)
-    except ValueError:
+        return int(get(section, key, str(fallback)))
+    except (TypeError, ValueError):
         return fallback
 
 
 def set_value(section: str, key: str, value: str):
-    if not _cfg.has_section(section):
-        _cfg.add_section(section)
-    _cfg.set(section, key, str(value))
-    save()
+    with _settings_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO app_settings (section, key, value)
+            VALUES (?, ?, ?)
+            ON CONFLICT(section, key)
+            DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+            """,
+            (section, key, str(value)),
+        )
 
 
 def get_all() -> dict:
-    """Return all config.ini sections as nested dict (excluding DEFAULT)."""
-    return {s: dict(_cfg[s]) for s in _cfg.sections()}
+    """Return all app settings grouped by section."""
+    with _settings_conn() as conn:
+        rows = conn.execute(
+            "SELECT section, key, value FROM app_settings ORDER BY section, key"
+        ).fetchall()
+
+    grouped: dict[str, dict[str, str]] = {}
+    for row in rows:
+        grouped.setdefault(row["section"], {})[row["key"]] = row["value"]
+    return grouped
 
 
 def server_host() -> str:
@@ -112,7 +172,7 @@ def server_port() -> int:
 
 # ── Book helpers ───────────────────────────────────────────────────────────────
 def current_book() -> str:
-    return get("general", "current_book", "home")
+    return get("general", "current_book", _DEFAULTS["general"]["current_book"])
 
 
 def set_current_book(name: str):

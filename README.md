@@ -86,17 +86,15 @@ install.bat
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 
-# 2. Create config
-cp config.ini.example config.ini
-
-# 3. Seed demo database
+# 2. Seed demo database
 .venv/bin/python scripts/seed_demo.py
 
-# 4. Start
+# 3. Start
 .venv/bin/python main.py
 ```
 
 Then open **http://127.0.0.1:5001/** in your browser.
+Global app settings are created automatically in `data/app_meta.sqlite3` on first start.
 
 ### Docker
 
@@ -207,14 +205,7 @@ After installation, a demo book named **Home** (`data/home.db`) is created with:
 
 To allow access from your phone or another device on the same network:
 
-```ini
-# config.ini
-[general]
-host = 0.0.0.0
-port = 5001
-```
-
-Then restart the server. Access via `http://<your-local-ip>:5001/`.
+Set `host = 0.0.0.0` in **Settings → Configuration**, then restart the server. Access via `http://<your-local-ip>:5001/`.
 
 For secure remote access, use [Tailscale](https://tailscale.com) — the app works transparently over Tailscale IPs.
 
@@ -251,7 +242,7 @@ You can create a custom OpenClaw skill to query your account balances, register 
 
 ## ⚙️ Configuration Reference
 
-**`config.ini`** (created from `config.ini.example`):
+Global application settings are stored in `data/app_meta.sqlite3`:
 
 | Key                      | Default           | Description                           |
 | ------------------------ | ----------------- | ------------------------------------- |
@@ -260,6 +251,8 @@ You can create a custom OpenClaw skill to query your account balances, register 
 | `[general] port`         | `5001`            | HTTP port                             |
 | `[app] name`             | `Open Accountant` | Display name                          |
 | `[app] language`         | `en`              | Default language (`en` \| `es`)       |
+
+`config.ini` is now treated as a legacy migration source only. If present, its values are imported into SQLite on startup.
 
 **`.env`** (optional, for future integrations):
 
@@ -297,7 +290,8 @@ python3 i18n_tools.py stats
 - All data is stored **locally** in SQLite files under `data/`
 - Nothing is sent to any external server
 - `data/*.db` files are excluded from version control (`.gitignore`)
-- `config.ini` is excluded from version control (contains personal settings)
+- `data/app_meta.sqlite3` stores global app settings
+- Each accounting book stores its own transactions, accounts, and user preferences
 
 ---
 
@@ -342,11 +336,11 @@ For this project, Docker is the primary packaging format for reproducible deploy
 open-accountant/
 ├── main.py                  # FastAPI app entry point
 ├── database.py              # SQLite schema, seed data, helpers
-├── app_config.py            # config.ini reader/writer
+├── app_config.py            # SQLite-backed app settings + .env helpers
 ├── models.py                # Pydantic models
 ├── i18n_tools.py            # Babel/gettext utilities
 ├── requirements.txt
-├── config.ini.example       # Config template (safe to commit)
+├── config.ini.example       # Legacy migration template
 ├── .env.example             # Env template (safe to commit)
 ├── docs/
 │   └── images/              # README screenshots
@@ -360,7 +354,7 @@ open-accountant/
 │   ├── types.py
 │   ├── subtypes.py
 │   ├── books.py             # Multi-book management
-│   ├── settings.py          # config.ini + .env API
+│   ├── settings.py          # app settings, preferences, and .env API
 │   └── about.py             # Developer info (HMAC sealed)
 ├── scripts/
 │   └── seed_demo.py         # Demo database generator

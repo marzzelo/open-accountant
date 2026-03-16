@@ -70,6 +70,8 @@ const COMMON_TX_MAX_VISIBLE = 20;
 
 const CommonTx = {
   _cache: new Map(),
+  _pinnedStore: {},
+  _legacyPinsChecked: false,
 
   _isExpanded() {
     return false;
@@ -77,7 +79,11 @@ const CommonTx = {
 
   _setExpanded() {},
 
-  _loadPinned() {
+  applyPinnedStore(items) {
+    this._pinnedStore = items && typeof items === 'object' ? { ...items } : {};
+  },
+
+  _loadLegacyPinned() {
     try {
       return JSON.parse(localStorage.getItem(COMMON_TX_STORAGE_KEY) || '{}');
     } catch (_) {
@@ -85,8 +91,20 @@ const CommonTx = {
     }
   },
 
-  _savePinned(items) {
-    localStorage.setItem(COMMON_TX_STORAGE_KEY, JSON.stringify(items));
+  async migrateLegacyPins() {
+    if (this._legacyPinsChecked) return;
+    this._legacyPinsChecked = true;
+
+    const legacyPins = this._loadLegacyPinned();
+    if (Object.keys(this._pinnedStore).length || !Object.keys(legacyPins).length) return;
+
+    this.applyPinnedStore(legacyPins);
+    try {
+      await Preferences.save({ common_transactions_pins: legacyPins });
+      localStorage.removeItem(COMMON_TX_STORAGE_KEY);
+    } catch (_) {
+      this._legacyPinsChecked = false;
+    }
   },
 
   _signature(tx) {
@@ -129,6 +147,7 @@ const CommonTx = {
   },
 
   async list() {
+    await this.migrateLegacyPins();
     const recentTx = await API.get('/transactions?limit=120');
     const bySignature = new Map();
 
@@ -137,7 +156,7 @@ const CommonTx = {
       if (!bySignature.has(shortcut.signature)) bySignature.set(shortcut.signature, shortcut);
     });
 
-    const pinnedStore = this._loadPinned();
+    const pinnedStore = this._pinnedStore;
     Object.entries(pinnedStore).forEach(([signature, saved]) => {
       const hydrated = this._hydratePinned(saved);
       if (!hydrated) return;
@@ -282,10 +301,11 @@ const CommonTx = {
     const item = this._cache.get(signature);
     if (!item) return;
 
-    const pinnedStore = this._loadPinned();
-    if (pinnedStore[signature]) {
+    const pinnedStore = { ...this._pinnedStore };
+    const pinning = !pinnedStore[signature];
+
+    if (!pinning) {
       delete pinnedStore[signature];
-      Toast.show(t('common.unpinned'));
     } else {
       pinnedStore[signature] = {
         signature,
@@ -297,11 +317,17 @@ const CommonTx = {
         lastDate: item.lastDate,
         pinned: true,
       };
-      Toast.show(t('common.pinned_saved'));
     }
 
-    this._savePinned(pinnedStore);
-    await View.show('board');
+    this.applyPinnedStore(pinnedStore);
+
+    try {
+      await Preferences.save({ common_transactions_pins: pinnedStore });
+      Toast.show(t(pinning ? 'common.pinned_saved' : 'common.unpinned'));
+      await View.show('board');
+    } catch (error) {
+      Toast.show(t('msg.error_generic', {msg: error.message}), 'error');
+    }
   },
 
   use(signature) {

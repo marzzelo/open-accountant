@@ -45,6 +45,8 @@ const State = {
   appVersion: null,
   filterFrom: null,
   filterTo:   null,
+  userPreferences: {},
+  showZeroBalanceItems: false,
   usageOrder: JSON.parse(localStorage.getItem('acct_usage') || '{}'), // {id: timestamp}
 
   get filtered() { return !!(this.filterFrom && this.filterTo); },
@@ -89,22 +91,62 @@ const API = {
   del(path)         { return this._fetch(path, { method: 'DELETE' }); },
 
   async loadAll() {
-    const [accounts, types, subtypes, version] = await Promise.all([
+    const [accounts, types, subtypes, version, preferences] = await Promise.all([
       this.get('/accounts' + State.apiDateParams),
       this.get('/types'),
       this.get('/subtypes'),
       this.get('/version'),
+      this.get('/settings/preferences'),
     ]);
     State.accounts = accounts;
     State.types    = types;
     State.subtypes = subtypes;
     State.appVersion = version;
+    State.userPreferences = preferences || {};
     StatusBar.refresh();
   },
 
   async reloadAccounts() {
     State.accounts = await this.get('/accounts' + State.apiDateParams);
     StatusBar.refresh();
+  },
+
+  async reloadPreferences() {
+    State.userPreferences = await this.get('/settings/preferences');
+  },
+};
+
+const Preferences = {
+  async save(patch) {
+    const previous = { ...State.userPreferences };
+    State.userPreferences = { ...State.userPreferences, ...patch };
+
+    try {
+      const response = await API.put('/settings/preferences', patch);
+      State.userPreferences = response.preferences || State.userPreferences;
+      await this.applyLoaded();
+      return State.userPreferences;
+    } catch (error) {
+      State.userPreferences = previous;
+      throw error;
+    }
+  },
+
+  async applyLoaded() {
+    const prefs = State.userPreferences || {};
+    State.showZeroBalanceItems = !!prefs.show_zero_balance_accounts;
+
+    if (typeof Reports !== 'undefined') {
+      const persistedSort = prefs.report_sort_directions;
+      if (persistedSort && typeof persistedSort === 'object') {
+        Reports.dateSort = { ...Reports.dateSort, ...persistedSort };
+      }
+    }
+
+    if (typeof CommonTx !== 'undefined') {
+      CommonTx.applyPinnedStore(prefs.common_transactions_pins || {});
+      await CommonTx.migrateLegacyPins();
+    }
   },
 };
 
@@ -233,6 +275,8 @@ const View = {
 
   async refresh() {
     await API.reloadAccounts();
+    await API.reloadPreferences();
+    await Preferences.applyLoaded();
     await this.show(this.current);
   },
 };
@@ -451,6 +495,7 @@ async function _initBookBadge() {
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     await API.loadAll();
+    await Preferences.applyLoaded();
     applyAppVersion();
     await I18n.init();         // load translations + apply static labels
     await _initBookBadge();
