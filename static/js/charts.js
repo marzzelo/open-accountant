@@ -31,14 +31,10 @@ const Charts = {
           <canvas id="ch-exp-pie" height="200"></canvas>
         </div>
         <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
-          <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.income_by_type')}</h3>
-          <canvas id="ch-inc-pie" height="200"></canvas>
+          <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.asset_composition')}</h3>
+          <canvas id="ch-asset-pie" height="200"></canvas>
         </div>
-        <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
-          <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.top_accounts')}</h3>
-          <canvas id="ch-top" height="200"></canvas>
-        </div>
-        <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
+        <div class="lg:col-span-2 bg-dark-800 border border-dark-600 rounded-xl p-4">
           <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.asset_evolution')}</h3>
           <canvas id="ch-evolution" height="200"></canvas>
         </div>
@@ -138,16 +134,17 @@ const Charts = {
       });
     }
 
-    /* ── 3. Income by Subtype (donut) ── */
-    if (data.income_by_subtype.length > 0) {
-      const incColors = ['#66bb6a','#4db6ac','#29b6f6','#5c6bc0','#ab47bc'];
-      _charts.incPie = new Chart(document.getElementById('ch-inc-pie'), {
+    /* ── 3. Asset composition (donut) ── */
+    if (data.asset_composition.length > 0) {
+      const assetColors = ['#4fc3f7','#80deea','#66bb6a','#ffd54f','#ff8a65',
+                           '#ce93d8','#9575cd','#7986cb','#4db6ac','#90caf9'];
+      _charts.assetPie = new Chart(document.getElementById('ch-asset-pie'), {
         type: 'doughnut',
         data: {
-          labels: data.income_by_subtype.map(r => r.subtype),
+          labels: data.asset_composition.map(r => r.account),
           datasets: [{
-            data: data.income_by_subtype.map(r => r.amount),
-            backgroundColor: incColors,
+            data: data.asset_composition.map(r => r.balance),
+            backgroundColor: assetColors,
             borderColor: '#161b22',
             borderWidth: 2,
           }],
@@ -162,41 +159,12 @@ const Charts = {
           },
         },
       });
+    } else {
+      document.getElementById('ch-asset-pie').parentElement.innerHTML +=
+        `<div class="empty">${t('report.no_data')}</div>`;
     }
 
-    /* ── 4. Top accounts (horizontal bar) ── */
-    if (data.top_accounts.length > 0) {
-      const top = data.top_accounts.slice(0, 8);
-      _charts.top = new Chart(document.getElementById('ch-top'), {
-        type: 'bar',
-        data: {
-          labels: top.map(r => r.account),
-          datasets: [{
-            label: t('chart.volume'),
-            data: top.map(r => r.volume),
-            backgroundColor: '#4fc3f788',
-            borderColor: '#4fc3f7',
-            borderWidth: 1,
-          }],
-        },
-        options: {
-          indexAxis: 'y',
-          responsive: true,
-          plugins: {
-            legend: { display: false },
-            tooltip: { callbacks: { label: ctx => ` ${fmt(ctx.raw)}` } }
-          },
-          scales: {
-            x: { ticks: { color: '#8b949e', font: { size: 9 },
-                           callback: v => '$ ' + (v/1000).toFixed(0) + 'k' },
-                 grid: { color: '#30363d44' } },
-            y: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { display: false } },
-          },
-        },
-      });
-    }
-
-    /* ── 5. Balance evolution (line) ── */
+    /* ── 4. Balance evolution (line) ── */
     if (data.balance_evolution.length > 0) {
       // Group by account
       const byAccount = {};

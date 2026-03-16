@@ -119,6 +119,8 @@ def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_path
     assert config_json["app"]["language"] == "en"
 
     pref_payload = {
+        "finance_usd_official_buy_ars": "1366.00",
+        "finance_usd_official_last_update": "2026-03-16T11:16:04.488756-03:00",
         "show_zero_balance_accounts": True,
         "report_sort_directions": {"journal": "asc", "ledger": "desc", "txlist": "asc"},
         "common_transactions_pins": {
@@ -152,6 +154,8 @@ def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_path
         rows = conn.execute(
             "SELECT key, value FROM user_preferences ORDER BY key"
         ).fetchall()
+    assert any(row[0] == "finance_usd_official_buy_ars" for row in rows)
+    assert any(row[0] == "finance_usd_official_last_update" for row in rows)
     assert any(row[0] == "show_zero_balance_accounts" for row in rows)
     assert any(row[0] == "report_sort_directions" for row in rows)
     assert any(row[0] == "common_transactions_pins" for row in rows)
@@ -159,6 +163,8 @@ def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_path
 
 def test_user_preferences_are_scoped_per_book(client):
     home_prefs = {
+        "finance_usd_official_buy_ars": "1366.00",
+        "finance_usd_official_last_update": "2026-03-16T11:16:04.488756-03:00",
         "show_zero_balance_accounts": True,
         "report_sort_directions": {"journal": "asc", "ledger": "asc", "txlist": "desc"},
     }
@@ -173,6 +179,8 @@ def test_user_preferences_are_scoped_per_book(client):
     assert client.get("/api/settings/preferences").json() == {}
 
     biz_prefs = {
+        "finance_usd_official_buy_ars": "1380.50",
+        "finance_usd_official_last_update": "2026-03-17T09:00:00-03:00",
         "show_zero_balance_accounts": False,
         "report_sort_directions": {"journal": "desc"},
     }
@@ -182,3 +190,29 @@ def test_user_preferences_are_scoped_per_book(client):
     select_home = client.post("/api/books/select", json={"name": "home"})
     assert select_home.status_code == 200
     assert client.get("/api/settings/preferences").json() == home_prefs
+
+
+def test_settings_finance_endpoint_returns_official_usd_buy_rate(client, monkeypatch):
+    import routers.settings as settings_router
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self):
+            return (
+                b'{"oficial":{"value_avg":1391,"value_sell":1416,"value_buy":1366},'
+                b'"last_update":"2026-03-16T11:16:04.488756-03:00"}'
+            )
+
+    monkeypatch.setattr(
+        settings_router, "urlopen", lambda *args, **kwargs: FakeResponse()
+    )
+
+    response = client.get("/api/settings/finance/usd-official")
+    assert response.status_code == 200
+    assert response.json()["value_buy"] == 1366
+    assert response.json()["last_update"] == "2026-03-16T11:16:04.488756-03:00"

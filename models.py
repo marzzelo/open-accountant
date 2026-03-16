@@ -1,11 +1,13 @@
 """
 models.py — Pydantic v2 request/response schemas.
 """
+
 from pydantic import BaseModel, Field
 from typing import Optional
 
 
 # ── Types ─────────────────────────────────────────────────────────────────────
+
 
 class TypeOut(BaseModel):
     id: int
@@ -13,6 +15,7 @@ class TypeOut(BaseModel):
 
 
 # ── Subtypes ──────────────────────────────────────────────────────────────────
+
 
 class SubtypeIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
@@ -32,6 +35,7 @@ class SubtypeOut(BaseModel):
 
 
 # ── Accounts ──────────────────────────────────────────────────────────────────
+
 
 class AccountIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
@@ -55,13 +59,13 @@ class MovementOut(BaseModel):
     date: str
     description: str
     amount: float
-    role: str         # "debit" | "credit"
+    role: str  # "debit" | "credit"
     counterpart: str  # name of the other account
 
 
 class MonthlyBar(BaseModel):
-    month: str    # "YYYY-MM"
-    net: float    # net change for that month
+    month: str  # "YYYY-MM"
+    net: float  # net change for that month
 
 
 class AccountOut(BaseModel):
@@ -79,6 +83,7 @@ class AccountOut(BaseModel):
 
 
 # ── Transactions ──────────────────────────────────────────────────────────────
+
 
 class TransactionIn(BaseModel):
     debit_account: int
@@ -110,6 +115,7 @@ class TransactionOut(BaseModel):
 
 # ── Reports ───────────────────────────────────────────────────────────────────
 
+
 class BalanceLineItem(BaseModel):
     account_id: int
     account_name: str
@@ -138,13 +144,14 @@ class BalanceSheet(BaseModel):
     total_patrimonio: float
     total_ingreso: float
     total_gasto: float
-    resultado: float       # Ingresos - Gastos
+    resultado: float  # Ingresos - Gastos
     equation_check: float  # Activo - (Pasivo + Patrimonio + Resultado) ≈ 0
 
 
 class StatsData(BaseModel):
-    monthly_cashflow: list[dict]       # {month, ingresos, gastos, neto}
-    expenses_by_subtype: list[dict]    # {subtype, amount}
-    income_by_subtype: list[dict]      # {subtype, amount}
-    top_accounts: list[dict]           # {account, volume, tx_count}
-    balance_evolution: list[dict]      # {month, account_id, account_name, balance}
+    monthly_cashflow: list[dict]  # {month, ingresos, gastos, neto}
+    expenses_by_subtype: list[dict]  # {subtype, amount}
+    income_by_subtype: list[dict]  # {subtype, amount}
+    asset_composition: list[dict]  # {account, balance}
+    top_accounts: list[dict]  # {account, volume, tx_count}
+    balance_evolution: list[dict]  # {month, account_id, account_name, balance}

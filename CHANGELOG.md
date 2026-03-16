@@ -6,6 +6,18 @@ The format is based on Keep a Changelog, and this project is intended to follow 
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-03-16
+
+### Added
+
+- Report smoke coverage for the statistics and export endpoints.
+- Updated documentation screenshots for the board, balance, statistics, and transaction dialog flows.
+
+### Changed
+
+- Report statistics now expose asset composition alongside the existing cash-flow, subtype, and balance evolution series.
+- Chart rendering and report aggregation were refined to match the expanded statistics payload.
+
 ## [1.2.0] - 2026-03-16
 
 ### Added
