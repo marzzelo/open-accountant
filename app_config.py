@@ -10,6 +10,7 @@ Handles:
 """
 
 import configparser
+import json
 import os
 import sqlite3
 from pathlib import Path
@@ -20,6 +21,22 @@ CONFIG_PATH = BASE_DIR / "config.ini"
 ENV_PATH = BASE_DIR / ".env"
 ENV_EXAMPLE_PATH = BASE_DIR / ".env.example"
 APP_META_DB_NAME = "app_meta.sqlite3"
+FINANCE_DEFAULTS: dict[str, str] = {
+    "usd_official_buy_ars": "0.00",
+    "usd_official_sell_ars": "0.00",
+    "usd_blue_buy_ars": "0.00",
+    "usd_blue_sell_ars": "0.00",
+    "usd_card_ars": "0.00",
+    "usd_official_last_update": "",
+}
+FINANCE_PREFERENCE_TO_CONFIG_KEY: dict[str, str] = {
+    "finance_usd_official_buy_ars": "usd_official_buy_ars",
+    "finance_usd_official_sell_ars": "usd_official_sell_ars",
+    "finance_usd_blue_buy_ars": "usd_blue_buy_ars",
+    "finance_usd_blue_sell_ars": "usd_blue_sell_ars",
+    "finance_usd_card_ars": "usd_card_ars",
+    "finance_usd_official_last_update": "usd_official_last_update",
+}
 
 # ── Default values ─────────────────────────────────────────────────────────────
 _DEFAULTS: dict[str, dict[str, str]] = {
@@ -32,6 +49,7 @@ _DEFAULTS: dict[str, dict[str, str]] = {
         "name": "Open Accountant",
         "language": "en",
     },
+    "finance": FINANCE_DEFAULTS,
 }
 
 _APP_SETTINGS_SCHEMA = """
@@ -108,6 +126,7 @@ def load():
     _migrate_legacy_config()
     _ensure_defaults()
     _migrate_legacy_db()
+    _migrate_legacy_finance_preferences()
 
 
 def _migrate_legacy_db():
@@ -117,6 +136,41 @@ def _migrate_legacy_db():
     if old.exists() and not new.exists():
         old.rename(new)
         print("[open-accountant] Migration: accountant.db → home.db")
+
+
+def _finance_setting_is_default(key: str) -> bool:
+    default = FINANCE_DEFAULTS.get(key, "")
+    current = get("finance", key, default)
+    return current == default
+
+
+def _migrate_legacy_finance_preferences():
+    db_path = get_db_path()
+    if not db_path.exists():
+        return
+
+    with sqlite3.connect(str(db_path)) as conn:
+        table = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'user_preferences'"
+        ).fetchone()
+        if not table:
+            return
+
+        rows = conn.execute(
+            "SELECT key, value FROM user_preferences WHERE key IN (%s)"
+            % ",".join("?" for _ in FINANCE_PREFERENCE_TO_CONFIG_KEY),
+            tuple(FINANCE_PREFERENCE_TO_CONFIG_KEY.keys()),
+        ).fetchall()
+
+    for preference_key, raw_value in rows:
+        config_key = FINANCE_PREFERENCE_TO_CONFIG_KEY.get(preference_key)
+        if not config_key or not _finance_setting_is_default(config_key):
+            continue
+        try:
+            parsed_value = json.loads(raw_value)
+        except json.JSONDecodeError:
+            parsed_value = raw_value
+        set_value("finance", config_key, parsed_value)
 
 
 # ── Config accessors ───────────────────────────────────────────────────────────

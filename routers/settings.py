@@ -37,6 +37,14 @@ BLUELYTICS_HEADERS = {
 }
 
 
+def _strip_legacy_finance_preferences(preferences: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in preferences.items()
+        if key not in app_config.FINANCE_PREFERENCE_TO_CONFIG_KEY
+    }
+
+
 # ── Config.ini ─────────────────────────────────────────────────────────────────
 
 
@@ -53,27 +61,52 @@ def update_config(data: dict[str, dict[str, str]]):
     return {"ok": True, "config": app_config.get_all()}
 
 
-@router.get("/settings/finance/usd-official")
-def get_official_usd_buy_rate():
+def _fetch_bluelytics_latest_rates() -> dict[str, Any]:
     try:
         request = Request(BLUELYTICS_LATEST_URL, headers=BLUELYTICS_HEADERS)
         with urlopen(request, timeout=10) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (TimeoutError, URLError, json.JSONDecodeError) as exc:
-        raise HTTPException(502, f"Unable to fetch official USD rate: {exc}") from exc
+        raise HTTPException(502, f"Unable to fetch USD rates: {exc}") from exc
 
     official = payload.get("oficial") or {}
-    value_buy = official.get("value_buy")
-    last_update = payload.get("last_update")
+    blue = payload.get("blue") or {}
+    official_buy = official.get("value_buy")
+    official_sell = official.get("value_sell")
+    blue_buy = blue.get("value_buy")
+    blue_sell = blue.get("value_sell")
 
-    if value_buy is None:
-        raise HTTPException(502, "Bluelytics response missing oficial.value_buy")
+    missing = [
+        name
+        for name, value in {
+            "oficial.value_buy": official_buy,
+            "oficial.value_sell": official_sell,
+            "blue.value_buy": blue_buy,
+            "blue.value_sell": blue_sell,
+        }.items()
+        if value is None
+    ]
+    if missing:
+        raise HTTPException(
+            502,
+            f"Bluelytics response missing required fields: {', '.join(missing)}",
+        )
 
     return {
-        "value_buy": value_buy,
-        "last_update": last_update,
+        "official_buy": official_buy,
+        "official_sell": official_sell,
+        "blue_buy": blue_buy,
+        "blue_sell": blue_sell,
+        "card": round(float(official_sell) * 1.30, 2),
+        "last_update": payload.get("last_update"),
         "source": BLUELYTICS_LATEST_URL,
     }
+
+
+@router.get("/settings/finance/usd-rates")
+@router.get("/settings/finance/usd-official")
+def get_finance_usd_rates():
+    return _fetch_bluelytics_latest_rates()
 
 
 # ── User preferences ───────────────────────────────────────────────────────────
@@ -82,14 +115,30 @@ def get_official_usd_buy_rate():
 @router.get("/settings/preferences")
 def get_preferences():
     with get_db() as conn:
-        return get_user_preferences(conn)
+        preferences = get_user_preferences(conn)
+    return _strip_legacy_finance_preferences(preferences)
 
 
 @router.put("/settings/preferences")
 def update_preferences(data: dict[str, Any]):
+    legacy_finance_values = {
+        key: value
+        for key, value in data.items()
+        if key in app_config.FINANCE_PREFERENCE_TO_CONFIG_KEY
+    }
+    for preference_key, value in legacy_finance_values.items():
+        app_config.set_value(
+            "finance",
+            app_config.FINANCE_PREFERENCE_TO_CONFIG_KEY[preference_key],
+            value,
+        )
+
+    filtered_data = {
+        key: value for key, value in data.items() if key not in legacy_finance_values
+    }
     with get_db() as conn:
-        preferences = save_user_preferences(conn, data)
-    return {"ok": True, "preferences": preferences}
+        preferences = save_user_preferences(conn, filtered_data)
+    return {"ok": True, "preferences": _strip_legacy_finance_preferences(preferences)}
 
 
 # ── .env ───────────────────────────────────────────────────────────────────────

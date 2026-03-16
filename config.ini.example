@@ -18,3 +18,22 @@ name = Open Accountant
 
 # Default UI language: en | es
 language = en
+
+[finance]
+# Official USD buy rate used when entering transactions in USD
+usd_official_buy_ars = 0.00
+
+# Official USD sell rate
+usd_official_sell_ars = 0.00
+
+# Blue USD buy rate
+usd_blue_buy_ars = 0.00
+
+# Blue USD sell rate
+usd_blue_sell_ars = 0.00
+
+# Card USD rate, calculated as official sell * 1.30
+usd_card_ars = 0.00
+
+# ISO timestamp of the last manual or automatic update
+usd_official_last_update =

@@ -42,6 +42,7 @@ const State = {
   accounts:   [],
   types:      [],
   subtypes:   [],
+  appConfig:  {},
   appVersion: null,
   filterFrom: null,
   filterTo:   null,
@@ -91,17 +92,19 @@ const API = {
   del(path)         { return this._fetch(path, { method: 'DELETE' }); },
 
   async loadAll() {
-    const [accounts, types, subtypes, version, preferences] = await Promise.all([
+    const [accounts, types, subtypes, version, config, preferences] = await Promise.all([
       this.get('/accounts' + State.apiDateParams),
       this.get('/types'),
       this.get('/subtypes'),
       this.get('/version'),
+      this.get('/settings/config'),
       this.get('/settings/preferences'),
     ]);
     State.accounts = accounts;
     State.types    = types;
     State.subtypes = subtypes;
     State.appVersion = version;
+    State.appConfig = config || {};
     State.userPreferences = preferences || {};
     StatusBar.refresh();
   },
@@ -113,6 +116,10 @@ const API = {
 
   async reloadPreferences() {
     State.userPreferences = await this.get('/settings/preferences');
+  },
+
+  async reloadConfig() {
+    State.appConfig = await this.get('/settings/config');
   },
 };
 

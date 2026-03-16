@@ -52,24 +52,43 @@ const T = {
 };
 
 const Forms = {
-  _cachedUsdBuyRate: null,
+  _transactionCurrencies() {
+    return [
+      { code: 'ARS', label: 'AR$', rateKey: null },
+      { code: 'USD_CARD', label: 'USD CARD', rateKey: 'usd_card_ars' },
+      { code: 'USD_BUY', label: 'USD BUY', rateKey: 'usd_official_buy_ars' },
+      { code: 'USD_SELL', label: 'USD SELL', rateKey: 'usd_official_sell_ars' },
+      { code: 'BLUE_BUY', label: 'BLUE BUY', rateKey: 'usd_blue_buy_ars' },
+      { code: 'BLUE_SELL', label: 'BLUE SELL', rateKey: 'usd_blue_sell_ars' },
+    ];
+  },
+
+  _transactionCurrencyMeta(currency) {
+    return this._transactionCurrencies().find(option => option.code === currency)
+      || this._transactionCurrencies()[0];
+  },
+
+  _transactionCurrencyButtonId(currency) {
+    return `f-currency-${currency.toLowerCase().replace(/_/g, '-')}`;
+  },
 
   _transactionAmountField() {
+    const buttons = this._transactionCurrencies().map(option => `
+      <button type="button" id="${this._transactionCurrencyButtonId(option.code)}"
+              onclick="Forms._setAmountCurrency('${option.code}')"
+              class="flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors
+                     ${option.code === 'ARS'
+                       ? 'bg-blue-600 text-white shadow-sm'
+                       : 'text-dark-400 hover:text-dark-200 hover:bg-dark-700/80'}">
+        ${option.label}
+      </button>`).join('');
+
     return `
       <div class="mb-2">
-        <div class="inline-flex w-full rounded-xl border border-dark-600 bg-dark-800/80 p-1">
-          <button type="button" id="f-currency-ars"
-                  onclick="Forms._setAmountCurrency('ARS')"
-                  class="flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors
-                         bg-blue-600 text-white shadow-sm">
-            AR$
-          </button>
-          <button type="button" id="f-currency-usd"
-                  onclick="Forms._setAmountCurrency('USD')"
-                  class="flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors
-                         text-dark-400 hover:text-dark-200 hover:bg-dark-700/80">
-            USD
-          </button>
+        <div class="w-full rounded-xl border border-dark-600 bg-dark-800/80 p-1">
+          <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-1">
+            ${buttons}
+          </div>
         </div>
         <input id="f-amount-currency" type="hidden" value="ARS">
       </div>
@@ -87,82 +106,90 @@ const Forms = {
     return document.getElementById('f-amount-currency')?.value || 'ARS';
   },
 
-  _getUsdBuyRate() {
-    const prefRate = parseFloat(State.userPreferences?.finance_usd_official_buy_ars);
-    if (Number.isFinite(prefRate) && prefRate > 0) return prefRate;
-
-    const cachedRate = parseFloat(this._cachedUsdBuyRate);
-    if (Number.isFinite(cachedRate) && cachedRate > 0) return cachedRate;
-
+  _getCurrencyRate(currency) {
+    const { rateKey } = this._transactionCurrencyMeta(currency);
+    if (!rateKey) return null;
+    const configRate = parseFloat(State.appConfig?.finance?.[rateKey]);
+    if (Number.isFinite(configRate) && configRate > 0) return configRate;
     return null;
   },
 
-  async _resolveUsdBuyRate() {
-    const liveRate = this._getUsdBuyRate();
+  async _resolveCurrencyRate(currency) {
+    const liveRate = this._getCurrencyRate(currency);
     if (liveRate) return liveRate;
 
     try {
-      const config = await API.get('/settings/config');
-      const legacyRate = parseFloat(config?.finance?.usd_official_buy_ars);
-      if (Number.isFinite(legacyRate) && legacyRate > 0) {
-        this._cachedUsdBuyRate = legacyRate;
-        return legacyRate;
-      }
+      await API.reloadConfig();
+      return this._getCurrencyRate(currency);
     } catch (_) {}
 
     return null;
   },
 
-  _amountCurrencyHelp(currency, usdRate = this._getUsdBuyRate()) {
-    if (currency === 'USD') {
-      if (usdRate) return t('form.amount_currency_help_usd', { rate: fmt(usdRate) });
-      return t('form.amount_currency_help_usd_missing');
-    }
-    return t('form.amount_currency_help_ars');
+  _amountCurrencyHelp(currency, rate = this._getCurrencyRate(currency)) {
+    const meta = this._transactionCurrencyMeta(currency);
+    if (meta.code === 'ARS') return t('form.amount_currency_help_ars');
+    if (rate) return t('form.amount_currency_help_rate', { label: meta.label, rate: fmt(rate) });
+    return t('form.amount_currency_help_rate_missing', { label: meta.label });
+  },
+
+  _currencyButtonClass(currency, active) {
+    const activeClass = currency === 'ARS'
+      ? 'bg-blue-600 text-white shadow-sm'
+      : 'bg-emerald-600 text-white shadow-sm';
+    const inactiveClass = 'text-dark-400 hover:text-dark-200 hover:bg-dark-700/80';
+    return `flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${active ? activeClass : inactiveClass}`;
+  },
+
+  _currencyPlaceholder(currency) {
+    const meta = this._transactionCurrencyMeta(currency);
+    return meta.code === 'ARS' ? '0.00' : `0.00 ${meta.label}`;
+  },
+
+  _missingCurrencyRateMessage(currency) {
+    const meta = this._transactionCurrencyMeta(currency);
+    return t('msg.currency_rate_missing', { label: meta.label });
   },
 
   _setAmountCurrency(currency) {
-    const nextCurrency = currency === 'USD' ? 'USD' : 'ARS';
+    const nextCurrency = this._transactionCurrencyMeta(currency).code;
     const hiddenInput = document.getElementById('f-amount-currency');
-    const arsButton = document.getElementById('f-currency-ars');
-    const usdButton = document.getElementById('f-currency-usd');
     const note = document.getElementById('f-amount-currency-note');
     const amountInput = document.getElementById('f-amount');
 
     if (hiddenInput) hiddenInput.value = nextCurrency;
 
-    [
-      [arsButton, nextCurrency === 'ARS'],
-      [usdButton, nextCurrency === 'USD'],
-    ].forEach(([button, active]) => {
+    this._transactionCurrencies().forEach(option => {
+      const button = document.getElementById(this._transactionCurrencyButtonId(option.code));
       if (!button) return;
-      button.className = `flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${active
-        ? 'bg-blue-600 text-white shadow-sm'
-        : 'text-dark-400 hover:text-dark-200 hover:bg-dark-700/80'}`;
+      const active = option.code === nextCurrency;
+      button.className = this._currencyButtonClass(option.code, active);
       button.setAttribute('aria-pressed', String(active));
     });
 
     if (note) note.textContent = this._amountCurrencyHelp(nextCurrency);
-    if (amountInput) amountInput.placeholder = nextCurrency === 'USD' ? '0.00 USD' : '0.00';
+    if (amountInput) amountInput.placeholder = this._currencyPlaceholder(nextCurrency);
   },
 
   async _primeAmountCurrencyHelp() {
-    const usdRate = await this._resolveUsdBuyRate();
+    const currency = this._selectedAmountCurrency();
+    const rate = await this._resolveCurrencyRate(currency);
     const note = document.getElementById('f-amount-currency-note');
     if (!note) return;
-    note.textContent = this._amountCurrencyHelp(this._selectedAmountCurrency(), usdRate);
+    note.textContent = this._amountCurrencyHelp(currency, rate);
   },
 
   async _normalizeTransactionAmount(rawAmount) {
-    if (this._selectedAmountCurrency() !== 'USD') return rawAmount;
+    const currency = this._selectedAmountCurrency();
+    if (currency === 'ARS') return rawAmount;
 
-    const usdRate = await this._resolveUsdBuyRate();
-    if (!usdRate) {
-      Toast.show(t('msg.usd_rate_missing'), 'err');
+    const rate = await this._resolveCurrencyRate(currency);
+    if (!rate) {
+      Toast.show(this._missingCurrencyRateMessage(currency), 'err');
       return null;
     }
 
-    return Math.round(rawAmount * usdRate * 100) / 100;
+    return Math.round(rawAmount * rate * 100) / 100;
   },
 
   _focusTransactionAmount() {

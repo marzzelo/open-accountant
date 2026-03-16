@@ -86,8 +86,9 @@ const Settings = {
       e.preventDefault(); this._saveEnv();
     });
 
-    const dollarRateInput = document.getElementById('cfg-finance-usd-official-buy-ars');
-    dollarRateInput?.addEventListener('input', () => this._handleManualDollarRateInput());
+    this._financeManualRateIds().forEach(id => {
+      document.getElementById(id)?.addEventListener('input', () => this._handleManualFinanceRateInput());
+    });
 
     document.querySelectorAll('.cfg-input, .pref-input').forEach(el => {
       el.addEventListener('input', () => this._syncConfigSaveButton());
@@ -394,7 +395,7 @@ const Settings = {
   _isHiddenConfigField(section, key) {
     const hidden = {
       app: ['language'],
-      finance: ['usd_official_buy_ars', 'usd_official_last_update'],
+      finance: ['usd_official_buy_ars', 'usd_official_sell_ars', 'usd_blue_buy_ars', 'usd_blue_sell_ars', 'usd_card_ars', 'usd_official_last_update'],
     };
     return (hidden[section] || []).includes(key);
   },
@@ -425,8 +426,12 @@ const Settings = {
   },
 
   _financeSectionHTML() {
-    const rate = this._financePreferenceValue('finance_usd_official_buy_ars', '0.00');
-    const lastUpdate = this._financePreferenceValue('finance_usd_official_last_update', '');
+    const rate = this._financeConfigValue('usd_official_buy_ars', '0.00');
+    const officialSell = this._financeConfigValue('usd_official_sell_ars', '0.00');
+    const blueBuy = this._financeConfigValue('usd_blue_buy_ars', '0.00');
+    const blueSell = this._financeConfigValue('usd_blue_sell_ars', '0.00');
+    const cardRate = this._calculateCardDollarRate(officialSell, this._financeConfigValue('usd_card_ars', '0.00'));
+    const lastUpdate = this._financeConfigValue('usd_official_last_update', '');
 
     return `
       <div class="flex flex-col gap-3">
@@ -435,37 +440,88 @@ const Settings = {
             <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.finance.official_usd_buy')}</span>
             <input id="cfg-finance-usd-official-buy-ars"
                    type="number" step="0.01" min="0"
-                   data-pref-key="finance_usd_official_buy_ars" value="${escapeHtml(rate)}"
+                   data-section="finance" data-key="usd_official_buy_ars" value="${escapeHtml(rate)}"
                    class="bg-dark-700 border border-dark-600 rounded-lg
                           text-dark-200 text-sm px-3 py-2 font-sans
-                          focus:outline-none focus:border-blue-500/60 pref-input"/>
+                     focus:outline-none focus:border-blue-500/60 cfg-input"/>
           </label>
           <button id="cfg-finance-fetch-rate" type="button" onclick="Settings.fetchOfficialDollarRate()"
                   class="tbtn px-4 py-2 text-sm whitespace-nowrap">${t('settings.finance.fetch_button')}</button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <label class="flex flex-col gap-1.5 min-w-0">
+            <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.finance.official_usd_sell')}</span>
+            <input id="cfg-finance-usd-official-sell-ars"
+                   type="number" step="0.01" min="0"
+                   data-section="finance" data-key="usd_official_sell_ars" value="${escapeHtml(officialSell)}"
+                   class="bg-dark-700 border border-dark-600 rounded-lg
+                          text-dark-200 text-sm px-3 py-2 font-sans
+                     focus:outline-none focus:border-blue-500/60 cfg-input"/>
+          </label>
+          <label class="flex flex-col gap-1.5 min-w-0">
+            <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.finance.blue_usd_buy')}</span>
+            <input id="cfg-finance-usd-blue-buy-ars"
+                   type="number" step="0.01" min="0"
+                   data-section="finance" data-key="usd_blue_buy_ars" value="${escapeHtml(blueBuy)}"
+                   class="bg-dark-700 border border-dark-600 rounded-lg
+                          text-dark-200 text-sm px-3 py-2 font-sans
+                     focus:outline-none focus:border-blue-500/60 cfg-input"/>
+          </label>
+          <label class="flex flex-col gap-1.5 min-w-0">
+            <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.finance.blue_usd_sell')}</span>
+            <input id="cfg-finance-usd-blue-sell-ars"
+                   type="number" step="0.01" min="0"
+                   data-section="finance" data-key="usd_blue_sell_ars" value="${escapeHtml(blueSell)}"
+                   class="bg-dark-700 border border-dark-600 rounded-lg
+                          text-dark-200 text-sm px-3 py-2 font-sans
+                     focus:outline-none focus:border-blue-500/60 cfg-input"/>
+          </label>
+          <label class="flex flex-col gap-1.5 min-w-0">
+            <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.finance.card_usd')}</span>
+            <input id="cfg-finance-usd-card-ars"
+                   type="number" step="0.01" min="0" readonly
+                   data-section="finance" data-key="usd_card_ars" value="${escapeHtml(cardRate)}"
+                   class="bg-dark-800 border border-dark-700 rounded-lg
+                          text-dark-300 text-sm px-3 py-2 font-sans
+                     focus:outline-none cfg-input"/>
+          </label>
         </div>
         <div class="text-xs text-dark-500">
           ${t('settings.finance.last_update')}: <span id="cfg-finance-last-update-label">${this._formatConfigTimestamp(lastUpdate)}</span>
         </div>
         <input id="cfg-finance-usd-official-last-update" type="hidden"
-               data-pref-key="finance_usd_official_last_update" value="${escapeHtml(lastUpdate)}"
-               class="pref-input"/>
+               data-section="finance" data-key="usd_official_last_update" value="${escapeHtml(lastUpdate)}"
+               class="cfg-input"/>
       </div>`;
   },
 
-  _financePreferenceValue(key, fallback = '') {
-    const prefs = this._preferences || {};
-    const value = prefs[key];
+  _financeConfigValue(key, fallback = '') {
+    const financeConfig = this._config.finance || {};
+    const value = financeConfig[key];
     if (value != null && value !== '') return String(value);
-
-    const legacyFinanceConfig = this._config.finance || {};
-    const legacyKey = {
-      finance_usd_official_buy_ars: 'usd_official_buy_ars',
-      finance_usd_official_last_update: 'usd_official_last_update',
-    }[key];
-    const legacyValue = legacyKey ? legacyFinanceConfig[legacyKey] : undefined;
-    if (legacyValue != null && legacyValue !== '') return String(legacyValue);
-
     return fallback;
+  },
+
+  _financeManualRateIds() {
+    return [
+      'cfg-finance-usd-official-buy-ars',
+      'cfg-finance-usd-official-sell-ars',
+      'cfg-finance-usd-blue-buy-ars',
+      'cfg-finance-usd-blue-sell-ars',
+    ];
+  },
+
+  _calculateCardDollarRate(officialSellValue, fallback = '') {
+    const officialSell = parseFloat(officialSellValue);
+    if (!Number.isFinite(officialSell) || officialSell <= 0) return fallback;
+    return (officialSell * 1.30).toFixed(2);
+  },
+
+  _syncDerivedFinanceRates() {
+    const officialSellInput = document.getElementById('cfg-finance-usd-official-sell-ars');
+    const cardInput = document.getElementById('cfg-finance-usd-card-ars');
+    if (!officialSellInput || !cardInput) return;
+    cardInput.value = this._calculateCardDollarRate(officialSellInput.value, '');
   },
 
   _formatConfigTimestamp(value) {
@@ -521,27 +577,37 @@ const Settings = {
     }
   },
 
-  _handleManualDollarRateInput() {
+  _handleManualFinanceRateInput() {
     if (this._syncingFinanceRate) return;
-    const rateInput = document.getElementById('cfg-finance-usd-official-buy-ars');
-    if (!rateInput) return;
-    const hasValue = rateInput.value.trim() !== '';
+    this._syncDerivedFinanceRates();
+    const hasValue = this._financeManualRateIds().some(id => {
+      const input = document.getElementById(id);
+      return input && input.value.trim() !== '';
+    });
     this._setFinanceLastUpdate(hasValue ? new Date().toISOString() : '');
   },
 
   async fetchOfficialDollarRate() {
     const button = document.getElementById('cfg-finance-fetch-rate');
-    const rateInput = document.getElementById('cfg-finance-usd-official-buy-ars');
-    if (!button || !rateInput) return;
+    const officialBuyInput = document.getElementById('cfg-finance-usd-official-buy-ars');
+    const officialSellInput = document.getElementById('cfg-finance-usd-official-sell-ars');
+    const blueBuyInput = document.getElementById('cfg-finance-usd-blue-buy-ars');
+    const blueSellInput = document.getElementById('cfg-finance-usd-blue-sell-ars');
+    const cardInput = document.getElementById('cfg-finance-usd-card-ars');
+    if (!button || !officialBuyInput || !officialSellInput || !blueBuyInput || !blueSellInput || !cardInput) return;
 
     const previousLabel = button.textContent;
     button.disabled = true;
     button.textContent = t('settings.finance.fetching_button');
 
     try {
-      const data = await this._get('/settings/finance/usd-official');
+      const data = await this._get('/settings/finance/usd-rates');
       this._syncingFinanceRate = true;
-      rateInput.value = Number(data.value_buy || 0).toFixed(2);
+      officialBuyInput.value = Number(data.official_buy || 0).toFixed(2);
+      officialSellInput.value = Number(data.official_sell || 0).toFixed(2);
+      blueBuyInput.value = Number(data.blue_buy || 0).toFixed(2);
+      blueSellInput.value = Number(data.blue_sell || 0).toFixed(2);
+      cardInput.value = Number(data.card || 0).toFixed(2);
       this._setFinanceLastUpdate(data.last_update || new Date().toISOString());
       Toast.show(t('msg.official_dollar_loaded'));
     } catch (e) {
@@ -571,6 +637,7 @@ const Settings = {
       if (Object.keys(data).length) {
         const response = await this._put('/settings/config', data);
         this._config = response.config || this._config;
+        if (typeof State !== 'undefined') State.appConfig = this._config;
       }
       if (Object.keys(prefPatch).length) {
         this._preferences = await Preferences.save(prefPatch);

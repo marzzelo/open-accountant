@@ -258,9 +258,16 @@ Global application settings are stored in `data/app_meta.sqlite3`:
 | `[general] port`         | `5001`            | HTTP port                             |
 | `[app] name`             | `Open Accountant` | Display name                          |
 | `[app] language`         | `en`              | Default language (`en` \| `es`)       |
-| `[finance] usd_official_buy_ars` | `0.00`      | Official USD buy rate used when entering transactions in USD |
+| `[finance] usd_official_buy_ars` | `0.00` | Official USD buy rate used when entering transactions in USD |
+| `[finance] usd_official_sell_ars` | `0.00` | Official USD sell rate |
+| `[finance] usd_blue_buy_ars` | `0.00` | Blue USD buy rate |
+| `[finance] usd_blue_sell_ars` | `0.00` | Blue USD sell rate |
+| `[finance] usd_card_ars` | `0.00` | Card USD rate, calculated as official sell × 1.30 |
+| `[finance] usd_official_last_update` | `` | Last manual or automatic update timestamp |
 
 `config.ini` is now treated as a legacy migration source only. If present, its values are imported into SQLite on startup.
+
+Finance exchange rates configured in **Settings → Configuration → Finance** are global for the whole app and stored in `data/app_meta.sqlite3`. On startup, legacy finance values found in the active book preferences are migrated automatically into the global finance section.
 
 **`.env`** (optional, for future integrations):
 
