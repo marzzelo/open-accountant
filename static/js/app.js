@@ -397,6 +397,8 @@ const Modal = {
   _onSubmit: null,
   _onClose: null,
   _bound: false,
+  _lastFocused: null,
+  _labelSeq: 0,
 
   _submitClass(tone) {
     const variants = {
@@ -409,6 +411,89 @@ const Modal = {
   _isOpen() {
     const overlay = document.getElementById('modal-overlay');
     return !!overlay && !overlay.classList.contains('hidden');
+  },
+
+  _focusables(container) {
+    if (!container) return [];
+    return [...container.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+      .filter(el => !el.hasAttribute('hidden') && (el.offsetParent !== null || el === document.activeElement));
+  },
+
+  _focusInitial() {
+    const box = document.getElementById('modal-box');
+    const modalContent = document.getElementById('modal-content');
+    if (!box || !modalContent) return;
+
+    const preferred = modalContent.querySelector('[data-modal-autofocus], [autofocus]');
+    if (preferred instanceof HTMLElement) {
+      preferred.focus();
+      preferred.select?.();
+      return;
+    }
+
+    const [firstFocusable] = this._focusables(box);
+    if (firstFocusable) {
+      firstFocusable.focus();
+      firstFocusable.select?.();
+      return;
+    }
+
+    box.focus();
+  },
+
+  _trapFocus(event) {
+    const box = document.getElementById('modal-box');
+    const focusable = this._focusables(box);
+    if (!focusable.length) {
+      event.preventDefault();
+      box?.focus();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+      return;
+    }
+
+    if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  },
+
+  _applyAccessibility(title) {
+    const box = document.getElementById('modal-box');
+    const modalContent = document.getElementById('modal-content');
+    if (!box || !modalContent) return;
+
+    const titleEl = modalContent.querySelector('[data-modal-title]');
+    if (titleEl) {
+      if (!titleEl.id) titleEl.id = `modal-title-${++this._labelSeq}`;
+      box.setAttribute('aria-labelledby', titleEl.id);
+      box.removeAttribute('aria-label');
+    } else if (title) {
+      box.setAttribute('aria-label', String(title).replace(/<[^>]*>/g, '').trim());
+      box.removeAttribute('aria-labelledby');
+    } else {
+      box.removeAttribute('aria-label');
+      box.removeAttribute('aria-labelledby');
+    }
+
+    const descriptionEl = modalContent.querySelector('[data-modal-description]');
+    if (descriptionEl) {
+      if (!descriptionEl.id) descriptionEl.id = `modal-description-${++this._labelSeq}`;
+      box.setAttribute('aria-describedby', descriptionEl.id);
+    } else {
+      box.removeAttribute('aria-describedby');
+    }
+  },
+
+  _restoreFocus() {
+    if (this._lastFocused instanceof HTMLElement) this._lastFocused.focus();
+    this._lastFocused = null;
   },
 
   _bindEvents() {
@@ -437,7 +522,12 @@ const Modal = {
     });
 
     document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && this._isOpen()) this.close();
+      if (!this._isOpen()) return;
+      if (event.key === 'Escape') {
+        this.close();
+        return;
+      }
+      if (event.key === 'Tab') this._trapFocus(event);
     });
 
     const overlay = document.getElementById('modal-overlay');
@@ -453,20 +543,22 @@ const Modal = {
     title = '',
     onSubmit = null,
     onClose = null,
-    submitLabel = 'Confirmar',
-    cancelLabel = 'Cancelar',
+    submitLabel = t('btn.confirm'),
+    cancelLabel = t('btn.cancel'),
     submitTone = 'primary'
   } = {}) {
     this._bindEvents();
     this._onSubmit = onSubmit;
     this._onClose = onClose;
+    this._lastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const box = document.getElementById('modal-box');
     box.style.maxWidth = wide ? '860px' : '540px';
+    box.setAttribute('tabindex', '-1');
 
     const header = title
       ? `<div class="flex items-center justify-between px-5 py-4 border-b border-dark-600">
-           <h3 class="text-base font-semibold text-dark-200">${title}</h3>
-           <button type="button" data-modal-close class="text-dark-400 hover:text-dark-300 text-xl leading-none">✕</button>
+           <h3 data-modal-title class="text-base font-semibold text-dark-200">${title}</h3>
+           <button type="button" data-modal-close aria-label="${escapeHtml(t('dialog.close'))}" class="text-dark-400 hover:text-dark-300 text-xl leading-none">✕</button>
          </div>`
       : '';
 
@@ -480,7 +572,9 @@ const Modal = {
       : '';
 
     document.getElementById('modal-content').innerHTML = header + html + footer;
+    this._applyAccessibility(title);
     document.getElementById('modal-overlay').classList.remove('hidden');
+    requestAnimationFrame(() => this._focusInitial());
   },
 
   async _submit() {
@@ -496,6 +590,7 @@ const Modal = {
     document.getElementById('modal-overlay').classList.add('hidden');
     document.getElementById('modal-content').innerHTML = '';
     onClose?.();
+    this._restoreFocus();
   },
 
   overlayClick(e) {
@@ -504,13 +599,13 @@ const Modal = {
 };
 
 const Dialog = {
-  confirm({ title = '', message = '', confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', submitTone = 'primary' } = {}) {
+  confirm({ title = '', message = '', confirmLabel = t('btn.confirm'), cancelLabel = t('btn.cancel'), submitTone = 'primary' } = {}) {
     return new Promise(resolve => {
       let settled = false;
 
       Modal.open(`
         <div class="p-5">
-          <p class="text-sm text-dark-300 whitespace-pre-line">${escapeHtml(message)}</p>
+          <p data-modal-description class="text-sm text-dark-300 whitespace-pre-line">${escapeHtml(message)}</p>
         </div>`, {
         title,
         submitLabel: confirmLabel,
@@ -533,15 +628,28 @@ const Dialog = {
     label = '',
     value = '',
     placeholder = '',
-    confirmLabel = 'Confirmar',
-    cancelLabel = 'Cancelar',
+    confirmLabel = t('btn.confirm'),
+    cancelLabel = t('btn.cancel'),
     submitTone = 'primary',
     validate = null,
   } = {}) {
     const inputId = 'dialog-prompt-input';
+    const errorId = 'dialog-prompt-error';
 
     return new Promise(resolve => {
       let settled = false;
+
+      const setError = message => {
+        const input = document.getElementById(inputId);
+        const error = document.getElementById(errorId);
+        if (input) {
+          input.setAttribute('aria-invalid', message ? 'true' : 'false');
+        }
+        if (error) {
+          error.textContent = message || '';
+          error.classList.toggle('hidden', !message);
+        }
+      };
 
       Modal.open(`
         <form data-modal-submit-form class="p-5">
@@ -549,9 +657,12 @@ const Dialog = {
           <input id="${inputId}" type="text"
                  value="${escapeHtml(value)}"
                  placeholder="${escapeHtml(placeholder)}"
+                 data-modal-autofocus
+                 aria-describedby="${errorId}"
                  class="w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-300
                         text-sm px-3 py-2.5 font-sans outline-none
                         focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30">
+          <p id="${errorId}" class="mt-2 hidden text-xs text-pasivo"></p>
         </form>`, {
         title,
         submitLabel: confirmLabel,
@@ -561,10 +672,13 @@ const Dialog = {
           const nextValue = document.getElementById(inputId)?.value ?? '';
           const validationResult = validate ? validate(nextValue) : true;
           if (validationResult !== true) {
-            Toast.show(validationResult || 'Invalid value', 'err');
+            setError(validationResult || t('msg.invalid_value'));
+            document.getElementById(inputId)?.focus();
+            document.getElementById(inputId)?.select?.();
             return false;
           }
 
+          setError('');
           settled = true;
           resolve(nextValue);
           return true;
@@ -573,12 +687,6 @@ const Dialog = {
           if (!settled) resolve(null);
         },
       });
-
-      setTimeout(() => {
-        const input = document.getElementById(inputId);
-        input?.focus();
-        input?.select();
-      }, 40);
     });
   },
 };

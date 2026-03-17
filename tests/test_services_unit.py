@@ -215,6 +215,31 @@ def test_accounts_transactions_and_reports_services_work_directly(
         assert balance_sheet.equation_check == 0.0
 
 
+def test_transactions_service_computes_fx_traceability_fields(initialized_environment):
+    app_config.set_value("finance", "usd_official_buy_ars", "1100.00")
+
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+
+        tx = transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=accounts["Bank"].id,
+                credit_account=accounts["Salary"].id,
+                original_amount=12.5,
+                original_currency="USD",
+                fx_source="USD_BUY",
+                description="USD salary",
+            ),
+        )
+
+        assert tx.amount == 13750.0
+        assert tx.original_amount == 12.5
+        assert tx.original_currency == "USD"
+        assert tx.fx_rate == 1100.0
+        assert tx.fx_source == "USD_BUY"
+
+
 def test_types_service_get_type_raises_for_missing_id(initialized_environment):
     with get_db() as conn:
         with pytest.raises(NotFoundError):

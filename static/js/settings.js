@@ -117,7 +117,7 @@ const Settings = {
   /* ── BOOKS panel ──────────────────────────────────────────────────────────── */
   _booksHTML() {
     if (!this._books.length) {
-      return '<p class="text-dark-400 text-sm">No se encontraron contabilidades.</p>';
+      return `<p class="text-dark-400 text-sm">${t('settings.books.no_books')}</p>`;
     }
 
     const rows = this._books.map(b => `
@@ -184,15 +184,16 @@ const Settings = {
     Modal.open(`
       <div class="flex flex-col gap-4 p-4">
         <div>
-          <label class="block text-xs text-dark-400 mb-1">Nombre</label>
-          <input id="new-book-name" type="text" placeholder="ej: business"
+          <label class="block text-xs text-dark-400 mb-1">${t('modal.new_book.name')}</label>
+          <input id="new-book-name" type="text" placeholder="${escapeHtml(t('modal.new_book.placeholder'))}"
+                 data-modal-autofocus
                  class="w-full bg-dark-700 border border-dark-600 rounded-lg
                         text-dark-200 text-sm px-3 py-2 font-sans
                         focus:outline-none focus:border-blue-500/60"/>
         </div>
         <label class="flex items-center gap-2 text-sm text-dark-300 cursor-pointer select-none">
           <input type="checkbox" id="new-book-seed" checked class="w-4 h-4 accent-blue-500"/>
-          Crear con cuentas básicas (Cash, Bank, Capital, Credit Card, Salary, Grocery)
+          ${t('modal.new_book.seed')}
         </label>
       </div>`,
       {
@@ -214,7 +215,7 @@ const Settings = {
       await this.render();
       return true;
     } catch (e) {
-      Toast.show(`Error: ${e.message}`, 'error');
+      Toast.show(t('msg.error_generic', {msg: e.message}), 'error');
       return false;
     }
   },
@@ -223,14 +224,15 @@ const Settings = {
     Modal.open(`
       <div class="flex flex-col gap-4 p-4">
         <div>
-          <label class="block text-xs text-dark-400 mb-1">Nombre para la contabilidad importada</label>
-          <input id="import-book-name" type="text" placeholder="ej: home_backup"
+       <label class="block text-xs text-dark-400 mb-1">${t('modal.import_book.name')}</label>
+       <input id="import-book-name" type="text" placeholder="${escapeHtml(t('modal.import_book.placeholder'))}"
+         data-modal-autofocus
                  class="w-full bg-dark-700 border border-dark-600 rounded-lg
                         text-dark-200 text-sm px-3 py-2 font-sans
                         focus:outline-none focus:border-blue-500/60"/>
         </div>
         <div>
-          <label class="block text-xs text-dark-400 mb-1">Archivo SQL (.sql)</label>
+       <label class="block text-xs text-dark-400 mb-1">${t('modal.import_book.file')}</label>
           <input id="import-book-file" type="file" accept=".sql,.txt"
                  class="w-full text-dark-300 text-sm file:mr-3 file:py-1.5 file:px-3
                         file:rounded-lg file:border file:border-dark-500
@@ -238,7 +240,7 @@ const Settings = {
                         file:text-xs hover:file:bg-dark-600 cursor-pointer"/>
         </div>
         <p class="text-xs text-dark-500">
-          Importa un respaldo generado con el botón 💾 Respaldo. No sobreescribirá contabilidades existentes.
+          ${t('modal.import_book.hint')}
         </p>
       </div>`,
       {
@@ -275,7 +277,7 @@ const Settings = {
       await this.render();
       return true;
     } catch (e) {
-      Toast.show(`Error al importar: ${e.message}`, 'error');
+      Toast.show(t('msg.import_error', {msg: e.message}), 'error');
       return false;
     }
   },
@@ -283,26 +285,27 @@ const Settings = {
   showRenameBook(name) {
     Modal.open(`
       <div class="p-4">
-        <label class="block text-xs text-dark-400 mb-1">Nuevo nombre para '${name}'</label>
+        <label class="block text-xs text-dark-400 mb-1">${t('modal.rename_book.label', {name})}</label>
         <input id="rename-book-val" type="text" value="${name}"
+               data-modal-autofocus
                class="w-full bg-dark-700 border border-dark-600 rounded-lg
                       text-dark-200 text-sm px-3 py-2 font-sans
                       focus:outline-none focus:border-blue-500/60"/>
       </div>`,
       {
-        title: `✏️ Renombrar '${name}'`,
+        title: `${t('modal.rename_book.title')} '${name}'`,
         submitLabel: t('btn.rename'),
         onSubmit: async () => {
           const newName = document.getElementById('rename-book-val')?.value.trim();
           if (!newName || newName === name) return true;
           try {
             const r = await this._put(`/books/${name}/rename`, { new_name: newName });
-            Toast.show(`Renombrado a '${r.name}'`);
+            Toast.show(t('msg.book_renamed', {name: r.name}));
             const cur = this._books.find(b => b.current);
             if (cur?.name === name) this._updateBadge(r.name);
             await this.render();
             return true;
-          } catch (e) { Toast.show(`Error: ${e.message}`, 'error'); return false; }
+          } catch (e) { Toast.show(t('msg.error_generic', {msg: e.message}), 'error'); return false; }
         },
       }
     );
@@ -324,9 +327,9 @@ const Settings = {
 
     try {
       await this._del(`/books/${name}`);
-      Toast.show(`'${name}' eliminada`);
+      Toast.show(t('msg.book_deleted', {name}));
       await this.render();
-    } catch (e) { Toast.show(`Error: ${e.message}`, 'error'); }
+    } catch (e) { Toast.show(t('msg.error_generic', {msg: e.message}), 'error'); }
   },
 
   backupBook(name) {
@@ -334,7 +337,7 @@ const Settings = {
     a.href = buildApiUrl(`/books/${name}/backup`);
     a.download = `${name}.sql`;
     a.click();
-    Toast.show(`Descargando respaldo de '${name}'…`);
+    Toast.show(t('msg.backup_start', {name}));
   },
 
   /* ── CONFIG panel ─────────────────────────────────────────────────────────── */
@@ -659,7 +662,7 @@ const Settings = {
   /* ── ENV panel ────────────────────────────────────────────────────────────── */
   _envHTML() {
     if (!this._env.length) {
-      return '<p class="text-dark-400 text-sm">No se encontró archivo .env.</p>';
+      return `<p class="text-dark-400 text-sm">${t('settings.env.no_env')}</p>`;
     }
 
     const rows = this._env.map((p, i) => `
@@ -675,9 +678,9 @@ const Settings = {
                       focus:outline-none focus:border-blue-500/60"/>
         ${p.sensitive ? `
           <button type="button" onclick="Settings._toggleEnvVis(${i})"
-                  class="tbtn text-[11px] px-2 py-1.5" title="Mostrar/Ocultar">👁</button>` : ''}
+            class="tbtn text-[11px] px-2 py-1.5" title="${escapeHtml(t('settings.env.toggle_visibility'))}">👁</button>` : ''}
         <button type="button" onclick="Settings._removeEnvRow(${i})"
-                class="tbtn text-[11px] px-2 py-1.5 hover:!text-red-400" title="Eliminar">✕</button>
+          class="tbtn text-[11px] px-2 py-1.5 hover:!text-red-400" title="${escapeHtml(t('btn.delete'))}">✕</button>
       </div>`).join('');
 
     return `

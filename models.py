@@ -2,8 +2,9 @@
 models.py — Pydantic v2 request/response schemas.
 """
 
-from pydantic import BaseModel, Field
 from typing import Optional
+
+from pydantic import BaseModel, Field, model_validator
 
 
 # ── Types ─────────────────────────────────────────────────────────────────────
@@ -88,13 +89,25 @@ class AccountOut(BaseModel):
 class TransactionIn(BaseModel):
     debit_account: int
     credit_account: int
-    amount: float = Field(..., gt=0)
+    amount: Optional[float] = Field(None, gt=0)
+    original_amount: Optional[float] = Field(None, gt=0)
+    original_currency: Optional[str] = None
+    fx_source: Optional[str] = None
     description: str = ""
     date: Optional[str] = None  # ISO datetime; default = now()
+
+    @model_validator(mode="after")
+    def validate_amounts(self):
+        if self.amount is None and self.original_amount is None:
+            raise ValueError("Either amount or original_amount is required")
+        return self
 
 
 class TransactionUpdate(BaseModel):
     amount: Optional[float] = Field(None, gt=0)
+    original_amount: Optional[float] = Field(None, gt=0)
+    original_currency: Optional[str] = None
+    fx_source: Optional[str] = None
     description: Optional[str] = None
     date: Optional[str] = None
 
@@ -108,6 +121,10 @@ class TransactionOut(BaseModel):
     credit_name: str
     credit_type_id: int
     amount: float
+    original_amount: float
+    original_currency: str
+    fx_rate: float
+    fx_source: Optional[str]
     description: str
     date: str
     created_at: str

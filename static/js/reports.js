@@ -187,7 +187,7 @@ const Reports = {
       </div>`;
 
     main.innerHTML = R.view(`⚖️ ${t('report.balance')}`,
-      `Período: ${bs.period_from} al ${bs.period_to}`, `
+      t('report.period_range', { from: bs.period_from, to: bs.period_to }), `
       <label class="inline-flex items-center gap-2 mb-4 text-xs text-dark-300 select-none cursor-pointer">
         <input type="checkbox"
                class="h-3.5 w-3.5 rounded border-dark-500 bg-dark-700 text-blue-500 focus:ring-blue-500/40"
@@ -208,7 +208,7 @@ const Reports = {
         ${kpi(t('report.total_equity'), bs.total_patrimonio, 'text-patrimonio')}
         ${kpi(t('report.result'), bs.resultado, resColor)}
         <div class="text-center min-w-[100px]">
-          <div class="text-[10px] text-dark-400 uppercase tracking-wide mb-1">Ecuación (≈0)</div>
+          <div class="text-[10px] text-dark-400 uppercase tracking-wide mb-1">${t('report.equation')}</div>
           <div class="text-base font-bold ${eqColor}">${bs.equation_check.toFixed(2)}</div>
         </div>
       </div>
@@ -254,7 +254,7 @@ const Reports = {
     ])).join('');
 
     main.innerHTML = R.view(`📒 ${t('report.journal')}`,
-      `${sorted.length} transacciones · ${expFrom} → ${expTo}`,
+      t('report.journal_summary', { count: sorted.length, from: expFrom, to: expTo }),
       `<div class="flex gap-2 flex-wrap mb-4">
          ${this._sortToggleButton('journal')}
          ${R.btn('⬇ CSV', this._downloadUrl(`/reports/export/csv?report=journal&from=${expFrom}&to=${expTo}`), true)}
@@ -272,7 +272,7 @@ const Reports = {
   async ledger() {
     const main  = document.getElementById('main');
     const accId = State._ledgerAccount || State.accounts[0]?.id;
-    if (!accId) { main.innerHTML = '<div class="text-dark-500 text-center py-16">Sin cuentas</div>'; return; }
+    if (!accId) { main.innerHTML = `<div class="text-dark-500 text-center py-16">${t('report.no_accounts')}</div>`; return; }
 
     const opts    = State.accounts.map(a =>
       `<option value="${a.id}" ${a.id === accId ? 'selected' : ''}>${escapeHtml(a.name)} (${escapeHtml(a.type_name)})</option>`
@@ -291,7 +291,7 @@ const Reports = {
       { v: `<span class="font-semibold">${R.amt(e.balance)}</span>`, cls: 'text-right' },
     ])).join('');
 
-    main.innerHTML = R.view(`📖 ${t('report.ledger')}`, `${entries.length} movimientos`, `
+    main.innerHTML = R.view(`📖 ${t('report.ledger')}`, t('report.ledger_summary', { count: entries.length }), `
       <div class="flex flex-wrap items-center gap-3 mb-4">
         <select ${htmlAttrs({
           'data-report-change': 'ledger-account',
@@ -337,12 +337,12 @@ const Reports = {
         })}` }
     ])).join('');
 
-    main.innerHTML = R.view(`🔁 ${t('nav.transactions')}`, `${sorted.length} registros`,
+    main.innerHTML = R.view(`🔁 ${t('nav.transactions')}`, t('report.txlist_summary', { count: sorted.length }),
       `<div class="flex gap-2 flex-wrap mb-4">${this._sortToggleButton('txlist')}</div>` +
       R.table(
         [{label:t('report.col.date')},{label:t('report.col.debited')},{label:t('report.col.credited')},
          {label:t('report.col.amount'),right:true},{label:t('report.col.description')},{label:''}],
-        rows || '<tr><td colspan="6" class="text-center py-8 text-dark-500 text-xs">Sin transacciones</td></tr>'
+        rows || `<tr><td colspan="6" class="text-center py-8 text-dark-500 text-xs">${t('report.no_transactions')}</td></tr>`
       )
     );
   },

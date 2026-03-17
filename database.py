@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS transactions (
     debit_account  INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
     credit_account INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
     amount         REAL NOT NULL CHECK(amount > 0),
+    original_amount REAL NOT NULL CHECK(original_amount > 0),
+    original_currency TEXT NOT NULL DEFAULT 'ARS',
+    fx_rate       REAL NOT NULL DEFAULT 1.0 CHECK(fx_rate > 0),
+    fx_source     TEXT,
     description    TEXT NOT NULL DEFAULT '',
     date           TEXT NOT NULL DEFAULT (datetime('now')),
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
@@ -230,6 +234,37 @@ def _drop_legacy_balance_column(conn):
     )
 
 
+def _transactions_has_column(conn, column_name: str) -> bool:
+    columns = conn.execute("PRAGMA table_info(transactions)").fetchall()
+    return any(column[1] == column_name for column in columns)
+
+
+def _migrate_transaction_fx_columns(conn):
+    additions = {
+        "original_amount": "ALTER TABLE transactions ADD COLUMN original_amount REAL",
+        "original_currency": "ALTER TABLE transactions ADD COLUMN original_currency TEXT",
+        "fx_rate": "ALTER TABLE transactions ADD COLUMN fx_rate REAL",
+        "fx_source": "ALTER TABLE transactions ADD COLUMN fx_source TEXT",
+    }
+
+    for column_name, statement in additions.items():
+        if not _transactions_has_column(conn, column_name):
+            conn.execute(statement)
+
+    conn.execute(
+        "UPDATE transactions SET original_amount = amount WHERE original_amount IS NULL OR original_amount <= 0"
+    )
+    conn.execute(
+        "UPDATE transactions SET original_currency = 'ARS' WHERE original_currency IS NULL OR TRIM(original_currency) = ''"
+    )
+    conn.execute(
+        "UPDATE transactions SET fx_rate = 1.0 WHERE fx_rate IS NULL OR fx_rate <= 0"
+    )
+    conn.execute(
+        "UPDATE transactions SET fx_source = NULL WHERE original_currency = 'ARS'"
+    )
+
+
 def _serialize_preference(value):
     return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
 
@@ -269,6 +304,7 @@ def init_db():
     with get_db() as conn:
         conn.executescript(SCHEMA)
         _drop_legacy_balance_column(conn)
+        _migrate_transaction_fx_columns(conn)
         for tid, name in SEED_TYPES:
             conn.execute(
                 "INSERT OR IGNORE INTO types (id, name) VALUES (?, ?)", (tid, name)

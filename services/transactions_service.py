@@ -3,6 +3,8 @@
 from datetime import datetime
 from typing import Optional
 
+import app_config
+
 from models import TransactionIn, TransactionOut, TransactionUpdate
 
 from services.errors import NotFoundError, ValidationError
@@ -20,6 +22,134 @@ TX_SELECT = """
 
 def row_to_out(row) -> TransactionOut:
     return model_from_row(TransactionOut, row)
+
+
+FX_SOURCE_CONFIG = {
+    "USD_CARD": "usd_card_ars",
+    "USD_BUY": "usd_official_buy_ars",
+    "USD_SELL": "usd_official_sell_ars",
+    "BLUE_BUY": "usd_blue_buy_ars",
+    "BLUE_SELL": "usd_blue_sell_ars",
+}
+
+SUPPORTED_ORIGINAL_CURRENCIES = {"ARS", "USD"}
+
+
+def _round_amount(value: float) -> float:
+    return round(float(value), 2)
+
+
+def _resolve_fx_rate(fx_source: str) -> float:
+    config_key = FX_SOURCE_CONFIG.get(fx_source)
+    if not config_key:
+        raise ValidationError(f"Unsupported fx_source: {fx_source}")
+
+    try:
+        rate = float(app_config.get("finance", config_key, "0"))
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(f"Invalid configured FX rate for {fx_source}") from exc
+
+    if rate <= 0:
+        raise ValidationError(f"Missing configured FX rate for {fx_source}")
+    return rate
+
+
+def _normalize_currency(currency: Optional[str]) -> str:
+    return (currency or "ARS").strip().upper()
+
+
+def _monetary_from_create(data: TransactionIn) -> dict:
+    if data.original_amount is None and data.original_currency is None and data.fx_source is None:
+        amount = _round_amount(data.amount)
+        return {
+            "amount": amount,
+            "original_amount": amount,
+            "original_currency": "ARS",
+            "fx_rate": 1.0,
+            "fx_source": None,
+        }
+
+    original_amount = _round_amount(data.original_amount or data.amount)
+    original_currency = _normalize_currency(data.original_currency)
+    if original_currency not in SUPPORTED_ORIGINAL_CURRENCIES:
+        raise ValidationError(f"Unsupported original_currency: {original_currency}")
+
+    if original_currency == "ARS":
+        return {
+            "amount": original_amount,
+            "original_amount": original_amount,
+            "original_currency": "ARS",
+            "fx_rate": 1.0,
+            "fx_source": None,
+        }
+
+    fx_source = (data.fx_source or "").strip().upper()
+    if not fx_source:
+        raise ValidationError("fx_source is required for non-ARS transactions")
+    fx_rate = _resolve_fx_rate(fx_source)
+    return {
+        "amount": _round_amount(original_amount * fx_rate),
+        "original_amount": original_amount,
+        "original_currency": original_currency,
+        "fx_rate": fx_rate,
+        "fx_source": fx_source,
+    }
+
+
+def _monetary_from_update(data: TransactionUpdate, old) -> dict:
+    if (
+        data.amount is None
+        and data.original_amount is None
+        and data.original_currency is None
+        and data.fx_source is None
+    ):
+        return {
+            "amount": old["amount"],
+            "original_amount": old["original_amount"],
+            "original_currency": old["original_currency"],
+            "fx_rate": old["fx_rate"],
+            "fx_source": old["fx_source"],
+        }
+
+    if data.original_amount is None and data.original_currency is None and data.fx_source is None:
+        amount = _round_amount(data.amount)
+        return {
+            "amount": amount,
+            "original_amount": amount,
+            "original_currency": "ARS",
+            "fx_rate": 1.0,
+            "fx_source": None,
+        }
+
+    original_amount = _round_amount(
+        data.original_amount if data.original_amount is not None else old["original_amount"]
+    )
+    original_currency = _normalize_currency(
+        data.original_currency if data.original_currency is not None else old["original_currency"]
+    )
+    if original_currency not in SUPPORTED_ORIGINAL_CURRENCIES:
+        raise ValidationError(f"Unsupported original_currency: {original_currency}")
+
+    if original_currency == "ARS":
+        return {
+            "amount": original_amount,
+            "original_amount": original_amount,
+            "original_currency": "ARS",
+            "fx_rate": 1.0,
+            "fx_source": None,
+        }
+
+    next_fx_source = (data.fx_source if data.fx_source is not None else old["fx_source"] or "").strip().upper()
+    if not next_fx_source:
+        raise ValidationError("fx_source is required for non-ARS transactions")
+    fx_rate = _resolve_fx_rate(next_fx_source)
+    return {
+        "amount": _round_amount(original_amount * fx_rate),
+        "original_amount": original_amount,
+        "original_currency": original_currency,
+        "fx_rate": fx_rate,
+        "fx_source": next_fx_source,
+    }
 
 
 def list_transactions(
@@ -83,14 +213,21 @@ def create_transaction(conn, data: TransactionIn) -> TransactionOut:
         NotFoundError,
     )
 
+    monetary = _monetary_from_create(data)
+
     cur = conn.execute(
         """INSERT INTO transactions
-           (debit_account, credit_account, amount, description, date)
-           VALUES (?, ?, ?, ?, ?)""",
+           (debit_account, credit_account, amount, original_amount, original_currency,
+            fx_rate, fx_source, description, date)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             data.debit_account,
             data.credit_account,
-            data.amount,
+            monetary["amount"],
+            monetary["original_amount"],
+            monetary["original_currency"],
+            monetary["fx_rate"],
+            monetary["fx_source"],
             data.description,
             tx_date,
         ),
@@ -107,13 +244,25 @@ def update_transaction(conn, tx_id: int, data: TransactionUpdate) -> Transaction
         NotFoundError,
     )
 
-    new_amount = data.amount if data.amount is not None else old["amount"]
+    monetary = _monetary_from_update(data, old)
     new_desc = data.description if data.description is not None else old["description"]
     new_date = data.date if data.date is not None else old["date"]
 
     conn.execute(
-        "UPDATE transactions SET amount = ?, description = ?, date = ? WHERE id = ?",
-        (new_amount, new_desc, new_date, tx_id),
+        """UPDATE transactions
+           SET amount = ?, original_amount = ?, original_currency = ?, fx_rate = ?,
+               fx_source = ?, description = ?, date = ?
+           WHERE id = ?""",
+        (
+            monetary["amount"],
+            monetary["original_amount"],
+            monetary["original_currency"],
+            monetary["fx_rate"],
+            monetary["fx_source"],
+            new_desc,
+            new_date,
+            tx_id,
+        ),
     )
     return get_transaction(conn, tx_id)
 

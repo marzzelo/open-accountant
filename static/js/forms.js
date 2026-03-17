@@ -5,8 +5,8 @@
 const T = {
   modalShell: (title, body, footer) => `
     <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-dark-600">
-      <span class="text-base font-bold text-dark-100">${title}</span>
-      <button type="button" data-modal-close class="text-dark-400 hover:text-dark-300 text-xl cursor-pointer border-0 bg-transparent">✕</button>
+      <span data-modal-title class="text-base font-bold text-dark-100">${title}</span>
+      <button type="button" data-modal-close aria-label="${escapeHtml(t('dialog.close'))}" class="text-dark-400 hover:text-dark-300 text-xl cursor-pointer border-0 bg-transparent">✕</button>
     </div>
     <div class="p-5">${body}</div>
     <div class="flex gap-2 justify-end px-5 pb-5 pt-3 border-t border-dark-600 flex-wrap">
@@ -55,12 +55,12 @@ const T = {
 const Forms = {
   _transactionCurrencies() {
     return [
-      { code: 'ARS', label: 'AR$', rateKey: null },
-      { code: 'USD_CARD', label: 'USD CARD', rateKey: 'usd_card_ars' },
-      { code: 'USD_BUY', label: 'USD BUY', rateKey: 'usd_official_buy_ars' },
-      { code: 'USD_SELL', label: 'USD SELL', rateKey: 'usd_official_sell_ars' },
-      { code: 'BLUE_BUY', label: 'BLUE BUY', rateKey: 'usd_blue_buy_ars' },
-      { code: 'BLUE_SELL', label: 'BLUE SELL', rateKey: 'usd_blue_sell_ars' },
+      { code: 'ARS', label: 'AR$', rateKey: null, originalCurrency: 'ARS', fxSource: null },
+      { code: 'USD_CARD', label: 'USD CARD', rateKey: 'usd_card_ars', originalCurrency: 'USD', fxSource: 'USD_CARD' },
+      { code: 'USD_BUY', label: 'USD BUY', rateKey: 'usd_official_buy_ars', originalCurrency: 'USD', fxSource: 'USD_BUY' },
+      { code: 'USD_SELL', label: 'USD SELL', rateKey: 'usd_official_sell_ars', originalCurrency: 'USD', fxSource: 'USD_SELL' },
+      { code: 'BLUE_BUY', label: 'BLUE BUY', rateKey: 'usd_blue_buy_ars', originalCurrency: 'USD', fxSource: 'BLUE_BUY' },
+      { code: 'BLUE_SELL', label: 'BLUE SELL', rateKey: 'usd_blue_sell_ars', originalCurrency: 'USD', fxSource: 'BLUE_SELL' },
     ];
   },
 
@@ -73,15 +73,16 @@ const Forms = {
     return `f-currency-${currency.toLowerCase().replace(/_/g, '-')}`;
   },
 
-  _transactionAmountField() {
+  _transactionAmountField(opts = {}) {
+    const selected = this._transactionCurrencyMeta(opts.currency || 'ARS').code;
     const buttons = this._transactionCurrencies().map(option => `
       <button ${htmlAttrs({
         type: 'button',
         id: this._transactionCurrencyButtonId(option.code),
         'data-form-action': 'set-amount-currency',
         'data-currency': option.code,
-        'aria-pressed': option.code === 'ARS',
-        class: `flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${option.code === 'ARS'
+        'aria-pressed': option.code === selected,
+        class: `flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${option.code === selected
           ? 'bg-blue-600 text-white shadow-sm'
           : 'text-dark-400 hover:text-dark-200 hover:bg-dark-700/80'}`,
       })}>
@@ -95,15 +96,16 @@ const Forms = {
             ${buttons}
           </div>
         </div>
-        <input id="f-amount-currency" type="hidden" value="ARS">
+        <input id="f-amount-currency" type="hidden" value="${selected}">
       </div>
       ${T.input('f-amount', {
-        type: 'number', step: '0.01', min: '0.01', ph: '0.00', auto: true,
+        type: 'number', step: '0.01', min: '0.01', ph: t('form.placeholder.amount'), auto: opts.auto !== false,
+        val: opts.value,
         inputmode: 'decimal',
         cls: '!text-[22px] !font-bold !text-center !text-ingreso !tracking-tight'
       })}
       <div id="f-amount-currency-note" class="mt-2 text-[11px] text-dark-500">
-        ${escapeHtml(t('form.amount_currency_help_ars'))}
+        ${escapeHtml(this._amountCurrencyHelp(selected, opts.rate))}
       </div>`;
   },
 
@@ -197,6 +199,35 @@ const Forms = {
     return Math.round(rawAmount * rate * 100) / 100;
   },
 
+  async _buildTransactionPayload(rawAmount) {
+    const currency = this._selectedAmountCurrency();
+    const meta = this._transactionCurrencyMeta(currency);
+
+    if (meta.originalCurrency === 'ARS') {
+      return {
+        original_amount: rawAmount,
+        original_currency: 'ARS',
+        fx_source: null,
+      };
+    }
+
+    const rate = await this._resolveCurrencyRate(currency);
+    if (!rate) {
+      Toast.show(this._missingCurrencyRateMessage(currency), 'err');
+      return null;
+    }
+
+    return {
+      original_amount: rawAmount,
+      original_currency: meta.originalCurrency,
+      fx_source: meta.fxSource,
+    };
+  },
+
+  _transactionSelectionFromTx(tx) {
+    return tx.fx_source || tx.original_currency || 'ARS';
+  },
+
   _focusTransactionAmount() {
     const input = document.getElementById('f-amount');
     input?.focus();
@@ -247,8 +278,8 @@ const Forms = {
     const acc = State.accounts.find(a => a.id === accId);
     if (!acc) return;
     Modal.open(T.modalShell(`💰 ${t('form.initial_balance')} — ${escapeHtml(acc.name)}`, `
-      <p class="text-dark-400 text-sm mb-4">
-        El saldo inicial es el punto de partida antes de registrar transacciones.
+      <p data-modal-description class="text-dark-400 text-sm mb-4">
+        ${t('form.initial_balance_help')}
       </p>
       ${T.group(t('form.label.initial_bal'), T.input('f-initial', {
         type: 'number', step: '0.01', val: acc.initial_balance,
@@ -259,14 +290,18 @@ const Forms = {
   },
 
   /* ── Eliminar cuenta ──────────────────────────────────────────── */
-  deleteAccount(accId) {
+  async deleteAccount(accId) {
     const acc = State.accounts.find(a => a.id === accId);
     if (!acc) return;
-    Modal.open(T.modalShell('<span class="text-pasivo">🗑 Eliminar Cuenta</span>', `
-      <p class="text-sm mb-2">¿Eliminar la cuenta <strong class="text-dark-100">${escapeHtml(acc.name)}</strong>?</p>
-      <p class="text-dark-400 text-xs">Solo se puede eliminar si no tiene transacciones registradas.</p>
-    `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
-      + T.btnDanger(t('btn.delete'), { 'data-form-action': 'delete-account', 'data-account-id': accId })));
+    const confirmed = await Dialog.confirm({
+      title: t('form.delete_account'),
+      message: t('form.delete_account_confirm', { name: acc.name }),
+      confirmLabel: t('btn.delete'),
+      cancelLabel: t('btn.cancel'),
+      submitTone: 'danger',
+    });
+    if (!confirmed) return;
+    await this._deleteAccount(accId);
   },
 
   /* ── Nueva transacción (drag & drop) ─────────────────────────── */
@@ -280,13 +315,13 @@ const Forms = {
     Modal.open(T.modalShell(`💸 ${t('form.new_transaction')}`, `
       <div class="flex items-center gap-3 bg-dark-700 rounded-xl p-3 mb-5">
         <div class="flex-1 text-center min-w-0">
-          <div class="text-[10px] text-dark-400 uppercase tracking-wide mb-1">Origen (acreditada)</div>
+          <div class="text-[10px] text-dark-400 uppercase tracking-wide mb-1">${t('form.transaction.source')}</div>
           <div class="text-sm font-semibold text-dark-100 truncate">${escapeHtml(credit.name)}</div>
           <div class="text-[11px] text-dark-400">${escapeHtml(credit.type_name)}</div>
         </div>
         <div class="text-2xl text-gasto shrink-0">→</div>
         <div class="flex-1 text-center min-w-0">
-          <div class="text-[10px] text-dark-400 uppercase tracking-wide mb-1">Destino (debitada)</div>
+          <div class="text-[10px] text-dark-400 uppercase tracking-wide mb-1">${t('form.transaction.destination')}</div>
           <div class="text-sm font-semibold text-dark-100 truncate">${escapeHtml(debit.name)}</div>
           <div class="text-[11px] text-dark-400">${escapeHtml(debit.type_name)}</div>
         </div>
@@ -332,7 +367,7 @@ const Forms = {
             'data-subtype-id': s.id,
             class: 'inline-flex items-center gap-1 text-xs px-3 py-1.5 border border-dark-600 rounded-md text-dark-400 hover:text-dark-100 hover:bg-dark-600 bg-transparent cursor-pointer font-sans mr-2',
           })}
-            ✏️ Editar
+            ${t('btn.edit')}
           </button>
           <button ${htmlAttrs({
             type: 'button',
@@ -340,7 +375,7 @@ const Forms = {
             'data-subtype-id': s.id,
             class: 'inline-flex items-center gap-1 text-xs px-3 py-1.5 border border-red-900/40 rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-900/20 bg-transparent cursor-pointer font-sans',
           })}>
-            🗑 Borrar
+            ${t('btn.delete')}
           </button>
         </td>
       </tr>`).join('');
@@ -362,30 +397,32 @@ const Forms = {
       </div>
 
       <div class="bg-dark-700/50 rounded-xl p-4 border border-dark-600/60">
-        <p class="text-xs text-dark-400 mb-3 font-semibold uppercase tracking-wide">＋ Agregar subtipo</p>
+        <p class="text-xs text-dark-400 mb-3 font-semibold uppercase tracking-wide">${t('form.subtype.add_title')}</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           ${T.select('new-st-type', typeOpts)}
           ${T.input('new-st-name', { ph: t('form.placeholder.name'), auto: true })}
         </div>
       </div>
     `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
-      + T.btnSuccess('＋ Agregar', { 'data-form-action': 'add-subtype' })), { wide: true });
+      + T.btnSuccess(t('btn.add'), { 'data-form-action': 'add-subtype' })), { wide: true });
   },
 
   /* ── Editar transacción (desde txlist) ───────────────────────── */
   editTransaction(tx) {
     const dtLocal = tx.date.replace(' ', 'T').slice(0, 16);
-    Modal.open(T.modalShell(`✏️ Transacción #${tx.id}`, `
+    const selectedCurrency = this._transactionSelectionFromTx(tx);
+    Modal.open(T.modalShell(`${t('form.edit_transaction')} #${tx.id}`, `
       <div class="flex items-center gap-3 bg-dark-700 rounded-xl p-3 mb-5">
-        <div class="flex-1 text-center"><div class="text-xs text-dark-400 mb-1">Acreditada</div>
+        <div class="flex-1 text-center"><div class="text-xs text-dark-400 mb-1">${t('report.col.credited')}</div>
           <div class="text-sm font-semibold text-dark-100">${escapeHtml(tx.credit_name)}</div></div>
         <div class="text-2xl text-gasto">→</div>
-        <div class="flex-1 text-center"><div class="text-xs text-dark-400 mb-1">Debitada</div>
+        <div class="flex-1 text-center"><div class="text-xs text-dark-400 mb-1">${t('report.col.debited')}</div>
           <div class="text-sm font-semibold text-dark-100">${escapeHtml(tx.debit_name)}</div></div>
       </div>
-      ${T.group(t('form.label.amount'), T.input('f-amount', {
-        type: 'number', step: '0.01', val: tx.amount,
-        cls: '!text-[22px] !font-bold !text-center !text-ingreso !tracking-tight'
+      ${T.group(t('form.label.amount'), this._transactionAmountField({
+        value: tx.original_amount ?? tx.amount,
+        currency: selectedCurrency,
+        rate: tx.fx_rate,
       }))}
       ${T.group(t('form.label.description'), T.input('f-desc', { val: tx.description || '' }))}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: dtLocal }))}
@@ -448,13 +485,19 @@ const Forms = {
     const date   = document.getElementById('f-date')?.value?.replace('T', ' ');
     if (!rawAmount || rawAmount <= 0) return Toast.show(t('msg.invalid_amount'), 'err');
 
-    const amount = await this._normalizeTransactionAmount(rawAmount);
-    if (!amount || amount <= 0) return;
+    const txPayload = await this._buildTransactionPayload(rawAmount);
+    if (!txPayload) return;
 
     try {
-      await API.post('/transactions', { debit_account: debitId, credit_account: creditId, amount, description: desc, date });
+      const created = await API.post('/transactions', {
+        debit_account: debitId,
+        credit_account: creditId,
+        description: desc,
+        date,
+        ...txPayload,
+      });
       State.recordUsage(creditId); State.recordUsage(debitId);
-      Modal.close(); Toast.show(t('msg.tx_registered', { amount: fmt(amount) })); await View.refresh();
+      Modal.close(); Toast.show(t('msg.tx_registered', { amount: fmt(created.amount) })); await View.refresh();
     } catch (e) { Toast.show(e.message, 'err'); }
   },
 
@@ -467,22 +510,33 @@ const Forms = {
     if (!rawAmount || rawAmount <= 0)  return Toast.show(t('msg.invalid_amount'), 'err');
     if (creditId === debitId)    return Toast.show(t('msg.same_account'), 'err');
 
-    const amount = await this._normalizeTransactionAmount(rawAmount);
-    if (!amount || amount <= 0) return;
+    const txPayload = await this._buildTransactionPayload(rawAmount);
+    if (!txPayload) return;
 
     try {
-      await API.post('/transactions', { debit_account: debitId, credit_account: creditId, amount, description: desc, date });
+      const created = await API.post('/transactions', {
+        debit_account: debitId,
+        credit_account: creditId,
+        description: desc,
+        date,
+        ...txPayload,
+      });
       State.recordUsage(creditId); State.recordUsage(debitId);
-      Modal.close(); Toast.show(t('msg.tx_registered', { amount: fmt(amount) })); await View.refresh();
+      Modal.close(); Toast.show(t('msg.tx_registered', { amount: fmt(created.amount) })); await View.refresh();
     } catch (e) { Toast.show(e.message, 'err'); }
   },
 
   async _updateTransaction(txId) {
-    const amount = parseFloat(document.getElementById('f-amount')?.value);
+    const rawAmount = parseFloat(document.getElementById('f-amount')?.value);
     const desc   = document.getElementById('f-desc')?.value;
     const date   = document.getElementById('f-date')?.value?.replace('T', ' ');
+    if (!rawAmount || rawAmount <= 0) return Toast.show(t('msg.invalid_amount'), 'err');
+
+    const txPayload = await this._buildTransactionPayload(rawAmount);
+    if (!txPayload) return;
+
     try {
-      await API.put(`/transactions/${txId}`, { amount, description: desc, date });
+      await API.put(`/transactions/${txId}`, { description: desc, date, ...txPayload });
       Modal.close(); Toast.show(t('msg.tx_updated')); await View.refresh();
     } catch (e) { Toast.show(e.message, 'err'); }
   },

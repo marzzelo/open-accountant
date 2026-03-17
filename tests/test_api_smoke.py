@@ -139,12 +139,20 @@ def test_init_db_migrates_legacy_accounts_table_without_balance_column(isolated_
         columns = {
             row[1] for row in conn.execute("PRAGMA table_info(accounts)").fetchall()
         }
+        tx_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()
+        }
         legacy_cash = conn.execute(
             "SELECT name, initial_balance, properties FROM accounts WHERE id = 1"
         ).fetchone()
+        legacy_tx = conn.execute(
+            "SELECT amount, original_amount, original_currency, fx_rate, fx_source FROM transactions WHERE id = 1"
+        ).fetchone()
 
     assert "balance" not in columns
+    assert {"original_amount", "original_currency", "fx_rate", "fx_source"} <= tx_columns
     assert legacy_cash == ("Legacy Cash", 50.0, "{}")
+    assert legacy_tx == (75.0, 75.0, "ARS", 1.0, None)
 
     from main import app
     from fastapi.testclient import TestClient
@@ -184,6 +192,31 @@ def test_reports_and_csv_export_work_for_basic_journal_flow(client):
     assert "Monthly salary" in body
     assert "Bank" in body
     assert "Salary" in body
+
+
+def test_create_transaction_persists_fx_traceability_fields(client):
+    app_config.set_value("finance", "usd_official_buy_ars", "1100.00")
+    accounts = _accounts_by_name(client)
+
+    tx_response = client.post(
+        "/api/transactions",
+        json={
+            "debit_account": accounts["Bank"]["id"],
+            "credit_account": accounts["Salary"]["id"],
+            "original_amount": 10.0,
+            "original_currency": "USD",
+            "fx_source": "USD_BUY",
+            "description": "Salary in USD",
+        },
+    )
+    assert tx_response.status_code == 201
+
+    payload = tx_response.json()
+    assert payload["amount"] == 11000.0
+    assert payload["original_amount"] == 10.0
+    assert payload["original_currency"] == "USD"
+    assert payload["fx_rate"] == 1100.0
+    assert payload["fx_source"] == "USD_BUY"
 
 
 def test_list_accounts_returns_recent_movements_and_monthly_history(client):
