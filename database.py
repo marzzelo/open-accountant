@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS accounts (
     subtype_id      INTEGER REFERENCES subtypes(id) ON DELETE SET NULL,
     description     TEXT NOT NULL DEFAULT '',
     initial_balance REAL NOT NULL DEFAULT 0.0,
-    balance         REAL NOT NULL DEFAULT 0.0,
     properties      TEXT NOT NULL DEFAULT '{}',
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
@@ -131,11 +130,44 @@ def get_db():
 
 
 def balance_delta(type_id: int, role: str, amount: float) -> float:
-    """Return the signed delta to apply to account.balance for a transaction."""
+    """Return the signed delta contributed by one transaction leg."""
     if type_id in DEBIT_NORMAL:
         return amount if role == "debit" else -amount
     else:
         return -amount if role == "debit" else amount
+
+
+def compute_balance(
+    conn,
+    account_id: int,
+    type_id: int,
+    initial_balance: float,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> float:
+    """Recalculate account balance either for all time or for a date range."""
+    params: tuple = (account_id, account_id, account_id, account_id)
+    date_filter = ""
+    if from_date is not None and to_date is not None:
+        date_filter = "\n          AND date BETWEEN ? AND ?"
+        params += (from_date, to_date)
+
+    row = conn.execute(
+        f"""
+        SELECT
+            COALESCE(SUM(CASE WHEN debit_account  = ? THEN amount ELSE 0 END), 0) AS total_debit,
+            COALESCE(SUM(CASE WHEN credit_account = ? THEN amount ELSE 0 END), 0) AS total_credit
+        FROM transactions
+        WHERE (debit_account = ? OR credit_account = ?){date_filter}
+        """,
+        params,
+    ).fetchone()
+
+    td, tc = row["total_debit"], row["total_credit"]
+    if type_id in DEBIT_NORMAL:
+        return initial_balance + td - tc
+    else:
+        return initial_balance - td + tc
 
 
 def compute_filtered_balance(
@@ -146,24 +178,56 @@ def compute_filtered_balance(
     from_date: str,
     to_date: str,
 ) -> float:
-    """Recalculate account balance for a date range."""
-    row = conn.execute(
-        """
-        SELECT
-            COALESCE(SUM(CASE WHEN debit_account  = ? THEN amount ELSE 0 END), 0) AS total_debit,
-            COALESCE(SUM(CASE WHEN credit_account = ? THEN amount ELSE 0 END), 0) AS total_credit
-        FROM transactions
-        WHERE (debit_account = ? OR credit_account = ?)
-          AND date BETWEEN ? AND ?
-        """,
-        (account_id, account_id, account_id, account_id, from_date, to_date),
-    ).fetchone()
+    """Backward-compatible helper for date-range balance calculation."""
+    return compute_balance(
+        conn, account_id, type_id, initial_balance, from_date, to_date
+    )
 
-    td, tc = row["total_debit"], row["total_credit"]
-    if type_id in DEBIT_NORMAL:
-        return initial_balance + td - tc
-    else:
-        return initial_balance - td + tc
+
+def _accounts_has_balance_column(conn) -> bool:
+    columns = conn.execute("PRAGMA table_info(accounts)").fetchall()
+    return any(column[1] == "balance" for column in columns)
+
+
+def _drop_legacy_balance_column(conn):
+    if not _accounts_has_balance_column(conn):
+        return
+
+    conn.executescript(
+        """
+        PRAGMA foreign_keys=OFF;
+
+        CREATE TABLE accounts__new (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            name            TEXT NOT NULL UNIQUE,
+            type_id         INTEGER NOT NULL REFERENCES types(id) ON DELETE RESTRICT,
+            subtype_id      INTEGER REFERENCES subtypes(id) ON DELETE SET NULL,
+            description     TEXT NOT NULL DEFAULT '',
+            initial_balance REAL NOT NULL DEFAULT 0.0,
+            properties      TEXT NOT NULL DEFAULT '{}',
+            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        INSERT INTO accounts__new (
+            id, name, type_id, subtype_id, description, initial_balance,
+            properties, created_at, updated_at
+        )
+        SELECT
+            id, name, type_id, subtype_id, description, initial_balance,
+            COALESCE(properties, '{}'),
+            COALESCE(created_at, datetime('now')),
+            COALESCE(updated_at, datetime('now'))
+        FROM accounts;
+
+        DROP TABLE accounts;
+        ALTER TABLE accounts__new RENAME TO accounts;
+
+        CREATE INDEX IF NOT EXISTS idx_acc_type ON accounts(type_id);
+
+        PRAGMA foreign_keys=ON;
+        """
+    )
 
 
 def _serialize_preference(value):
@@ -204,6 +268,7 @@ def init_db():
     app_config.get_db_path().parent.mkdir(parents=True, exist_ok=True)
     with get_db() as conn:
         conn.executescript(SCHEMA)
+        _drop_legacy_balance_column(conn)
         for tid, name in SEED_TYPES:
             conn.execute(
                 "INSERT OR IGNORE INTO types (id, name) VALUES (?, ?)", (tid, name)
@@ -218,7 +283,7 @@ def init_db():
             for name, tid, stid, desc, init_bal in SEED_ACCOUNTS:
                 conn.execute(
                     """INSERT INTO accounts
-                       (name, type_id, subtype_id, description, initial_balance, balance)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (name, tid, stid, desc, init_bal, init_bal),
+                       (name, type_id, subtype_id, description, initial_balance)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (name, tid, stid, desc, init_bal),
                 )

@@ -264,7 +264,7 @@ const Settings = {
     form.append('file', file);
 
     try {
-      const r = await fetch(`${API_BASE}/books/import`, { method: 'POST', body: form });
+      const r = await fetch(buildApiUrl('/books/import'), { method: 'POST', body: form });
       if (!r.ok) {
         const msg = await r.text().catch(() => t('msg.unknown_error'));
         Toast.show(t('msg.import_error', {msg}), 'error');
@@ -313,7 +313,15 @@ const Settings = {
   },
 
   async deleteBook(name) {
-    if (!confirm(t('msg.confirm_delete', {name}))) return;
+    const confirmed = await Dialog.confirm({
+      title: t('btn.delete'),
+      message: t('msg.confirm_delete', {name}),
+      confirmLabel: t('btn.delete'),
+      cancelLabel: t('btn.cancel'),
+      submitTone: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       await this._del(`/books/${name}`);
       Toast.show(`'${name}' eliminada`);
@@ -323,7 +331,7 @@ const Settings = {
 
   backupBook(name) {
     const a = document.createElement('a');
-    a.href = `${API_BASE}/books/${name}/backup`;
+    a.href = buildApiUrl(`/books/${name}/backup`);
     a.download = `${name}.sql`;
     a.click();
     Toast.show(`Descargando respaldo de '${name}'…`);

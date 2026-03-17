@@ -47,6 +47,12 @@ const R = {
       ${label}
     </a>`,
 
+  actionBtn: (label, cls, attrs = {}) => `<button ${htmlAttrs({
+    type: 'button',
+    class: cls,
+    ...attrs,
+  })}>${label}</button>`,
+
   amt: v => `<span class="font-mono">${fmt(v)}</span>`,
 };
 
@@ -59,6 +65,10 @@ const Reports = {
     journal: 'desc',
     ledger: 'desc',
     txlist: 'desc',
+  },
+
+  _downloadUrl(path) {
+    return buildApiUrl(path);
   },
 
   _isZeroBalance(value) {
@@ -88,11 +98,14 @@ const Reports = {
   _sortToggleButton(view) {
     const dir = this.dateSort[view] || 'desc';
     const arrow = dir === 'asc' ? '↑' : '↓';
-    return `<button type="button"
-                    onclick="Reports.toggleDateSort('${view}')"
-                    class="tbtn px-3 py-2 text-xs"
-                    title="${t('report.col.date')} ${arrow}"
-                    aria-label="${t('report.col.date')} ${arrow}">
+    return `<button ${htmlAttrs({
+                    type: 'button',
+                    'data-report-action': 'toggle-sort',
+                    'data-view': view,
+                    class: 'tbtn px-3 py-2 text-xs',
+                    title: `${t('report.col.date')} ${arrow}`,
+                    'aria-label': `${t('report.col.date')} ${arrow}`,
+                  })}>
               ${t('report.col.date')} ${arrow}
             </button>`;
   },
@@ -179,7 +192,7 @@ const Reports = {
         <input type="checkbox"
                class="h-3.5 w-3.5 rounded border-dark-500 bg-dark-700 text-blue-500 focus:ring-blue-500/40"
                ${State.showZeroBalanceItems ? 'checked' : ''}
-               onchange="Reports.toggleZeroBalanceItems(this.checked)">
+           data-report-change="toggle-zero-balance">
         <span>${t('report.show_zero_balance_items')}</span>
       </label>
 
@@ -201,8 +214,8 @@ const Reports = {
       </div>
 
       <div class="flex gap-2 flex-wrap">
-        ${R.btn('⬇ CSV', `http://localhost:5001/api/reports/export/csv?report=balance&from=${expFrom}&to=${expTo}`, true)}
-        ${R.btn('⬇ PDF', `http://localhost:5001/api/reports/export/pdf?report=balance&from=${expFrom}&to=${expTo}`, true)}
+        ${R.btn('⬇ CSV', this._downloadUrl(`/reports/export/csv?report=balance&from=${expFrom}&to=${expTo}`), true)}
+        ${R.btn('⬇ PDF', this._downloadUrl(`/reports/export/pdf?report=balance&from=${expFrom}&to=${expTo}`), true)}
       </div>`
     );
   },
@@ -230,21 +243,22 @@ const Reports = {
 
     const rows = sorted.map(r => R.row([
       { v: `<span class="font-mono text-xs">${r.date.slice(0,16)}</span>` },
-      { v: r.debit_name },
-      { v: `<span class="text-dark-400">${r.credit_name}</span>` },
+      { v: escapeHtml(r.debit_name) },
+      { v: `<span class="text-dark-400">${escapeHtml(r.credit_name)}</span>` },
       { v: R.amt(r.amount), cls: 'text-right' },
-      { v: `<span class="text-dark-400">${r.description || ''}</span>` },
-      { v: `<button onclick="Reports._deleteTx(${r.id})"
-                    class="text-xs px-2 py-1 border border-pasivo/30 rounded text-pasivo/60
-                           hover:text-pasivo bg-transparent cursor-pointer font-sans">🗑</button>` },
+      { v: `<span class="text-dark-400">${escapeHtml(r.description || '')}</span>` },
+      { v: R.actionBtn('🗑', 'text-xs px-2 py-1 border border-pasivo/30 rounded text-pasivo/60 hover:text-pasivo bg-transparent cursor-pointer font-sans', {
+        'data-report-action': 'delete-tx',
+        'data-tx-id': r.id,
+      }) },
     ])).join('');
 
     main.innerHTML = R.view(`📒 ${t('report.journal')}`,
       `${sorted.length} transacciones · ${expFrom} → ${expTo}`,
       `<div class="flex gap-2 flex-wrap mb-4">
          ${this._sortToggleButton('journal')}
-         ${R.btn('⬇ CSV', `http://localhost:5001/api/reports/export/csv?report=journal&from=${expFrom}&to=${expTo}`, true)}
-         ${R.btn('⬇ PDF', `http://localhost:5001/api/reports/export/pdf?report=journal&from=${expFrom}&to=${expTo}`, true)}
+         ${R.btn('⬇ CSV', this._downloadUrl(`/reports/export/csv?report=journal&from=${expFrom}&to=${expTo}`), true)}
+         ${R.btn('⬇ PDF', this._downloadUrl(`/reports/export/pdf?report=journal&from=${expFrom}&to=${expTo}`), true)}
        </div>` +
       R.table(
         [{label:t('report.col.date')},{label:t('report.col.debit')},{label:t('report.col.credit')},
@@ -261,7 +275,7 @@ const Reports = {
     if (!accId) { main.innerHTML = '<div class="text-dark-500 text-center py-16">Sin cuentas</div>'; return; }
 
     const opts    = State.accounts.map(a =>
-      `<option value="${a.id}" ${a.id === accId ? 'selected' : ''}>${a.name} (${a.type_name})</option>`
+      `<option value="${a.id}" ${a.id === accId ? 'selected' : ''}>${escapeHtml(a.name)} (${escapeHtml(a.type_name)})</option>`
     ).join('');
     const data    = await API.get(`/reports/ledger/${accId}` + State.apiDateParams);
     const expFrom = State.filterFrom || `${new Date().getFullYear()}-01-01`;
@@ -270,8 +284,8 @@ const Reports = {
 
     const rows = entries.map(e => R.row([
       { v: `<span class="font-mono text-xs">${e.date.slice(0,16)}</span>` },
-      { v: e.description },
-      { v: `<span class="text-dark-400">${e.counterpart}</span>` },
+      { v: escapeHtml(e.description || '') },
+      { v: `<span class="text-dark-400">${escapeHtml(e.counterpart || '')}</span>` },
       { v: e.debit  ? R.amt(e.debit)  : '', cls: 'text-right' },
       { v: e.credit ? R.amt(e.credit) : '', cls: 'text-right' },
       { v: `<span class="font-semibold">${R.amt(e.balance)}</span>`, cls: 'text-right' },
@@ -279,16 +293,17 @@ const Reports = {
 
     main.innerHTML = R.view(`📖 ${t('report.ledger')}`, `${entries.length} movimientos`, `
       <div class="flex flex-wrap items-center gap-3 mb-4">
-        <select onchange="State._ledgerAccount=parseInt(this.value);Reports.ledger()"
-                class="bg-dark-700 border border-dark-600 rounded-lg text-dark-300
-                       text-sm px-3 py-2 font-sans outline-none focus:border-blue-500 cursor-pointer">
+        <select ${htmlAttrs({
+          'data-report-change': 'ledger-account',
+          class: 'bg-dark-700 border border-dark-600 rounded-lg text-dark-300 text-sm px-3 py-2 font-sans outline-none focus:border-blue-500 cursor-pointer',
+        })}>
           ${opts}
         </select>
         ${this._sortToggleButton('ledger')}
         <span class="text-sm text-dark-400">${t('report.opening')}: <strong class="text-dark-300">${fmt(data.opening_balance)}</strong></span>
         <span class="text-sm text-dark-400">${t('report.closing')}: <strong class="text-dark-300">${fmt(data.closing_balance)}</strong></span>
-        ${R.btn('⬇ CSV', `http://localhost:5001/api/reports/export/csv?report=ledger&account_id=${accId}&from=${expFrom}&to=${expTo}`, true)}
-        ${R.btn('⬇ PDF', `http://localhost:5001/api/reports/export/pdf?report=ledger&account_id=${accId}&from=${expFrom}&to=${expTo}`, true)}
+        ${R.btn('⬇ CSV', this._downloadUrl(`/reports/export/csv?report=ledger&account_id=${accId}&from=${expFrom}&to=${expTo}`), true)}
+        ${R.btn('⬇ PDF', this._downloadUrl(`/reports/export/pdf?report=ledger&account_id=${accId}&from=${expFrom}&to=${expTo}`), true)}
       </div>` +
       R.table(
         [{label:t('report.col.date')},{label:t('report.col.description')},{label:t('report.col.account')},
@@ -307,17 +322,19 @@ const Reports = {
 
     const rows = sorted.map(tx => R.row([
       { v: `<span class="font-mono text-xs">${tx.date.slice(0,16)}</span>` },
-      { v: tx.debit_name },
-      { v: `<span class="text-dark-400">${tx.credit_name}</span>` },
+      { v: escapeHtml(tx.debit_name) },
+      { v: `<span class="text-dark-400">${escapeHtml(tx.credit_name)}</span>` },
       { v: R.amt(tx.amount), cls: 'text-right' },
-      { v: `<span class="text-dark-400 text-xs">${tx.description || ''}</span>` },
+      { v: `<span class="text-dark-400 text-xs">${escapeHtml(tx.description || '')}</span>` },
       { v: `
-        <button onclick="Reports._editTx(${tx.id})"
-                class="text-xs px-2 py-1 border border-dark-600 rounded text-dark-400
-                       hover:text-dark-300 bg-transparent cursor-pointer font-sans mr-1">✏️</button>
-        <button onclick="Reports._deleteTx(${tx.id})"
-                class="text-xs px-2 py-1 border border-pasivo/30 rounded text-pasivo/60
-                       hover:text-pasivo bg-transparent cursor-pointer font-sans">🗑</button>` }
+        ${R.actionBtn('✏️', 'text-xs px-2 py-1 border border-dark-600 rounded text-dark-400 hover:text-dark-300 bg-transparent cursor-pointer font-sans mr-1', {
+          'data-report-action': 'edit-tx',
+          'data-tx-id': tx.id,
+        })}
+        ${R.actionBtn('🗑', 'text-xs px-2 py-1 border border-pasivo/30 rounded text-pasivo/60 hover:text-pasivo bg-transparent cursor-pointer font-sans', {
+          'data-report-action': 'delete-tx',
+          'data-tx-id': tx.id,
+        })}` }
     ])).join('');
 
     main.innerHTML = R.view(`🔁 ${t('nav.transactions')}`, `${sorted.length} registros`,
@@ -338,7 +355,15 @@ const Reports = {
 
   /* ── Privados ─────────────────────────────────────────────────── */
   async _deleteTx(txId) {
-    if (!confirm(`¿Eliminar transacción #${txId}?`)) return;
+    const confirmed = await Dialog.confirm({
+      title: t('btn.delete'),
+      message: t('msg.confirm_delete', { name: `#${txId}` }),
+      confirmLabel: t('btn.delete'),
+      cancelLabel: t('btn.cancel'),
+      submitTone: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       await API.del(`/transactions/${txId}`);
       Toast.show(t('msg.tx_deleted')); await View.refresh();
@@ -350,3 +375,45 @@ const Reports = {
     Forms.editTransaction(tx);
   },
 };
+
+document.addEventListener('click', event => {
+  const action = event.target.closest('[data-report-action]');
+  if (!action) return;
+
+  const main = document.getElementById('main');
+  if (main && !main.contains(action)) return;
+
+  switch (action.dataset.reportAction) {
+    case 'toggle-sort':
+      Reports.toggleDateSort(action.dataset.view);
+      break;
+    case 'delete-tx':
+      Reports._deleteTx(Number(action.dataset.txId));
+      break;
+    case 'edit-tx':
+      Reports._editTx(Number(action.dataset.txId));
+      break;
+    default:
+      break;
+  }
+});
+
+document.addEventListener('change', event => {
+  const target = event.target.closest('[data-report-change]');
+  if (!target) return;
+
+  const main = document.getElementById('main');
+  if (main && !main.contains(target)) return;
+
+  switch (target.dataset.reportChange) {
+    case 'toggle-zero-balance':
+      Reports.toggleZeroBalanceItems(target.checked);
+      break;
+    case 'ledger-account':
+      State._ledgerAccount = parseInt(target.value, 10);
+      Reports.ledger();
+      break;
+    default:
+      break;
+  }
+});

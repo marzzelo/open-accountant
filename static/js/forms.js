@@ -6,49 +6,50 @@ const T = {
   modalShell: (title, body, footer) => `
     <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-dark-600">
       <span class="text-base font-bold text-dark-100">${title}</span>
-      <button onclick="Modal.close()" class="text-dark-400 hover:text-dark-300 text-xl cursor-pointer border-0 bg-transparent">✕</button>
+      <button type="button" data-modal-close class="text-dark-400 hover:text-dark-300 text-xl cursor-pointer border-0 bg-transparent">✕</button>
     </div>
     <div class="p-5">${body}</div>
     <div class="flex gap-2 justify-end px-5 pb-5 pt-3 border-t border-dark-600 flex-wrap">
       ${footer}
     </div>`,
 
-  input: (id, opts = {}) => `
-    <input id="${id}"
-           class="w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-300
-                  text-sm px-3 py-2.5 font-sans outline-none
-                  focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30
-                  ${opts.cls || ''}"
-           ${opts.type ? `type="${opts.type}"` : ''}
-           ${opts.step ? `step="${opts.step}"` : ''}
-           ${opts.min  ? `min="${opts.min}"` : ''}
-           ${opts.ph   ? `placeholder="${opts.ph}"` : ''}
-           ${opts.val  ? `value="${opts.val}"` : ''}
-           ${opts.auto ? 'autofocus' : ''}
-           ${opts.inputmode ? `inputmode="${opts.inputmode}"` : ''}>`,
+  input: (id, opts = {}) => `<input ${htmlAttrs({
+    id,
+    type: opts.type,
+    step: opts.step,
+    min: opts.min,
+    placeholder: opts.ph,
+    value: opts.val,
+    autofocus: opts.auto || null,
+    inputmode: opts.inputmode,
+    class: `w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-300 text-sm px-3 py-2.5 font-sans outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 ${opts.cls || ''}`.trim(),
+  })}>`,
 
-  select: (id, opts, extra = '') => `
-    <select id="${id}" ${extra}
-            class="w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-300
-                   text-sm px-3 py-2.5 font-sans outline-none
-                   focus:border-blue-500 cursor-pointer">
+  select: (id, opts, attrs = {}) => `
+    <select ${htmlAttrs({
+      id,
+      class: 'w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-300 text-sm px-3 py-2.5 font-sans outline-none focus:border-blue-500 cursor-pointer',
+      ...attrs,
+    })}>
       ${opts}
     </select>`,
 
-  label: txt => `<label class="block text-xs text-dark-400 mb-1.5">${txt}</label>`,
+  label: txt => `<label class="block text-xs text-dark-400 mb-1.5">${escapeHtml(txt)}</label>`,
   group: (label, inner) => `<div class="mb-4">${T.label(label)}${inner}</div>`,
   row2:  (...cols) => `<div class="grid grid-cols-1 sm:grid-cols-${cols.length} gap-3 mb-4">
                          ${cols.map(c => `<div>${c}</div>`).join('')}
                        </div>`,
 
-  btn: (label, cls, action) =>
-    `<button onclick="${action}"
-             class="px-5 py-2 rounded-lg text-sm font-medium font-sans cursor-pointer
-                    transition-all border ${cls}">${label}</button>`,
-  btnGhost:   (label, action) => T.btn(label, 'border-dark-600 text-dark-400 hover:text-dark-300 hover:bg-dark-700 bg-transparent', action),
-  btnPrimary: (label, action) => T.btn(label, 'bg-blue-600 hover:bg-blue-500 text-white border-blue-600', action),
-  btnSuccess: (label, action) => T.btn(label, 'bg-emerald-700 hover:bg-emerald-600 text-white border-emerald-700', action),
-  btnDanger:  (label, action) => T.btn(label, 'bg-red-900/30 hover:bg-red-900/50 text-pasivo border-pasivo/30', action),
+  btn: (label, cls, attrs = {}) =>
+    `<button ${htmlAttrs({
+      type: 'button',
+      class: `px-5 py-2 rounded-lg text-sm font-medium font-sans cursor-pointer transition-all border ${cls}`,
+      ...attrs,
+    })}>${label}</button>`,
+  btnGhost:   (label, attrs) => T.btn(label, 'border-dark-600 text-dark-400 hover:text-dark-300 hover:bg-dark-700 bg-transparent', attrs),
+  btnPrimary: (label, attrs) => T.btn(label, 'bg-blue-600 hover:bg-blue-500 text-white border-blue-600', attrs),
+  btnSuccess: (label, attrs) => T.btn(label, 'bg-emerald-700 hover:bg-emerald-600 text-white border-emerald-700', attrs),
+  btnDanger:  (label, attrs) => T.btn(label, 'bg-red-900/30 hover:bg-red-900/50 text-pasivo border-pasivo/30', attrs),
 };
 
 const Forms = {
@@ -74,12 +75,16 @@ const Forms = {
 
   _transactionAmountField() {
     const buttons = this._transactionCurrencies().map(option => `
-      <button type="button" id="${this._transactionCurrencyButtonId(option.code)}"
-              onclick="Forms._setAmountCurrency('${option.code}')"
-              class="flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors
-                     ${option.code === 'ARS'
-                       ? 'bg-blue-600 text-white shadow-sm'
-                       : 'text-dark-400 hover:text-dark-200 hover:bg-dark-700/80'}">
+      <button ${htmlAttrs({
+        type: 'button',
+        id: this._transactionCurrencyButtonId(option.code),
+        'data-form-action': 'set-amount-currency',
+        'data-currency': option.code,
+        'aria-pressed': option.code === 'ARS',
+        class: `flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${option.code === 'ARS'
+          ? 'bg-blue-600 text-white shadow-sm'
+          : 'text-dark-400 hover:text-dark-200 hover:bg-dark-700/80'}`,
+      })}>
         ${option.label}
       </button>`).join('');
 
@@ -202,17 +207,18 @@ const Forms = {
 
   /* ── Nueva cuenta ─────────────────────────────────────────────── */
   newAccount() {
-    const typeOpts = State.types.map(t =>
-      `<option value="${t.id}">${t.name}</option>`).join('');
+    const typeOpts = State.types.map(type =>
+      `<option value="${type.id}">${escapeHtml(type.name)}</option>`).join('');
     Modal.open(T.modalShell(t('form.new_account'), `
-      ${T.group(`${t('form.label.name')} *`, T.input('f-name', { ph: 'Ej: Banco Galicia', auto: true }))}
+      ${T.group(`${t('form.label.name')} *`, T.input('f-name', { ph: t('form.placeholder.name'), auto: true }))}
       ${T.row2(
-        T.label(`${t('form.label.type')} *`) + T.select('f-type', `<option value="">${t('form.select_placeholder')}</option>` + typeOpts, 'onchange="Forms._loadSubtypes()"'),
+        T.label(`${t('form.label.type')} *`) + T.select('f-type', `<option value="">${t('form.select_placeholder')}</option>` + typeOpts, { 'data-form-change': 'load-subtypes' }),
         T.label(t('form.label.subtype'))  + T.select('f-subtype', `<option value="">${t('form.select_type')}</option>`)
       )}
       ${T.group(t('form.label.initial_bal'), T.input('f-initial', { type: 'number', step: '0.01', val: '0' }))}
-      ${T.group(t('form.label.description'), T.input('f-desc', { ph: 'Opcional' }))}
-    `, T.btnGhost('Cancelar', 'Modal.close()') + T.btnSuccess('Crear cuenta', 'Forms._saveAccount()')));
+      ${T.group(t('form.label.description'), T.input('f-desc', { ph: t('form.placeholder.desc') }))}
+    `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
+      + T.btnSuccess(t('btn.create'), { 'data-form-action': 'save-account' })));
   },
 
   /* ── Editar cuenta ────────────────────────────────────────────── */
@@ -221,25 +227,26 @@ const Forms = {
     if (!acc) return;
     const subs = State.subtypes.filter(s => s.type_id === acc.type_id);
     const subOpts = `<option value="">${t('form.no_subtype')}</option>` +
-      subs.map(s => `<option value="${s.id}" ${s.id === acc.subtype_id ? 'selected' : ''}>${s.name}</option>`).join('');
+      subs.map(s => `<option value="${s.id}" ${s.id === acc.subtype_id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
 
-    Modal.open(T.modalShell(`✏️ Editar — ${acc.name}`, `
+    Modal.open(T.modalShell(`✏️ ${t('form.edit_account')} — ${escapeHtml(acc.name)}`, `
       ${T.group(t('form.label.name'), T.input('f-name', { val: acc.name }))}
       ${T.row2(
-        T.label(t('form.label.type')) + `<input value="${acc.type_name}" disabled
+        T.label(t('form.label.type')) + `<input value="${escapeHtml(acc.type_name)}" disabled
                  class="w-full bg-dark-700/50 border border-dark-600 rounded-lg text-dark-500
                         text-sm px-3 py-2.5 cursor-not-allowed">`,
-        T.label('Subtipo') + T.select('f-subtype', subOpts)
+        T.label(t('form.label.subtype')) + T.select('f-subtype', subOpts)
       )}
       ${T.group(t('form.label.description'), T.input('f-desc', { val: acc.description || '' }))}
-    `, T.btnGhost('Cancelar', 'Modal.close()') + T.btnPrimary('Guardar', `Forms._updateAccount(${accId})`)));
+    `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
+      + T.btnPrimary(t('btn.save'), { 'data-form-action': 'update-account', 'data-account-id': accId })));
   },
 
   /* ── Saldo inicial ────────────────────────────────────────────── */
   async initialBalance(accId) {
     const acc = State.accounts.find(a => a.id === accId);
     if (!acc) return;
-    Modal.open(T.modalShell(`💰 ${t('form.initial_balance')} — ${acc.name}`, `
+    Modal.open(T.modalShell(`💰 ${t('form.initial_balance')} — ${escapeHtml(acc.name)}`, `
       <p class="text-dark-400 text-sm mb-4">
         El saldo inicial es el punto de partida antes de registrar transacciones.
       </p>
@@ -247,7 +254,8 @@ const Forms = {
         type: 'number', step: '0.01', val: acc.initial_balance,
         cls: '!text-2xl !font-bold !text-center !text-ingreso !tracking-tight'
       }))}
-    `, T.btnGhost('Cancelar', 'Modal.close()') + T.btnPrimary('Guardar', `Forms._saveInitialBalance(${accId})`)));
+    `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
+      + T.btnPrimary(t('btn.save'), { 'data-form-action': 'save-initial-balance', 'data-account-id': accId })));
   },
 
   /* ── Eliminar cuenta ──────────────────────────────────────────── */
@@ -255,9 +263,10 @@ const Forms = {
     const acc = State.accounts.find(a => a.id === accId);
     if (!acc) return;
     Modal.open(T.modalShell('<span class="text-pasivo">🗑 Eliminar Cuenta</span>', `
-      <p class="text-sm mb-2">¿Eliminar la cuenta <strong class="text-dark-100">${acc.name}</strong>?</p>
+      <p class="text-sm mb-2">¿Eliminar la cuenta <strong class="text-dark-100">${escapeHtml(acc.name)}</strong>?</p>
       <p class="text-dark-400 text-xs">Solo se puede eliminar si no tiene transacciones registradas.</p>
-    `, T.btnGhost('Cancelar', 'Modal.close()') + T.btnDanger('Eliminar', `Forms._deleteAccount(${accId})`)));
+    `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
+      + T.btnDanger(t('btn.delete'), { 'data-form-action': 'delete-account', 'data-account-id': accId })));
   },
 
   /* ── Nueva transacción (drag & drop) ─────────────────────────── */
@@ -272,21 +281,21 @@ const Forms = {
       <div class="flex items-center gap-3 bg-dark-700 rounded-xl p-3 mb-5">
         <div class="flex-1 text-center min-w-0">
           <div class="text-[10px] text-dark-400 uppercase tracking-wide mb-1">Origen (acreditada)</div>
-          <div class="text-sm font-semibold text-dark-100 truncate">${credit.name}</div>
-          <div class="text-[11px] text-dark-400">${credit.type_name}</div>
+          <div class="text-sm font-semibold text-dark-100 truncate">${escapeHtml(credit.name)}</div>
+          <div class="text-[11px] text-dark-400">${escapeHtml(credit.type_name)}</div>
         </div>
         <div class="text-2xl text-gasto shrink-0">→</div>
         <div class="flex-1 text-center min-w-0">
           <div class="text-[10px] text-dark-400 uppercase tracking-wide mb-1">Destino (debitada)</div>
-          <div class="text-sm font-semibold text-dark-100 truncate">${debit.name}</div>
-          <div class="text-[11px] text-dark-400">${debit.type_name}</div>
+          <div class="text-sm font-semibold text-dark-100 truncate">${escapeHtml(debit.name)}</div>
+          <div class="text-[11px] text-dark-400">${escapeHtml(debit.type_name)}</div>
         </div>
       </div>
       ${T.group(`${t('form.label.amount')} *`, this._transactionAmountField())}
-      ${T.group(t('form.label.description'), T.input('f-desc', { ph: 'Opcional', val: description }))}
+      ${T.group(t('form.label.description'), T.input('f-desc', { ph: t('form.placeholder.desc_tx'), val: description }))}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: now }))}
-    `, T.btnGhost('Cancelar', 'Modal.close()') +
-       T.btnSuccess(t('btn.register'), `Forms._saveTransaction(${creditId},${debitId})`)));
+    `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true }) +
+       T.btnSuccess(t('btn.register'), { 'data-form-action': 'save-transaction', 'data-credit-id': creditId, 'data-debit-id': debitId })));
 
     setTimeout(() => this._focusTransactionAmount(), 80);
   },
@@ -294,39 +303,43 @@ const Forms = {
   /* ── FAB: transacción manual (mobile) ────────────────────────── */
   newTransactionFAB() {
     const opts = State.accounts.map(a =>
-      `<option value="${a.id}">${a.name} (${a.type_name})</option>`).join('');
+      `<option value="${a.id}">${escapeHtml(a.name)} (${escapeHtml(a.type_name)})</option>`).join('');
     const now = localNow();
 
-    Modal.open(T.modalShell('💸 Nueva Transacción', `
+    Modal.open(T.modalShell(`💸 ${t('form.new_transaction')}`, `
       ${T.group(`${t('form.label.amount')} *`, this._transactionAmountField())}
       ${T.group(t('form.label.credit'), T.select('f-credit', opts))}
       ${T.group(t('form.label.debit'),  T.select('f-debit',  opts))}
-      ${T.group(t('form.label.description'), T.input('f-desc', { ph: 'Opcional' }))}
+      ${T.group(t('form.label.description'), T.input('f-desc', { ph: t('form.placeholder.desc_tx') }))}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: now }))}
-    `, T.btnGhost('Cancelar', 'Modal.close()') +
-       T.btnSuccess(t('btn.register'), 'Forms._saveTransactionFAB()')));
+    `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true }) +
+       T.btnSuccess(t('btn.register'), { 'data-form-action': 'save-transaction-fab' })));
 
     setTimeout(() => this._focusTransactionAmount(), 80);
   },
 
   /* ── Gestión de subtipos ──────────────────────────────────────── */
   async subtypeModal() {
-    const typeOpts = State.types.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+    const typeOpts = State.types.map(type => `<option value="${type.id}">${escapeHtml(type.name)}</option>`).join('');
     const rows = State.subtypes.map(s => `
       <tr class="border-b border-dark-600/60 hover:bg-dark-700/50">
-        <td class="px-4 py-3 text-sm text-dark-400 w-[28%]">${s.type_name}</td>
-        <td class="px-4 py-3 text-sm text-dark-100">${s.name}</td>
+        <td class="px-4 py-3 text-sm text-dark-400 w-[28%]">${escapeHtml(s.type_name)}</td>
+        <td class="px-4 py-3 text-sm text-dark-100">${escapeHtml(s.name)}</td>
         <td class="px-4 py-3 text-right whitespace-nowrap w-[120px]">
-          <button onclick="Forms._editSubtype(${s.id})"
-                  class="inline-flex items-center gap-1 text-xs px-3 py-1.5 border border-dark-600
-                         rounded-md text-dark-400 hover:text-dark-100 hover:bg-dark-600
-                         bg-transparent cursor-pointer font-sans mr-2">
+          <button ${htmlAttrs({
+            type: 'button',
+            'data-form-action': 'edit-subtype',
+            'data-subtype-id': s.id,
+            class: 'inline-flex items-center gap-1 text-xs px-3 py-1.5 border border-dark-600 rounded-md text-dark-400 hover:text-dark-100 hover:bg-dark-600 bg-transparent cursor-pointer font-sans mr-2',
+          })}
             ✏️ Editar
           </button>
-          <button onclick="Forms._deleteSubtype(${s.id})"
-                  class="inline-flex items-center gap-1 text-xs px-3 py-1.5 border border-red-900/40
-                         rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-900/20
-                         bg-transparent cursor-pointer font-sans">
+          <button ${htmlAttrs({
+            type: 'button',
+            'data-form-action': 'delete-subtype',
+            'data-subtype-id': s.id,
+            class: 'inline-flex items-center gap-1 text-xs px-3 py-1.5 border border-red-900/40 rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-900/20 bg-transparent cursor-pointer font-sans',
+          })}>
             🗑 Borrar
           </button>
         </td>
@@ -355,7 +368,8 @@ const Forms = {
           ${T.input('new-st-name', { ph: t('form.placeholder.name'), auto: true })}
         </div>
       </div>
-    `, T.btnGhost('Cerrar', 'Modal.close()') + T.btnSuccess('＋ Agregar', 'Forms._addSubtype()')), { wide: true });
+    `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
+      + T.btnSuccess('＋ Agregar', { 'data-form-action': 'add-subtype' })), { wide: true });
   },
 
   /* ── Editar transacción (desde txlist) ───────────────────────── */
@@ -364,10 +378,10 @@ const Forms = {
     Modal.open(T.modalShell(`✏️ Transacción #${tx.id}`, `
       <div class="flex items-center gap-3 bg-dark-700 rounded-xl p-3 mb-5">
         <div class="flex-1 text-center"><div class="text-xs text-dark-400 mb-1">Acreditada</div>
-          <div class="text-sm font-semibold text-dark-100">${tx.credit_name}</div></div>
+          <div class="text-sm font-semibold text-dark-100">${escapeHtml(tx.credit_name)}</div></div>
         <div class="text-2xl text-gasto">→</div>
         <div class="flex-1 text-center"><div class="text-xs text-dark-400 mb-1">Debitada</div>
-          <div class="text-sm font-semibold text-dark-100">${tx.debit_name}</div></div>
+          <div class="text-sm font-semibold text-dark-100">${escapeHtml(tx.debit_name)}</div></div>
       </div>
       ${T.group(t('form.label.amount'), T.input('f-amount', {
         type: 'number', step: '0.01', val: tx.amount,
@@ -375,7 +389,8 @@ const Forms = {
       }))}
       ${T.group(t('form.label.description'), T.input('f-desc', { val: tx.description || '' }))}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: dtLocal }))}
-    `, T.btnGhost('Cancelar', 'Modal.close()') + T.btnPrimary('Guardar', `Forms._updateTransaction(${tx.id})`)));
+    `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
+      + T.btnPrimary(t('btn.save'), { 'data-form-action': 'update-transaction', 'data-tx-id': tx.id })));
   },
 
   /* ── Helpers privados ─────────────────────────────────────────── */
@@ -385,7 +400,7 @@ const Forms = {
     const tid  = typeId || document.getElementById('f-type')?.value;
     const subs = State.subtypes.filter(s => s.type_id == tid);
     sel.innerHTML = `<option value="">${t('form.no_subtype')}</option>` +
-      subs.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+      subs.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
   },
 
   async _saveAccount() {
@@ -487,7 +502,15 @@ const Forms = {
   async _editSubtype(stId) {
     const st = State.subtypes.find(s => s.id === stId);
     if (!st) return;
-    const name = prompt('Nuevo nombre:', st.name);
+    const name = await Dialog.prompt({
+      title: t('btn.rename'),
+      label: t('form.label.name'),
+      value: st.name,
+      placeholder: t('form.placeholder.name'),
+      confirmLabel: t('btn.save'),
+      cancelLabel: t('btn.cancel'),
+      validate: nextValue => nextValue.trim() ? true : t('msg.enter_name'),
+    });
     if (!name?.trim() || name.trim() === st.name) return;
     try {
       await API.put(`/subtypes/${stId}`, { name: name.trim() });
@@ -499,7 +522,17 @@ const Forms = {
 
   async _deleteSubtype(stId) {
     const st = State.subtypes.find(s => s.id === stId);
-    if (!st || !confirm(`¿Eliminar "${st.name}"?`)) return;
+    if (!st) return;
+
+    const confirmed = await Dialog.confirm({
+      title: t('btn.delete'),
+      message: t('msg.confirm_delete', { name: st.name }),
+      confirmLabel: t('btn.delete'),
+      cancelLabel: t('btn.cancel'),
+      submitTone: 'danger',
+    });
+    if (!confirmed) return;
+
     try {
       await API.del(`/subtypes/${stId}`);
       State.subtypes = await API.get('/subtypes');
@@ -508,3 +541,61 @@ const Forms = {
     } catch (e) { Toast.show(e.message, 'err'); }
   },
 };
+
+document.addEventListener('click', event => {
+  const action = event.target.closest('[data-form-action]');
+  if (!action) return;
+
+  const modalContent = document.getElementById('modal-content');
+  if (modalContent && !modalContent.contains(action)) return;
+
+  switch (action.dataset.formAction) {
+    case 'set-amount-currency':
+      Forms._setAmountCurrency(action.dataset.currency);
+      break;
+    case 'save-account':
+      Forms._saveAccount();
+      break;
+    case 'update-account':
+      Forms._updateAccount(Number(action.dataset.accountId));
+      break;
+    case 'save-initial-balance':
+      Forms._saveInitialBalance(Number(action.dataset.accountId));
+      break;
+    case 'delete-account':
+      Forms._deleteAccount(Number(action.dataset.accountId));
+      break;
+    case 'save-transaction':
+      Forms._saveTransaction(Number(action.dataset.creditId), Number(action.dataset.debitId));
+      break;
+    case 'save-transaction-fab':
+      Forms._saveTransactionFAB();
+      break;
+    case 'add-subtype':
+      Forms._addSubtype();
+      break;
+    case 'edit-subtype':
+      Forms._editSubtype(Number(action.dataset.subtypeId));
+      break;
+    case 'delete-subtype':
+      Forms._deleteSubtype(Number(action.dataset.subtypeId));
+      break;
+    case 'update-transaction':
+      Forms._updateTransaction(Number(action.dataset.txId));
+      break;
+    default:
+      break;
+  }
+});
+
+document.addEventListener('change', event => {
+  const target = event.target.closest('[data-form-change]');
+  if (!target) return;
+
+  const modalContent = document.getElementById('modal-content');
+  if (modalContent && !modalContent.contains(target)) return;
+
+  if (target.dataset.formChange === 'load-subtypes') {
+    Forms._loadSubtypes(target.value);
+  }
+});

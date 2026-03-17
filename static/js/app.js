@@ -7,6 +7,11 @@
 // → funciona tanto en localhost como desde dispositivos remotos en la red
 const API_BASE = `${window.location.origin}/api`;
 
+function buildApiUrl(path = '') {
+  const normalizedPath = String(path || '').replace(/^\/+/, '');
+  return new URL(normalizedPath, `${API_BASE}/`).toString();
+}
+
 /* ─── LOCAL DATETIME HELPER ──────────────────────────────────────── */
 // toISOString() siempre devuelve UTC. Ajustamos con el offset local del browser.
 function localNow() {
@@ -35,6 +40,13 @@ function escapeHtml(value) {
     '"': '&quot;',
     "'": '&#39;'
   }[char]));
+}
+
+function htmlAttrs(attrs = {}) {
+  return Object.entries(attrs)
+    .filter(([, value]) => value !== false && value != null)
+    .map(([key, value]) => value === true ? key : `${key}="${escapeHtml(value)}"`)
+    .join(' ');
 }
 
 /* ─── STATE ──────────────────────────────────────────────────────── */
@@ -74,7 +86,7 @@ const State = {
 /* ─── API CLIENT ─────────────────────────────────────────────────── */
 const API = {
   async _fetch(path, opts = {}) {
-    const r = await fetch(API_BASE + path, {
+    const r = await fetch(buildApiUrl(path), {
       headers: { 'Content-Type': 'application/json' },
       ...opts,
     });
@@ -290,11 +302,32 @@ const View = {
 
 /* ─── FILTER ─────────────────────────────────────────────────────── */
 const Filter = {
+  activePresetKey: null,
+
+  _syncUi() {
+    const filterText = document.getElementById('filter-text');
+    if (filterText) {
+      filterText.textContent = State.filtered
+        ? `${State.filterFrom} → ${State.filterTo}`
+        : t('filter.no_filter');
+    }
+
+    ['tl-filter', 'mobile-filter-panel'].forEach(id => {
+      document.getElementById(id)?.classList.toggle('filter-controls-active', State.filtered);
+    });
+
+    document.querySelectorAll('.qfilter-btn').forEach(button => {
+      button.classList.toggle('filter-active', State.filtered);
+      button.classList.toggle('qfilter-active',
+        State.filtered && !!this.activePresetKey && button.dataset.filterKey === this.activePresetKey);
+    });
+  },
 
   /* ── Aplicar rango arbitrario ── */
-  setRange(from, to, label) {
+  setRange(from, to, label, presetKey = null) {
     State.filterFrom = from;
     State.filterTo   = to;
+    this.activePresetKey = presetKey;
 
     // Sincronizar ambos sets de inputs (desktop + mobile drawer)
     ['filter-from','filter-from-m'].forEach(id => {
@@ -304,20 +337,14 @@ const Filter = {
       const el = document.getElementById(id); if (el) el.value = to;
     });
 
-    document.getElementById('filter-text').textContent = label;
-    document.getElementById('filter-banner').classList.remove('hidden');
-
-    // Resaltar el botón activo
-    document.querySelectorAll('.qfilter-btn').forEach(b =>
-      b.classList.toggle('qfilter-active',
-                         b.dataset.label === label));
+    this._syncUi();
     View.refresh();
   },
 
   /* ── Atajos de período ── */
   setCurrentYear() {
     const y = new Date().getFullYear();
-    this.setRange(`${y}-01-01`, `${y}-12-31`, t('filter.current_year'));
+    this.setRange(`${y}-01-01`, `${y}-12-31`, t('filter.current_year'), 'filter.current_year');
   },
 
   setCurrentMonth() {
@@ -327,7 +354,7 @@ const Filter = {
     const last = new Date(y, m, 0).getDate();                 // último día del mes
     const mm  = String(m).padStart(2, '0');
     const dd  = String(last).padStart(2, '0');
-    this.setRange(`${y}-${mm}-01`, `${y}-${mm}-${dd}`, t('filter.current_month'));
+    this.setRange(`${y}-${mm}-01`, `${y}-${mm}-${dd}`, t('filter.current_month'), 'filter.current_month');
   },
 
   setPrevMonth() {
@@ -339,7 +366,7 @@ const Filter = {
     const last = new Date(y, m1, 0).getDate();
     const mm   = String(m1).padStart(2, '0');
     const dd   = String(last).padStart(2, '0');
-    this.setRange(`${y}-${mm}-01`, `${y}-${mm}-${dd}`, t('filter.prev_month'));
+    this.setRange(`${y}-${mm}-01`, `${y}-${mm}-${dd}`, t('filter.prev_month'), 'filter.prev_month');
   },
 
   apply() {
@@ -348,22 +375,19 @@ const Filter = {
     if (from && to) {
       State.filterFrom = from;
       State.filterTo   = to;
-      document.getElementById('filter-text').textContent = `${from} → ${to}`;
-      document.getElementById('filter-banner').classList.remove('hidden');
-      // Limpiar resaltado de atajos si el usuario editó manualmente
-      document.querySelectorAll('.qfilter-btn').forEach(b =>
-        b.classList.remove('qfilter-active'));
+      this.activePresetKey = null;
     }
+    this._syncUi();
     View.refresh();
   },
 
   clear() {
     State.filterFrom = null;
     State.filterTo   = null;
+    this.activePresetKey = null;
     document.getElementById('filter-from').value = '';
     document.getElementById('filter-to').value   = '';
-    document.getElementById('filter-text').textContent = t('filter.no_filter');
-    document.getElementById('filter-banner').classList.add('hidden');
+    this._syncUi();
     View.refresh();
   },
 };
@@ -371,26 +395,87 @@ const Filter = {
 /* ─── MODAL ──────────────────────────────────────────────────────── */
 const Modal = {
   _onSubmit: null,
+  _onClose: null,
+  _bound: false,
 
-  open(html, { wide = false, title = '', onSubmit = null, submitLabel = 'Confirmar', cancelLabel = 'Cancelar' } = {}) {
+  _submitClass(tone) {
+    const variants = {
+      primary: 'tbtn px-4 py-2 text-sm !bg-blue-600/20 !border-blue-500/50 !text-blue-300 hover:!bg-blue-600/40',
+      danger: 'tbtn px-4 py-2 text-sm !bg-red-900/30 !border-pasivo/40 !text-pasivo hover:!bg-red-900/45',
+    };
+    return variants[tone] || variants.primary;
+  },
+
+  _isOpen() {
+    const overlay = document.getElementById('modal-overlay');
+    return !!overlay && !overlay.classList.contains('hidden');
+  },
+
+  _bindEvents() {
+    if (this._bound) return;
+
+    document.addEventListener('click', event => {
+      const closeButton = event.target.closest('[data-modal-close]');
+      if (closeButton) {
+        event.preventDefault();
+        this.close();
+        return;
+      }
+
+      const submitButton = event.target.closest('[data-modal-submit]');
+      if (submitButton) {
+        event.preventDefault();
+        this._submit();
+      }
+    });
+
+    document.addEventListener('submit', event => {
+      const form = event.target.closest('form[data-modal-submit-form]');
+      if (!form) return;
+      event.preventDefault();
+      this._submit();
+    });
+
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && this._isOpen()) this.close();
+    });
+
+    const overlay = document.getElementById('modal-overlay');
+    overlay?.addEventListener('click', event => {
+      if (event.target === overlay) this.close();
+    });
+
+    this._bound = true;
+  },
+
+  open(html, {
+    wide = false,
+    title = '',
+    onSubmit = null,
+    onClose = null,
+    submitLabel = 'Confirmar',
+    cancelLabel = 'Cancelar',
+    submitTone = 'primary'
+  } = {}) {
+    this._bindEvents();
     this._onSubmit = onSubmit;
+    this._onClose = onClose;
     const box = document.getElementById('modal-box');
     box.style.maxWidth = wide ? '860px' : '540px';
 
     const header = title
       ? `<div class="flex items-center justify-between px-5 py-4 border-b border-dark-600">
            <h3 class="text-base font-semibold text-dark-200">${title}</h3>
-           <button onclick="Modal.close()" class="text-dark-400 hover:text-dark-300 text-xl leading-none">✕</button>
+           <button type="button" data-modal-close class="text-dark-400 hover:text-dark-300 text-xl leading-none">✕</button>
          </div>`
       : '';
 
     const footer = onSubmit
       ? `<div class="flex justify-end gap-2 px-5 py-4 border-t border-dark-600">
-           <button onclick="Modal.close()"
+           <button type="button" data-modal-close
                    class="tbtn px-4 py-2 text-sm">${cancelLabel}</button>
-           <button onclick="Modal._submit()"
-                   class="tbtn px-4 py-2 text-sm !bg-blue-600/20 !border-blue-500/50 !text-blue-300
-                          hover:!bg-blue-600/40">${submitLabel}</button>
+           <button type="button" data-modal-submit
+                   class="${this._submitClass(submitTone)}">${submitLabel}</button>
          </div>`
       : '';
 
@@ -405,13 +490,96 @@ const Modal = {
   },
 
   close() {
+    const onClose = this._onClose;
     this._onSubmit = null;
+    this._onClose = null;
     document.getElementById('modal-overlay').classList.add('hidden');
     document.getElementById('modal-content').innerHTML = '';
+    onClose?.();
   },
 
   overlayClick(e) {
     if (e.target === document.getElementById('modal-overlay')) this.close();
+  },
+};
+
+const Dialog = {
+  confirm({ title = '', message = '', confirmLabel = 'Confirmar', cancelLabel = 'Cancelar', submitTone = 'primary' } = {}) {
+    return new Promise(resolve => {
+      let settled = false;
+
+      Modal.open(`
+        <div class="p-5">
+          <p class="text-sm text-dark-300 whitespace-pre-line">${escapeHtml(message)}</p>
+        </div>`, {
+        title,
+        submitLabel: confirmLabel,
+        cancelLabel,
+        submitTone,
+        onSubmit: () => {
+          settled = true;
+          resolve(true);
+          return true;
+        },
+        onClose: () => {
+          if (!settled) resolve(false);
+        },
+      });
+    });
+  },
+
+  prompt({
+    title = '',
+    label = '',
+    value = '',
+    placeholder = '',
+    confirmLabel = 'Confirmar',
+    cancelLabel = 'Cancelar',
+    submitTone = 'primary',
+    validate = null,
+  } = {}) {
+    const inputId = 'dialog-prompt-input';
+
+    return new Promise(resolve => {
+      let settled = false;
+
+      Modal.open(`
+        <form data-modal-submit-form class="p-5">
+          <label class="block text-xs text-dark-400 mb-1.5" for="${inputId}">${escapeHtml(label)}</label>
+          <input id="${inputId}" type="text"
+                 value="${escapeHtml(value)}"
+                 placeholder="${escapeHtml(placeholder)}"
+                 class="w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-300
+                        text-sm px-3 py-2.5 font-sans outline-none
+                        focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30">
+        </form>`, {
+        title,
+        submitLabel: confirmLabel,
+        cancelLabel,
+        submitTone,
+        onSubmit: () => {
+          const nextValue = document.getElementById(inputId)?.value ?? '';
+          const validationResult = validate ? validate(nextValue) : true;
+          if (validationResult !== true) {
+            Toast.show(validationResult || 'Invalid value', 'err');
+            return false;
+          }
+
+          settled = true;
+          resolve(nextValue);
+          return true;
+        },
+        onClose: () => {
+          if (!settled) resolve(null);
+        },
+      });
+
+      setTimeout(() => {
+        const input = document.getElementById(inputId);
+        input?.focus();
+        input?.select();
+      }, 40);
+    });
   },
 };
 
@@ -465,10 +633,8 @@ Filter.clear = function () {
   });
   State.filterFrom = null;
   State.filterTo   = null;
-  document.getElementById('filter-text').textContent = t('filter.no_filter');
-  document.getElementById('filter-banner').classList.add('hidden');
-  document.querySelectorAll('.qfilter-btn').forEach(b =>
-    b.classList.remove('qfilter-active'));
+  this.activePresetKey = null;
+  this._syncUi();
   View.refresh();
 };
 
@@ -508,6 +674,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await _initBookBadge();
     StatusBar.startClock();
     StatusBar.refresh();
+    Filter._syncUi();
     await View.show('board');
   } catch (e) {
     document.getElementById('main').innerHTML =

@@ -243,11 +243,23 @@
 /* Nota: .hidden lo genera Tailwind como display:none (sin !important).
    No re-declarar aquí — rompería lg:flex y demás overrides responsivos. */
 
+/* ── Filter controls active state ── */
+.filter-controls.filter-controls-active {
+  background: linear-gradient(180deg, #1d4ed814 0%, #1e293b00 100%);
+}
+
+.qfilter-btn.filter-active {
+  color: #bfdbfe;
+  border-color: #3b82f655;
+  background: #1d4ed814;
+}
+
 /* ── Quick-filter button active state ── */
 .qfilter-btn.qfilter-active {
   color: #93c5fd;
   border-color: #3b82f680;
-  background: #1d4ed820;
+  background: #1d4ed830;
+  box-shadow: 0 0 0 1px #3b82f620;
 }
 
 /* ── Common transactions panel ── */

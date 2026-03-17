@@ -110,16 +110,16 @@
   </div>
 
   <!-- Desktop date filter -->
-  <div id="tl-filter" class="hidden xl:flex items-center gap-1.5 shrink-0">
+  <div id="tl-filter" class="filter-controls hidden xl:flex items-center gap-1.5 shrink-0 rounded-lg px-2 py-1 transition-colors">
     <span class="text-[10px] text-dark-500 shrink-0">📅</span>
 
     <!-- Quick-filter buttons -->
     <button onclick="Filter.setCurrentYear()"
-            class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-label="Año actual" data-i18n="filter.current_year">Current year</button>
+          class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.current_year" data-i18n="filter.current_year">Current year</button>
     <button onclick="Filter.setCurrentMonth()"
-            class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-label="Mes actual" data-i18n="filter.current_month">Current month</button>
+          class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.current_month" data-i18n="filter.current_month">Current month</button>
     <button onclick="Filter.setPrevMonth()"
-            class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-label="Mes anterior" data-i18n="filter.prev_month">Prev. month</button>
+          class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.prev_month" data-i18n="filter.prev_month">Prev. month</button>
 
     <div class="w-px h-4 bg-dark-600 mx-1 shrink-0"></div>
 
@@ -179,7 +179,7 @@
     </div>
 
     <!-- Mobile date filter -->
-    <div class="mt-auto border-t border-dark-600 p-4">
+    <div id="mobile-filter-panel" class="filter-controls mt-auto border-t border-dark-600 p-4 transition-colors">
       <p class="text-[11px] text-dark-400 mb-3">📅 Filtro de fechas</p>
 
       <!-- Quick-filter buttons -->
@@ -187,15 +187,15 @@
         <button onclick="Nav.close();Filter.setCurrentYear()"
                 class="qfilter-btn text-[11px] px-2 py-2 border border-dark-600 rounded-lg
                        text-dark-400 hover:text-dark-300 hover:bg-dark-700 font-sans cursor-pointer
-                       bg-transparent text-center" data-label="Año actual" data-i18n="filter.current_year">Current year</button>
+                 bg-transparent text-center" data-filter-key="filter.current_year" data-i18n="filter.current_year">Current year</button>
         <button onclick="Nav.close();Filter.setCurrentMonth()"
                 class="qfilter-btn text-[11px] px-2 py-2 border border-dark-600 rounded-lg
                        text-dark-400 hover:text-dark-300 hover:bg-dark-700 font-sans cursor-pointer
-                       bg-transparent text-center" data-label="Mes actual" data-i18n="filter.current_month">Current month</button>
+                 bg-transparent text-center" data-filter-key="filter.current_month" data-i18n="filter.current_month">Current month</button>
         <button onclick="Nav.close();Filter.setPrevMonth()"
                 class="qfilter-btn text-[11px] px-2 py-2 border border-dark-600 rounded-lg
                        text-dark-400 hover:text-dark-300 hover:bg-dark-700 font-sans cursor-pointer
-                       bg-transparent text-center" data-label="Mes anterior" data-i18n="filter.prev_month">Prev. month</button>
+                 bg-transparent text-center" data-filter-key="filter.prev_month" data-i18n="filter.prev_month">Prev. month</button>
       </div>
 
       <p class="text-[10px] text-dark-500 mb-2" data-i18n="filter.custom_range">Custom range:</p>
@@ -212,13 +212,6 @@
       </button>
     </div>
   </aside>
-</div>
-
-<!-- ── FILTER BANNER ────────────────────────────────────────────────────── -->
-<div id="filter-banner"
-     class="hidden bg-amber-900/40 border-b border-amber-500/30 text-amber-300
-            text-xs text-center py-1 shrink-0">
-  ⚠️ Saldos para el período seleccionado — no acumulado total
 </div>
 
 <!-- ── MOBILE TYPE TABS (JS controla display via inline style) ── -->
@@ -258,13 +251,13 @@
 <!-- ── MODAL ────────────────────────────────────────────────────────────── -->
 <div id="modal-overlay"
      class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[1000] hidden
-            flex items-center sm:items-center items-end"
-     onclick="Modal.overlayClick(event)">
+       flex items-center sm:items-center items-end">
   <div id="modal-box"
        class="modal-box bg-dark-800 border border-dark-600 rounded-2xl
               w-full max-w-lg mx-4 sm:mx-auto max-h-[92dvh] overflow-y-auto
-              shadow-2xl"
-       onclick="event.stopPropagation()">
+    shadow-2xl"
+  role="dialog"
+  aria-modal="true">
     <div id="modal-content"></div>
   </div>
 </div>

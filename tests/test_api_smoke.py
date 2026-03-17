@@ -3,6 +3,8 @@ import app_version
 import json
 import sqlite3
 
+from database import init_db
+
 
 def _accounts_by_name(client):
     response = client.get("/api/accounts")
@@ -68,6 +70,91 @@ def test_create_account_and_transaction_updates_balances(client):
     assert salary_response.status_code == 200
     assert salary_response.json()["balance"] == 100.0
 
+    with sqlite3.connect(app_config.get_db_path()) as conn:
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(accounts)").fetchall()
+        }
+    assert "balance" not in columns
+
+
+def test_init_db_migrates_legacy_accounts_table_without_balance_column(isolated_paths):
+    home_db = isolated_paths / "data" / "home.db"
+    home_db.parent.mkdir(parents=True, exist_ok=True)
+
+    with sqlite3.connect(home_db) as conn:
+        conn.executescript(
+            """
+            PRAGMA foreign_keys=ON;
+
+            CREATE TABLE types (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE
+            );
+
+            CREATE TABLE subtypes (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                type_id INTEGER NOT NULL REFERENCES types(id) ON DELETE RESTRICT,
+                UNIQUE(name, type_id)
+            );
+
+            CREATE TABLE accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                type_id INTEGER NOT NULL REFERENCES types(id) ON DELETE RESTRICT,
+                subtype_id INTEGER REFERENCES subtypes(id) ON DELETE SET NULL,
+                description TEXT NOT NULL DEFAULT '',
+                initial_balance REAL NOT NULL DEFAULT 0.0,
+                balance REAL NOT NULL DEFAULT 0.0,
+                properties TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                debit_account INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+                credit_account INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+                amount REAL NOT NULL CHECK(amount > 0),
+                description TEXT NOT NULL DEFAULT '',
+                date TEXT NOT NULL DEFAULT (datetime('now')),
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            INSERT INTO types (id, name) VALUES (1, 'Asset');
+            INSERT INTO types (id, name) VALUES (3, 'Income');
+            INSERT INTO accounts (id, name, type_id, description, initial_balance, balance, properties)
+            VALUES (1, 'Legacy Cash', 1, 'legacy', 50.0, 999.0, '{}');
+            INSERT INTO accounts (id, name, type_id, description, initial_balance, balance, properties)
+            VALUES (2, 'Legacy Income', 3, 'legacy', 0.0, 999.0, '{}');
+            INSERT INTO transactions (debit_account, credit_account, amount, description, date)
+            VALUES (1, 2, 75.0, 'Legacy tx', '2026-03-17 09:00:00');
+            """
+        )
+
+    app_config.load()
+    init_db()
+
+    with sqlite3.connect(home_db) as conn:
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(accounts)").fetchall()
+        }
+        legacy_cash = conn.execute(
+            "SELECT name, initial_balance, properties FROM accounts WHERE id = 1"
+        ).fetchone()
+
+    assert "balance" not in columns
+    assert legacy_cash == ("Legacy Cash", 50.0, "{}")
+
+    from main import app
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as test_client:
+        response = test_client.get("/api/accounts/1")
+
+    assert response.status_code == 200
+    assert response.json()["balance"] == 125.0
+
 
 def test_reports_and_csv_export_work_for_basic_journal_flow(client):
     accounts = _accounts_by_name(client)
@@ -97,6 +184,40 @@ def test_reports_and_csv_export_work_for_basic_journal_flow(client):
     assert "Monthly salary" in body
     assert "Bank" in body
     assert "Salary" in body
+
+
+def test_list_accounts_returns_recent_movements_and_monthly_history(client):
+    accounts = _accounts_by_name(client)
+    dates = [
+        "2026-03-14 09:00:00",
+        "2026-03-15 09:00:00",
+        "2026-03-16 09:00:00",
+        "2026-03-17 09:00:00",
+    ]
+
+    for index, tx_date in enumerate(dates, start=1):
+        response = client.post(
+            "/api/transactions",
+            json={
+                "debit_account": accounts["Bank"]["id"],
+                "credit_account": accounts["Salary"]["id"],
+                "amount": 100.0 * index,
+                "description": f"Salary batch {index}",
+                "date": tx_date,
+            },
+        )
+        assert response.status_code == 201
+
+    accounts_response = client.get("/api/accounts")
+    assert accounts_response.status_code == 200
+    payload = {item["name"]: item for item in accounts_response.json()}
+
+    bank = payload["Bank"]
+    assert len(bank["last_movements"]) == 3
+    assert bank["last_movements"][0]["description"] == "Salary batch 4"
+    assert bank["last_movements"][0]["role"] == "debit"
+    assert bank["last_movements"][0]["counterpart"] == "Salary"
+    assert any(row["month"] == "2026-03" for row in bank["monthly_history"])
 
 
 def test_stats_net_expense_subtypes_ignore_fully_reversed_movements(client):
