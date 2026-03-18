@@ -747,23 +747,23 @@ const Forms = {
       <tr class="border-b border-dark-600/60 hover:bg-dark-700/50">
         <td class="px-4 py-3 text-sm text-dark-400 w-[28%]">${escapeHtml(s.type_name)}</td>
         <td class="px-4 py-3 text-sm text-dark-100">${escapeHtml(s.name)}</td>
-        <td class="px-4 py-3 text-right whitespace-nowrap w-[120px]">
+        <td class="px-4 py-3 text-right whitespace-nowrap w-[88px]">
           <button ${htmlAttrs({
             type: 'button',
             'data-form-action': 'edit-subtype',
             'data-subtype-id': s.id,
-            class: 'inline-flex items-center gap-1 text-xs px-3 py-1.5 border border-dark-600 rounded-md text-dark-400 hover:text-dark-100 hover:bg-dark-600 bg-transparent cursor-pointer font-sans mr-2',
-          })}
-            ${t('btn.edit')}
-          </button>
+            title: t('btn.edit'),
+            'aria-label': t('btn.edit'),
+            class: 'inline-flex items-center justify-center text-base w-9 h-9 border border-dark-600 rounded-md text-dark-400 hover:text-dark-100 hover:bg-dark-600 bg-transparent cursor-pointer font-sans mr-2',
+          })}>✏️</button>
           <button ${htmlAttrs({
             type: 'button',
             'data-form-action': 'delete-subtype',
             'data-subtype-id': s.id,
-            class: 'inline-flex items-center gap-1 text-xs px-3 py-1.5 border border-red-900/40 rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-900/20 bg-transparent cursor-pointer font-sans',
-          })}>
-            ${t('btn.delete')}
-          </button>
+            title: t('btn.delete'),
+            'aria-label': t('btn.delete'),
+            class: 'inline-flex items-center justify-center text-base w-9 h-9 border border-red-900/40 rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-900/20 bg-transparent cursor-pointer font-sans',
+          })}>🗑️</button>
         </td>
       </tr>`).join('');
 

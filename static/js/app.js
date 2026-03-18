@@ -62,6 +62,7 @@ const State = {
   filterFrom: null,
   filterTo:   null,
   userPreferences: {},
+  hideBalanceAccounts: false,
   showZeroBalanceItems: false,
   usageOrder: JSON.parse(localStorage.getItem('acct_usage') || '{}'), // {id: timestamp}
 
@@ -156,6 +157,7 @@ const Preferences = {
 
   async applyLoaded() {
     const prefs = State.userPreferences || {};
+    State.hideBalanceAccounts = !!prefs.hide_balance_accounts;
     State.showZeroBalanceItems = !!prefs.show_zero_balance_accounts;
 
     if (typeof Reports !== 'undefined') {

@@ -196,6 +196,32 @@ const Reports = {
       .filter(group => group.subgroups.length > 0 || !this._isZeroBalance(group.total));
   },
 
+  _balanceGroupRows(group) {
+    return group.subgroups.flatMap(subgroup => {
+      const subgroupRow = R.row([
+        { v: `<span class="pl-4 font-semibold text-blue-300">${subgroup.subtype_name}</span>` },
+        { v: R.amt(subgroup.subtotal), cls: 'text-right font-mono font-semibold text-blue-300' },
+      ], 'bg-dark-700/60');
+
+      if (State.hideBalanceAccounts) return [subgroupRow];
+
+      return [
+        ...subgroup.items.map(item => R.row([
+          { v: `<span class="pl-6 text-dark-300">${item.account_name}</span>` },
+          { v: R.amt(item.balance), cls: 'text-right font-mono' },
+        ], 'cursor-pointer hover:!bg-blue-600/10', {
+          'data-report-action': 'open-ledger',
+          'data-account-id': item.account_id,
+          tabindex: '0',
+          role: 'button',
+          title: t('report.open_ledger_account', { account: item.account_name }),
+          'aria-label': t('report.open_ledger_account', { account: item.account_name }),
+        })),
+        subgroupRow,
+      ];
+    }).join('');
+  },
+
   _sortToggleButton(view) {
     const dir = this.dateSort[view] || 'desc';
     const arrow = dir === 'asc' ? '↑' : '↓';
@@ -251,23 +277,7 @@ const Reports = {
 
     const groupHtml = g => {
       const color = TYPE_COLORS[g.type_id] || '#fff';
-      const rows = g.subgroups.flatMap(sg => [
-        ...sg.items.map(i => R.row([
-          { v: `<span class="pl-6 text-dark-300">${i.account_name}</span>` },
-          { v: R.amt(i.balance), cls: 'text-right font-mono' },
-        ], 'cursor-pointer hover:!bg-blue-600/10', {
-          'data-report-action': 'open-ledger',
-          'data-account-id': i.account_id,
-          tabindex: '0',
-          role: 'button',
-          title: t('report.open_ledger_account', { account: i.account_name }),
-          'aria-label': t('report.open_ledger_account', { account: i.account_name }),
-        })),
-        R.row([
-          { v: `<span class="pl-4 font-semibold text-blue-300">${sg.subtype_name}</span>` },
-          { v: R.amt(sg.subtotal), cls: 'text-right font-mono font-semibold text-blue-300' },
-        ], 'bg-dark-700/60'),
-      ]).join('');
+      const rows = this._balanceGroupRows(g);
 
       return `
         <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden mb-4">
@@ -276,7 +286,7 @@ const Reports = {
             ${_typeLabel(g.type_id, g.type_name).toUpperCase()}
           </div>
           ${R.table(
-            [{label:t('report.col.account')}, {label:t('report.col.balance'), right:true}],
+            [{label:t('report.col.category')}, {label:t('report.col.balance'), right:true}],
             rows + R.row([
               { v: `<span class="font-bold text-dark-100">TOTAL ${_typeLabel(g.type_id, g.type_name).toUpperCase()}</span>` },
               { v: R.amt(g.total), cls: 'text-right font-bold text-dark-100' },
@@ -302,13 +312,23 @@ const Reports = {
 
     main.innerHTML = R.view(`⚖️ ${t('report.balance')}`,
       t('report.period_range', { from: bs.period_from, to: bs.period_to }), `
-      <label class="inline-flex items-center gap-2 mb-4 text-xs text-dark-300 select-none cursor-pointer">
-        <input type="checkbox"
-               class="h-3.5 w-3.5 rounded border-dark-500 bg-dark-700 text-blue-500 focus:ring-blue-500/40"
-               ${State.showZeroBalanceItems ? 'checked' : ''}
-           data-report-change="toggle-zero-balance">
-        <span>${t('report.show_zero_balance_items')}</span>
-      </label>
+      <div class="flex flex-wrap gap-4 mb-4">
+        <label class="inline-flex items-center gap-2 text-xs text-dark-300 select-none cursor-pointer">
+          <input type="checkbox"
+                 class="h-3.5 w-3.5 rounded border-dark-500 bg-dark-700 text-blue-500 focus:ring-blue-500/40"
+                 ${State.hideBalanceAccounts ? 'checked' : ''}
+                 data-report-change="toggle-hide-balance-accounts">
+          <span>${t('report.hide_accounts')}</span>
+        </label>
+
+        <label class="inline-flex items-center gap-2 text-xs text-dark-300 select-none cursor-pointer">
+          <input type="checkbox"
+                 class="h-3.5 w-3.5 rounded border-dark-500 bg-dark-700 text-blue-500 focus:ring-blue-500/40"
+                 ${State.showZeroBalanceItems ? 'checked' : ''}
+                 data-report-change="toggle-zero-balance">
+          <span>${t('report.show_zero_balance_items')}</span>
+        </label>
+      </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
         <div>${left.map(groupHtml).join('')}</div>
@@ -343,6 +363,19 @@ const Reports = {
       await this.balance();
     } catch (error) {
       State.showZeroBalanceItems = previous;
+      Toast.show(t('msg.error_generic', {msg: error.message}), 'error');
+    }
+  },
+
+  async toggleHideBalanceAccounts(checked) {
+    const previous = State.hideBalanceAccounts;
+    State.hideBalanceAccounts = checked;
+
+    try {
+      await Preferences.save({ hide_balance_accounts: checked });
+      await this.balance();
+    } catch (error) {
+      State.hideBalanceAccounts = previous;
       Toast.show(t('msg.error_generic', {msg: error.message}), 'error');
     }
   },
@@ -546,6 +579,9 @@ document.addEventListener('change', event => {
   if (main && !main.contains(target)) return;
 
   switch (target.dataset.reportChange) {
+    case 'toggle-hide-balance-accounts':
+      Reports.toggleHideBalanceAccounts(target.checked);
+      break;
     case 'toggle-zero-balance':
       Reports.toggleZeroBalanceItems(target.checked);
       break;
