@@ -27,6 +27,8 @@
   "board.tab.income": "Ingreso",
   "board.tab.liab_eq": "Pasivo/Pat.",
   "board.empty": "Sin cuentas",
+  "board.pending_credit_title": "Crédito seleccionado",
+  "board.pending_credit_hint": "{name} quedó marcada como cuenta de crédito. Elegí la cuenta de débito.",
   "account.type.asset": "Activo",
   "account.type.liability": "Pasivo",
   "account.type.income": "Ingreso",

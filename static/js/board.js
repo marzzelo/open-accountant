@@ -2,6 +2,8 @@
 'use strict';
 
 let _activeTab = 0; // índice de COLUMNS
+const MOBILE_SWIPE_DISTANCE = 56;
+const MOBILE_SWIPE_VERTICAL_TOLERANCE = 48;
 
 const TYPE_CFG = {
   // type_name comes from the database (always English after seed migration)
@@ -25,7 +27,8 @@ const COLUMNS = [
   {
     id: 'asset',
     types: [1],
-    emoji: '🏦',
+    iconSrc: '/images/asset.png',
+    iconAlt: t('board.tab.asset'),
     labelKey: 'board.col.asset',
     typeIds: [1],
     hdr: 'bg-[#0d2233] text-[#4fc3f7] border border-[#4fc3f722]',
@@ -34,7 +37,8 @@ const COLUMNS = [
   {
     id: 'expense',
     types: [4],
-    emoji: '🧾',
+    iconSrc: '/images/expense.png',
+    iconAlt: t('board.tab.expense'),
     labelKey: 'board.col.expense',
     typeIds: [4],
     hdr: 'bg-[#2a2000] text-[#ffd54f] border border-[#ffd54f22]',
@@ -43,7 +47,8 @@ const COLUMNS = [
   {
     id: 'income',
     types: [3],
-    emoji: '📈',
+    iconSrc: '/images/income.png',
+    iconAlt: t('board.tab.income'),
     labelKey: 'board.col.income',
     typeIds: [3],
     hdr: 'bg-[#0e2a0e] text-[#66bb6a] border border-[#66bb6a22]',
@@ -52,7 +57,8 @@ const COLUMNS = [
   {
     id: 'liability-equity',
     types: [2, 5],
-    emoji: '💳',
+    iconSrc: '/images/liability.png',
+    iconAlt: t('board.tab.liab_eq'),
     labelKey: 'board.col.liab_eq',
     typeIds: [2, 5],
     hdr: 'bg-[#2a0e1e] text-[#ef5350] border border-[#ef535022]',
@@ -62,7 +68,10 @@ const COLUMNS = [
 
 // Column header label from i18n (UI label, not DB data)
 function _colLabel(col) {
-  return `${col.emoji} ${t(col.labelKey).toUpperCase()}`;
+  return `<span class="inline-flex items-center gap-2 min-w-0">
+    <img src="${col.iconSrc}" alt="${escapeHtml(col.iconAlt)}" class="board-col-icon" draggable="false">
+    <span class="truncate">${t(col.labelKey).toUpperCase()}</span>
+  </span>`;
 }
 
 let drag = { active: false, sourceId: null, sourceEl: null, pointerId: null };
@@ -353,8 +362,42 @@ const CommonTx = {
 const Board = {
   _eventsBound: false,
   _press: null,
+  _swipe: null,
+  _swipeIgnoreUntil: 0,
   _pendingCredit: { accountId: null, cardEl: null },
   _suppressedClick: { accountId: null, until: 0 },
+
+  _pendingCreditAccount() {
+    if (!this._pendingCredit.accountId) return null;
+    return State.accounts.find(account => account.id === this._pendingCredit.accountId) || null;
+  },
+
+  _refreshPendingCreditHint() {
+    const hint = document.getElementById('board-pending-credit-hint');
+    if (!hint) return;
+
+    const account = this._pendingCreditAccount();
+    if (!account) {
+      hint.classList.add('hidden');
+      hint.innerHTML = '';
+      return;
+    }
+
+    hint.classList.remove('hidden');
+    hint.innerHTML = `
+      <div class="flex items-center justify-between gap-3 rounded-xl border border-blue-500/25 bg-blue-500/10 px-3 py-2 text-sm text-blue-100">
+        <div class="min-w-0">
+          <div class="text-[10px] font-semibold uppercase tracking-wide text-blue-300">${escapeHtml(t('board.pending_credit_title'))}</div>
+          <div class="truncate">${escapeHtml(t('board.pending_credit_hint', { name: account.name }))}</div>
+        </div>
+        <button type="button" class="shrink-0 rounded-lg border border-blue-400/20 px-2 py-1 text-xs text-blue-200 hover:bg-blue-400/10"
+                onclick="Board.clearPendingCreditHint()">${escapeHtml(t('btn.cancel'))}</button>
+      </div>`;
+  },
+
+  clearPendingCreditHint() {
+    this._clearPendingCredit();
+  },
 
   _isCardActionTarget(target) {
     return Boolean(target.closest('.card-ctx-menu') || target.closest('button'));
@@ -364,6 +407,10 @@ const Board = {
     if (!this._press) return;
     clearTimeout(this._press.timerId);
     this._press = null;
+  },
+
+  _clearSwipe() {
+    this._swipe = null;
   },
 
   _suppressNextClick(accountId) {
@@ -382,6 +429,7 @@ const Board = {
   _clearPendingCredit() {
     this._pendingCredit.cardEl?.classList.remove('credit-selected');
     this._pendingCredit = { accountId: null, cardEl: null };
+    this._refreshPendingCreditHint();
   },
 
   _setPendingCredit(accountId, cardEl) {
@@ -389,11 +437,7 @@ const Board = {
     cardEl.classList.add('credit-selected');
     this._pendingCredit = { accountId, cardEl };
     this._suppressNextClick(accountId);
-
-    const account = State.accounts.find(item => item.id === accountId);
-    Toast.show(t('msg.credit_source_selected', {
-      name: account?.name || cardEl.querySelector('span')?.textContent || '',
-    }));
+    this._refreshPendingCreditHint();
   },
 
   _resetDragState() {
@@ -444,7 +488,16 @@ const Board = {
   },
 
   _handlePointerDown(e) {
-    if (e.button !== 0) return;
+    if (e.pointerType === 'touch' && isMobile()) {
+      this._swipe = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        handled: false,
+      };
+    }
+
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
 
     const card = e.target.closest('.card');
     if (!card || this._isCardActionTarget(e.target)) return;
@@ -469,6 +522,20 @@ const Board = {
   },
 
   _handlePointerMove(e) {
+    if (this._swipe && this._swipe.pointerId === e.pointerId && !this._swipe.handled) {
+      const deltaX = e.clientX - this._swipe.startX;
+      const deltaY = e.clientY - this._swipe.startY;
+      if (Math.abs(deltaY) <= MOBILE_SWIPE_VERTICAL_TOLERANCE && Math.abs(deltaX) >= MOBILE_SWIPE_DISTANCE) {
+        e.preventDefault();
+        this._swipe.handled = true;
+        this._swipeIgnoreUntil = Date.now() + 350;
+        this._clearPress();
+        this.selectRelativeTab(deltaX > 0 ? -1 : 1);
+        return;
+      }
+      if (Math.abs(deltaY) > MOBILE_SWIPE_VERTICAL_TOLERANCE) this._swipe.handled = true;
+    }
+
     if (drag.active) {
       if (drag.pointerId === e.pointerId) this._updateDrag(e.clientX, e.clientY);
       return;
@@ -489,6 +556,8 @@ const Board = {
   },
 
   _handlePointerUp(e) {
+    if (this._swipe && this._swipe.pointerId === e.pointerId) this._clearSwipe();
+
     if (drag.active && drag.pointerId === e.pointerId) {
       this._finishDrag(e.clientX, e.clientY);
       return;
@@ -498,6 +567,8 @@ const Board = {
   },
 
   _handleCardClick(e) {
+    if (Date.now() < this._swipeIgnoreUntil) return;
+
     const card = e.target.closest('.card');
     if (!card || this._isCardActionTarget(e.target)) return;
 
@@ -530,8 +601,13 @@ const Board = {
     const shortcutsPanel = await CommonTx.renderPanel();
     shell.appendChild(shortcutsPanel);
 
+    const pendingHint = document.createElement('div');
+    pendingHint.id = 'board-pending-credit-hint';
+    pendingHint.className = 'hidden px-2 pb-2 sm:px-3 lg:px-8 xl:px-64';
+    shell.appendChild(pendingHint);
+
     const boardHost = document.createElement('div');
-    boardHost.className = 'flex-1 min-h-0';
+    boardHost.className = 'flex-1 min-h-0 px-2 sm:px-3 lg:px-8 xl:px-64 pb-2';
 
     const board = document.createElement('div');
     board.className = 'board';
@@ -574,6 +650,7 @@ const Board = {
     main.appendChild(shell);
     this.initDrag();
     this.selectTab(_activeTab);
+    this._refreshPendingCreditHint();
   },
 
   buildCard(acc, cfg) {
@@ -654,6 +731,11 @@ const Board = {
     View.show('ledger');
   },
 
+  selectRelativeTab(offset) {
+    const total = COLUMNS.length;
+    this.selectTab((_activeTab + offset + total) % total);
+  },
+
   selectTab(colIdx) {
     _activeTab = colIdx;
     const cfg = COLUMNS[colIdx];
@@ -681,6 +763,7 @@ const Board = {
     document.addEventListener('pointermove', e => this._handlePointerMove(e));
     document.addEventListener('pointerup', e => this._handlePointerUp(e));
     document.addEventListener('pointercancel', () => {
+      this._clearSwipe();
       this._clearPress();
       this._resetDragState();
     });

@@ -23,13 +23,16 @@ function localNow() {
 /* ─── CURRENCY FORMATTER ─────────────────────────────────────────── */
 function fmt(v) {
   if (v == null) return '$ 0.00';
-  const abs = Math.abs(v);
-  const str = abs.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `$ ${str}`;
+  const amount = Number(v) || 0;
+  const str = Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${amount < 0 ? '-$' : '$'} ${str}`;
 }
 function fmtSigned(v) {
   if (v == null) return '$ 0.00';
-  return (v < 0 ? '-' : '+') + fmt(v);
+  return `${(Number(v) || 0) < 0 ? '-' : '+'}$ ${Math.abs(Number(v) || 0).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 function escapeHtml(value) {
@@ -175,8 +178,10 @@ function applyAppVersion() {
 
   document.title = version.full_title;
 
-  const headerTitle = document.getElementById('app-title');
-  if (headerTitle) headerTitle.textContent = version.full_title;
+  ['app-title', 'app-title-mobile'].forEach(id => {
+    const headerTitle = document.getElementById(id);
+    if (headerTitle) headerTitle.textContent = version.full_title;
+  });
 
   const drawerTitle = document.getElementById('drawer-app-title');
   if (drawerTitle) drawerTitle.textContent = `💰 ${version.full_title}`;

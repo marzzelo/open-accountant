@@ -337,7 +337,7 @@ Open Accountant is intended to follow **Semantic Versioning**.
 
 - Release notes live in `CHANGELOG.md`
 - Git tags should use the `vX.Y.Z` format
-- The current release baseline is `v1.2.1`
+- The current release baseline is `v1.3.1`
 - GitHub Actions can build test artifacts and Docker images from the repository
 - Tagged releases can also publish a packaged source zip asset automatically
 

@@ -68,20 +68,35 @@
 
 /* ── Mobile type tabs ── */
 .mttab {
-  flex: 1; min-width: 58px;
-  padding: 8px 4px 6px;
+  flex: 0 0 auto;
+  width: 60px;
+  min-width: 60px;
+  padding: 10px 4px;
   border: none; border-bottom: 2px solid transparent;
   background: none;
   color: #484f58;
   font-family: inherit; font-size: 11px; text-align: center;
   cursor: pointer; transition: all .15s; line-height: 1.4;
 }
-.mttab small { display: block; font-size: 9px; }
 .mttab:hover { color: #c9d1d9; }
 .mttab.active {
   color: var(--tab-accent, #58a6ff);
   border-bottom-color: var(--tab-accent, #58a6ff);
 }
+.board-col-icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+.mobile-tab-icon {
+  display: block;
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  margin: 0 auto;
+}
+.mobile-tab-icon-liability { width: 30px; }
 
 /* ── CARD — accent line via ::before (no se puede con Tailwind inline) ── */
 .card {
@@ -238,9 +253,14 @@
   .board {
     display: block; padding: 10px;
     height: 100%; overflow-y: auto; overflow-x: hidden;
+    touch-action: pan-y;
   }
   .column { display: none; max-height: none; overflow-y: visible; padding-bottom: 88px; }
   .column.mobile-active { display: flex; }
+  .column.mobile-active,
+  .card {
+    touch-action: pan-y;
+  }
 }
 /* Tabs y FAB: controlados 100% via JS (inline style) — sin conflicto de cascada */
 .mobile-type-tabs { display: none; }

@@ -27,6 +27,8 @@
   "board.tab.income": "Income",
   "board.tab.liab_eq": "Liab./Eq.",
   "board.empty": "No accounts",
+  "board.pending_credit_title": "Selected credit",
+  "board.pending_credit_hint": "{name} is selected as the credit account. Choose the debit account.",
   "account.type.asset": "Asset",
   "account.type.liability": "Liability",
   "account.type.income": "Income",

@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, and this project is intended to follow 
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-03-18
+
+### Added
+
+- Board mobile swipe navigation now cycles across all columns while preserving a selected credit source until the debit account is chosen.
+- Board column headers and mobile type tabs now use dedicated image assets instead of emoji icons.
+- The Board now shows a persistent in-context hint when a credit account is selected and waiting for the debit account.
+
+### Changed
+
+- Desktop toolbar layout now separates app/book context, centered tool icons, and right-aligned date filters.
+- Board mobile tabs were centered and resized to better fit small screens.
+- Account balances now retain their negative sign in the UI when the balance is opposite to the account's natural side.
+
 ## [1.3.0] - 2026-03-17
 
 ### Added

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Open Accountant v1.2.1</title>
+  <title>Open Accountant v1.3.1</title>
 
   <!-- Tailwind Play CDN (JIT in the browser, no build step) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -48,87 +48,89 @@
 <header class="h-[52px] bg-dark-800 border-b border-dark-600 flex items-center gap-2
                px-3 shrink-0 z-10">
 
-  <div class="flex items-center gap-2 shrink-0">
-    <span class="text-2xl">💰</span>
-    <span id="app-title" class="font-bold text-dark-100 text-[15px]">Open Accountant v1.2.1</span>
+  <div class="flex items-center gap-2 min-w-0 lg:hidden">
+    <span class="text-2xl shrink-0">💰</span>
+    <span id="app-title-mobile" class="font-bold text-dark-100 text-[15px] truncate">Open Accountant v1.3.1</span>
   </div>
 
-  <!-- Desktop nav -->
-  <nav id="tl-nav" class="hidden lg:flex items-center gap-1 flex-1 overflow-x-auto">
-    <button class="tbtn nav-icon-btn" data-view="board" data-i18n-title="nav.board" title="Board" aria-label="Board" onclick="View.show('board')">
-      <span class="nav-icon" aria-hidden="true">📊</span>
-      <span class="nav-label" data-i18n="nav.board">Board</span>
-    </button>
-    <button class="tbtn nav-icon-btn" data-view="balance" data-i18n-title="nav.balance" title="Balance" aria-label="Balance" onclick="View.show('balance')">
-      <span class="nav-icon" aria-hidden="true">⚖️</span>
-      <span class="nav-label" data-i18n="nav.balance">Balance</span>
-    </button>
-    <button class="tbtn nav-icon-btn" data-view="journal" data-i18n-title="nav.journal" title="Journal" aria-label="Journal" onclick="View.show('journal')">
-      <span class="nav-icon" aria-hidden="true">📒</span>
-      <span class="nav-label" data-i18n="nav.journal">Journal</span>
-    </button>
-    <button class="tbtn nav-icon-btn" data-view="ledger" data-i18n-title="nav.ledger" title="Ledger" aria-label="Ledger" onclick="View.show('ledger')">
-      <span class="nav-icon" aria-hidden="true">📖</span>
-      <span class="nav-label" data-i18n="nav.ledger">Ledger</span>
-    </button>
-    <button class="tbtn nav-icon-btn" data-view="stats" data-i18n-title="nav.stats" title="Stats" aria-label="Stats" onclick="View.show('stats')">
-      <span class="nav-icon" aria-hidden="true">📈</span>
-      <span class="nav-label" data-i18n="nav.stats">Stats</span>
-    </button>
-    <div class="w-px h-5 bg-dark-600 mx-1 shrink-0"></div>
-        <button class="tbtn nav-icon-btn !bg-blue-600 !text-white hover:!bg-blue-500 !border-blue-600"
-          title="＋ Account" aria-label="＋ Account"
-            data-i18n-title="nav.new_account" onclick="Forms.newAccount()">
-      <span class="nav-icon" aria-hidden="true">➕</span>
-      <span class="nav-label" data-i18n="nav.new_account">＋ Account</span>
-    </button>
-    <button class="tbtn nav-icon-btn" data-i18n-title="nav.subtypes" title="Subtypes" aria-label="Subtypes" onclick="View.show('subtypes')">
-      <span class="nav-icon" aria-hidden="true">🏷</span>
-      <span class="nav-label" data-i18n="nav.subtypes">Subtypes</span>
-    </button>
-    <div class="w-px h-5 bg-dark-600 mx-1 shrink-0"></div>
-    <button class="tbtn nav-icon-btn" data-view="settings" data-i18n-title="nav.settings" title="Settings" aria-label="Settings" onclick="View.show('settings')">
-      <span class="nav-icon" aria-hidden="true">⚙️</span>
-      <span class="nav-label" data-i18n="nav.settings">Settings</span>
-    </button>
-    <button class="tbtn nav-icon-btn" data-view="about" data-i18n-title="nav.about" title="About" aria-label="About" onclick="View.show('about')">
-      <span class="nav-icon" aria-hidden="true">ℹ️</span>
-      <span class="nav-label" data-i18n="nav.about">About</span>
-    </button>
-  </nav>
+  <div class="hidden lg:flex items-center gap-3 flex-1 min-w-0">
+    <div class="flex items-center gap-2 min-w-0 flex-1">
+      <span class="text-2xl shrink-0">💰</span>
+      <span id="app-title" class="font-bold text-dark-100 text-[15px] truncate">Open Accountant v1.3.1</span>
+      <span class="text-dark-600 shrink-0">|</span>
+      <span id="current-book-badge"
+            class="min-w-0 truncate text-[12px] text-blue-400 font-medium cursor-pointer hover:underline"
+            onclick="View.show('settings')" title="Contabilidad activa"></span>
+    </div>
 
-  <!-- Current book badge (desktop) -->
-  <div class="hidden lg:flex items-center gap-1.5 shrink-0 mr-1">
-    <span class="text-[10px] text-dark-500">📚</span>
-    <span id="current-book-badge"
-          class="text-[11px] text-blue-400 font-medium cursor-pointer hover:underline"
-          onclick="View.show('settings')" title="Contabilidad activa"></span>
-  </div>
+    <nav id="tl-nav" class="flex items-center justify-center gap-1 shrink-0 px-2">
+      <button class="tbtn nav-icon-btn" data-view="board" data-i18n-title="nav.board" title="Board" aria-label="Board" onclick="View.show('board')">
+        <span class="nav-icon" aria-hidden="true">📊</span>
+        <span class="nav-label" data-i18n="nav.board">Board</span>
+      </button>
+      <button class="tbtn nav-icon-btn" data-view="balance" data-i18n-title="nav.balance" title="Balance" aria-label="Balance" onclick="View.show('balance')">
+        <span class="nav-icon" aria-hidden="true">⚖️</span>
+        <span class="nav-label" data-i18n="nav.balance">Balance</span>
+      </button>
+      <button class="tbtn nav-icon-btn" data-view="journal" data-i18n-title="nav.journal" title="Journal" aria-label="Journal" onclick="View.show('journal')">
+        <span class="nav-icon" aria-hidden="true">📒</span>
+        <span class="nav-label" data-i18n="nav.journal">Journal</span>
+      </button>
+      <button class="tbtn nav-icon-btn" data-view="ledger" data-i18n-title="nav.ledger" title="Ledger" aria-label="Ledger" onclick="View.show('ledger')">
+        <span class="nav-icon" aria-hidden="true">📖</span>
+        <span class="nav-label" data-i18n="nav.ledger">Ledger</span>
+      </button>
+      <button class="tbtn nav-icon-btn" data-view="stats" data-i18n-title="nav.stats" title="Stats" aria-label="Stats" onclick="View.show('stats')">
+        <span class="nav-icon" aria-hidden="true">📈</span>
+        <span class="nav-label" data-i18n="nav.stats">Stats</span>
+      </button>
+      <div class="w-px h-5 bg-dark-600 mx-1 shrink-0"></div>
+      <button class="tbtn nav-icon-btn !bg-blue-600 !text-white hover:!bg-blue-500 !border-blue-600"
+            title="＋ Account" aria-label="＋ Account"
+              data-i18n-title="nav.new_account" onclick="Forms.newAccount()">
+        <span class="nav-icon" aria-hidden="true">➕</span>
+        <span class="nav-label" data-i18n="nav.new_account">＋ Account</span>
+      </button>
+      <button class="tbtn nav-icon-btn" data-i18n-title="nav.subtypes" title="Subtypes" aria-label="Subtypes" onclick="View.show('subtypes')">
+        <span class="nav-icon" aria-hidden="true">🏷</span>
+        <span class="nav-label" data-i18n="nav.subtypes">Subtypes</span>
+      </button>
+      <div class="w-px h-5 bg-dark-600 mx-1 shrink-0"></div>
+      <button class="tbtn nav-icon-btn" data-view="settings" data-i18n-title="nav.settings" title="Settings" aria-label="Settings" onclick="View.show('settings')">
+        <span class="nav-icon" aria-hidden="true">⚙️</span>
+        <span class="nav-label" data-i18n="nav.settings">Settings</span>
+      </button>
+      <button class="tbtn nav-icon-btn" data-view="about" data-i18n-title="nav.about" title="About" aria-label="About" onclick="View.show('about')">
+        <span class="nav-icon" aria-hidden="true">ℹ️</span>
+        <span class="nav-label" data-i18n="nav.about">About</span>
+      </button>
+    </nav>
 
-  <!-- Desktop date filter -->
-  <div id="tl-filter" class="filter-controls hidden xl:flex items-center gap-1.5 shrink-0 rounded-lg px-2 py-1 transition-colors">
-    <span class="text-[10px] text-dark-500 shrink-0">📅</span>
+    <div class="flex items-center justify-end flex-1 min-w-0">
+      <div id="tl-filter" class="filter-controls hidden xl:flex items-center gap-1.5 shrink-0 rounded-lg px-2 py-1 transition-colors">
+        <span class="text-[10px] text-dark-500 shrink-0">📅</span>
 
-    <!-- Quick-filter buttons -->
-    <button onclick="Filter.setCurrentYear()"
-          class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.current_year" data-i18n="filter.current_year">Current year</button>
-    <button onclick="Filter.setCurrentMonth()"
-          class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.current_month" data-i18n="filter.current_month">Current month</button>
-    <button onclick="Filter.setPrevMonth()"
-          class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.prev_month" data-i18n="filter.prev_month">Prev. month</button>
+        <button onclick="Filter.setCurrentYear()"
+              class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.current_year" data-i18n="filter.current_year">Current year</button>
+        <button onclick="Filter.setCurrentMonth()"
+              class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.current_month" data-i18n="filter.current_month">Current month</button>
+        <button onclick="Filter.setPrevMonth()"
+              class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.prev_month" data-i18n="filter.prev_month">Prev. month</button>
 
-    <div class="w-px h-4 bg-dark-600 mx-1 shrink-0"></div>
+        <div class="w-px h-4 bg-dark-600 mx-1 shrink-0"></div>
 
-    <input type="date" id="filter-from" onchange="Filter.apply()"
-           class="bg-dark-700 border border-dark-600 rounded-md text-dark-300
-                  text-[11px] px-2 py-1 cursor-pointer font-sans">
-    <span class="text-dark-500 text-[11px]">→</span>
-    <input type="date" id="filter-to" onchange="Filter.apply()"
-           class="bg-dark-700 border border-dark-600 rounded-md text-dark-300
-                  text-[11px] px-2 py-1 cursor-pointer font-sans">
-    <button onclick="Filter.clear()" title="${t('filter.clear_title')}"
-            class="text-dark-400 hover:text-dark-300 text-[13px] px-1 shrink-0">✕</button>
-    <span id="filter-text" class="hidden"></span>
+        <input type="date" id="filter-from" onchange="Filter.apply()"
+               class="bg-dark-700 border border-dark-600 rounded-md text-dark-300
+                      text-[11px] px-2 py-1 cursor-pointer font-sans">
+        <span class="text-dark-500 text-[11px]">→</span>
+        <input type="date" id="filter-to" onchange="Filter.apply()"
+               class="bg-dark-700 border border-dark-600 rounded-md text-dark-300
+                      text-[11px] px-2 py-1 cursor-pointer font-sans">
+        <button onclick="Filter.clear()" title="${t('filter.clear_title')}"
+                class="text-dark-400 hover:text-dark-300 text-[13px] px-1 shrink-0">✕</button>
+        <span id="filter-text" class="hidden"></span>
+      </div>
+    </div>
   </div>
 
   <!-- Hamburger (mobile/tablet) -->
@@ -148,7 +150,7 @@
          onclick="event.stopPropagation()">
 
     <div class="flex items-center justify-between p-4 border-b border-dark-600">
-      <span id="drawer-app-title" class="font-bold text-dark-100">💰 Open Accountant v1.2.1</span>
+      <span id="drawer-app-title" class="font-bold text-dark-100">💰 Open Accountant v1.3.1</span>
       <button onclick="Nav.close()" class="text-dark-400 hover:text-dark-300 text-xl">✕</button>
     </div>
 
@@ -213,11 +215,23 @@
 <div id="mobile-type-tabs"
      class="mobile-type-tabs bg-dark-800 border-b border-dark-600 shrink-0 overflow-x-auto"
      style="display:none">
-  <div class="flex">
-    <button class="mttab" data-col="0" onclick="Board.selectTab(0)">🏦<br><small data-i18n="board.tab.asset">Asset</small></button>
-    <button class="mttab" data-col="1" onclick="Board.selectTab(1)">🧾<br><small data-i18n="board.tab.expense">Expense</small></button>
-    <button class="mttab" data-col="2" onclick="Board.selectTab(2)">📈<br><small data-i18n="board.tab.income">Income</small></button>
-    <button class="mttab" data-col="3" onclick="Board.selectTab(3)">💳<br><small data-i18n="board.tab.liab_eq">Liab./Eq.</small></button>
+  <div class="flex justify-center items-center min-w-full gap-1">
+    <button class="mttab" data-col="0" data-i18n-title="board.tab.asset" title="Asset" aria-label="Asset" onclick="Board.selectTab(0)">
+      <img src="/images/asset.png" alt="" class="mobile-tab-icon" draggable="false">
+      <span class="nav-label" data-i18n="board.tab.asset">Asset</span>
+    </button>
+    <button class="mttab" data-col="1" data-i18n-title="board.tab.expense" title="Expense" aria-label="Expense" onclick="Board.selectTab(1)">
+      <img src="/images/expense.png" alt="" class="mobile-tab-icon" draggable="false">
+      <span class="nav-label" data-i18n="board.tab.expense">Expense</span>
+    </button>
+    <button class="mttab" data-col="2" data-i18n-title="board.tab.income" title="Income" aria-label="Income" onclick="Board.selectTab(2)">
+      <img src="/images/income.png" alt="" class="mobile-tab-icon" draggable="false">
+      <span class="nav-label" data-i18n="board.tab.income">Income</span>
+    </button>
+    <button class="mttab" data-col="3" data-i18n-title="board.tab.liab_eq" title="Liab./Eq." aria-label="Liab./Eq." onclick="Board.selectTab(3)">
+      <img src="/images/liability.png" alt="" class="mobile-tab-icon mobile-tab-icon-liability" draggable="false">
+      <span class="nav-label" data-i18n="board.tab.liab_eq">Liab./Eq.</span>
+    </button>
   </div>
 </div>
 
