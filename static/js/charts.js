@@ -20,7 +20,7 @@ const Charts = {
 
     main.innerHTML = `
       <div class="overflow-y-auto flex-1">
-      <div class="max-w-6xl mx-auto px-5 sm:px-10 py-6">
+      <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-5 xl:px-4 py-6">
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-5" id="stats-grid">
         <div class="lg:col-span-2 bg-dark-800 border border-dark-600 rounded-xl p-4">
           <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.monthly_cashflow')}</h3>

@@ -73,6 +73,60 @@ const Forms = {
     return `f-currency-${currency.toLowerCase().replace(/_/g, '-')}`;
   },
 
+  _selectedFxRate() {
+    const value = parseFloat(document.getElementById('f-fx-rate')?.value);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  },
+
+  _syncTransactionFxUi(currency, { preserveRate = false } = {}) {
+    const meta = this._transactionCurrencyMeta(currency);
+    const originalCurrencyDisplay = document.getElementById('f-original-currency-display');
+    const fxRateGroup = document.getElementById('f-fx-rate-group');
+    const fxRateInput = document.getElementById('f-fx-rate');
+    const note = document.getElementById('f-amount-currency-note');
+    const isBaseCurrency = meta.originalCurrency === 'ARS';
+
+    if (originalCurrencyDisplay) originalCurrencyDisplay.textContent = meta.originalCurrency;
+    if (fxRateGroup) fxRateGroup.classList.toggle('hidden', isBaseCurrency);
+
+    if (fxRateInput) {
+      fxRateInput.disabled = isBaseCurrency;
+      if (isBaseCurrency) {
+        fxRateInput.value = '1.00';
+      } else if (!preserveRate) {
+        const nextRate = this._getCurrencyRate(currency);
+        fxRateInput.value = Number.isFinite(nextRate) && nextRate > 0 ? nextRate.toFixed(2) : '';
+      }
+    }
+
+    if (note) note.textContent = this._amountCurrencyHelp(currency, this._selectedFxRate() || this._getCurrencyRate(currency));
+  },
+
+  _transactionFxEditor(opts = {}) {
+    const selected = this._transactionCurrencyMeta(opts.currency || 'ARS');
+    const rateValue = selected.originalCurrency === 'ARS'
+      ? '1.00'
+      : (opts.rate != null ? Number(opts.rate).toFixed(2) : '');
+
+    return `
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+        <div>
+          ${T.label(t('form.label.original_currency'))}
+          <div id="f-original-currency-display" class="w-full bg-dark-700/50 border border-dark-600 rounded-lg text-dark-200 text-sm px-3 py-2.5 font-mono">${selected.originalCurrency}</div>
+        </div>
+        <div id="f-fx-rate-group" class="${selected.originalCurrency === 'ARS' ? 'hidden' : ''}">
+          ${T.label(t('form.label.fx_rate'))}
+          ${T.input('f-fx-rate', {
+            type: 'number',
+            step: '0.0001',
+            min: '0.0001',
+            val: rateValue,
+            inputmode: 'decimal',
+          })}
+        </div>
+      </div>`;
+  },
+
   _transactionAmountField(opts = {}) {
     const selected = this._transactionCurrencyMeta(opts.currency || 'ARS').code;
     const buttons = this._transactionCurrencies().map(option => `
@@ -161,7 +215,6 @@ const Forms = {
   _setAmountCurrency(currency) {
     const nextCurrency = this._transactionCurrencyMeta(currency).code;
     const hiddenInput = document.getElementById('f-amount-currency');
-    const note = document.getElementById('f-amount-currency-note');
     const amountInput = document.getElementById('f-amount');
 
     if (hiddenInput) hiddenInput.value = nextCurrency;
@@ -174,13 +227,13 @@ const Forms = {
       button.setAttribute('aria-pressed', String(active));
     });
 
-    if (note) note.textContent = this._amountCurrencyHelp(nextCurrency);
     if (amountInput) amountInput.placeholder = this._currencyPlaceholder(nextCurrency);
+    this._syncTransactionFxUi(nextCurrency);
   },
 
   async _primeAmountCurrencyHelp() {
     const currency = this._selectedAmountCurrency();
-    const rate = await this._resolveCurrencyRate(currency);
+    const rate = this._selectedFxRate() || await this._resolveCurrencyRate(currency);
     const note = document.getElementById('f-amount-currency-note');
     if (!note) return;
     note.textContent = this._amountCurrencyHelp(currency, rate);
@@ -202,16 +255,18 @@ const Forms = {
   async _buildTransactionPayload(rawAmount) {
     const currency = this._selectedAmountCurrency();
     const meta = this._transactionCurrencyMeta(currency);
+    const manualRate = this._selectedFxRate();
 
     if (meta.originalCurrency === 'ARS') {
       return {
         original_amount: rawAmount,
         original_currency: 'ARS',
+        fx_rate: 1,
         fx_source: null,
       };
     }
 
-    const rate = await this._resolveCurrencyRate(currency);
+    const rate = manualRate || await this._resolveCurrencyRate(currency);
     if (!rate) {
       Toast.show(this._missingCurrencyRateMessage(currency), 'err');
       return null;
@@ -220,6 +275,7 @@ const Forms = {
     return {
       original_amount: rawAmount,
       original_currency: meta.originalCurrency,
+      fx_rate: rate,
       fx_source: meta.fxSource,
     };
   },
@@ -228,11 +284,11 @@ const Forms = {
     return tx.fx_source || tx.original_currency || 'ARS';
   },
 
-  _focusTransactionAmount() {
+  _focusTransactionAmount({ preserveRate = false } = {}) {
     const input = document.getElementById('f-amount');
     input?.focus();
     input?.select();
-    this._setAmountCurrency(this._selectedAmountCurrency());
+    this._syncTransactionFxUi(this._selectedAmountCurrency(), { preserveRate });
     this._primeAmountCurrencyHelp();
   },
 
@@ -407,7 +463,12 @@ const Forms = {
       + T.btnSuccess(t('btn.add'), { 'data-form-action': 'add-subtype' })), { wide: true });
   },
 
-  /* ── Editar transacción (desde txlist) ───────────────────────── */
+  _bindEditTransactionFxInputs() {
+    const fxRateInput = document.getElementById('f-fx-rate');
+    fxRateInput?.addEventListener('input', () => this._primeAmountCurrencyHelp());
+  },
+
+  /* ── Editar transacción ──────────────────────────────────────── */
   editTransaction(tx) {
     const dtLocal = tx.date.replace(' ', 'T').slice(0, 16);
     const selectedCurrency = this._transactionSelectionFromTx(tx);
@@ -424,10 +485,16 @@ const Forms = {
         currency: selectedCurrency,
         rate: tx.fx_rate,
       }))}
+      ${this._transactionFxEditor({ currency: selectedCurrency, rate: tx.fx_rate })}
       ${T.group(t('form.label.description'), T.input('f-desc', { val: tx.description || '' }))}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: dtLocal }))}
     `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
       + T.btnPrimary(t('btn.save'), { 'data-form-action': 'update-transaction', 'data-tx-id': tx.id })));
+
+    setTimeout(() => {
+      this._bindEditTransactionFxInputs();
+      this._focusTransactionAmount({ preserveRate: true });
+    }, 40);
   },
 
   /* ── Helpers privados ─────────────────────────────────────────── */

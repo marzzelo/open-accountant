@@ -218,6 +218,61 @@ def test_create_transaction_persists_fx_traceability_fields(client):
     assert payload["fx_rate"] == 1100.0
     assert payload["fx_source"] == "USD_BUY"
 
+    journal_response = client.get("/api/reports/journal")
+    assert journal_response.status_code == 200
+    journal_row = journal_response.json()[0]
+    assert journal_row["original_amount"] == 10.0
+    assert journal_row["original_currency"] == "USD"
+    assert journal_row["fx_rate"] == 1100.0
+    assert journal_row["fx_source"] == "USD_BUY"
+
+
+def test_update_transaction_recalculates_amount_from_edited_fx_fields(client):
+    app_config.set_value("finance", "usd_official_buy_ars", "1100.00")
+    accounts = _accounts_by_name(client)
+
+    create_response = client.post(
+        "/api/transactions",
+        json={
+            "debit_account": accounts["Bank"]["id"],
+            "credit_account": accounts["Salary"]["id"],
+            "original_amount": 10.0,
+            "original_currency": "USD",
+            "fx_source": "USD_BUY",
+            "description": "Salary in USD",
+        },
+    )
+    assert create_response.status_code == 201
+    tx_id = create_response.json()["id"]
+
+    update_response = client.put(
+        f"/api/transactions/{tx_id}",
+        json={
+            "original_amount": 12.0,
+            "original_currency": "USD",
+            "fx_source": "USD_BUY",
+            "fx_rate": 1000.0,
+            "description": "Salary adjusted",
+        },
+    )
+    assert update_response.status_code == 200
+
+    payload = update_response.json()
+    assert payload["amount"] == 12000.0
+    assert payload["original_amount"] == 12.0
+    assert payload["original_currency"] == "USD"
+    assert payload["fx_rate"] == 1000.0
+    assert payload["fx_source"] == "USD_BUY"
+    assert payload["description"] == "Salary adjusted"
+
+    bank_response = client.get(f"/api/accounts/{accounts['Bank']['id']}")
+    assert bank_response.status_code == 200
+    assert bank_response.json()["balance"] == 12000.0
+
+    salary_response = client.get(f"/api/accounts/{accounts['Salary']['id']}")
+    assert salary_response.status_code == 200
+    assert salary_response.json()["balance"] == 12000.0
+
 
 def test_list_accounts_returns_recent_movements_and_monthly_history(client):
     accounts = _accounts_by_name(client)

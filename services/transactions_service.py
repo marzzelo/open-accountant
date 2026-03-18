@@ -59,7 +59,7 @@ def _normalize_currency(currency: Optional[str]) -> str:
 
 
 def _monetary_from_create(data: TransactionIn) -> dict:
-    if data.original_amount is None and data.original_currency is None and data.fx_source is None:
+    if data.original_amount is None and data.original_currency is None and data.fx_rate is None and data.fx_source is None:
         amount = _round_amount(data.amount)
         return {
             "amount": amount,
@@ -86,7 +86,7 @@ def _monetary_from_create(data: TransactionIn) -> dict:
     fx_source = (data.fx_source or "").strip().upper()
     if not fx_source:
         raise ValidationError("fx_source is required for non-ARS transactions")
-    fx_rate = _resolve_fx_rate(fx_source)
+    fx_rate = _round_amount(data.fx_rate) if data.fx_rate is not None else _resolve_fx_rate(fx_source)
     return {
         "amount": _round_amount(original_amount * fx_rate),
         "original_amount": original_amount,
@@ -101,6 +101,7 @@ def _monetary_from_update(data: TransactionUpdate, old) -> dict:
         data.amount is None
         and data.original_amount is None
         and data.original_currency is None
+        and data.fx_rate is None
         and data.fx_source is None
     ):
         return {
@@ -111,7 +112,7 @@ def _monetary_from_update(data: TransactionUpdate, old) -> dict:
             "fx_source": old["fx_source"],
         }
 
-    if data.original_amount is None and data.original_currency is None and data.fx_source is None:
+    if data.original_amount is None and data.original_currency is None and data.fx_rate is None and data.fx_source is None:
         amount = _round_amount(data.amount)
         return {
             "amount": amount,
@@ -142,7 +143,7 @@ def _monetary_from_update(data: TransactionUpdate, old) -> dict:
     next_fx_source = (data.fx_source if data.fx_source is not None else old["fx_source"] or "").strip().upper()
     if not next_fx_source:
         raise ValidationError("fx_source is required for non-ARS transactions")
-    fx_rate = _resolve_fx_rate(next_fx_source)
+    fx_rate = _round_amount(data.fx_rate) if data.fx_rate is not None else _resolve_fx_rate(next_fx_source)
     return {
         "amount": _round_amount(original_amount * fx_rate),
         "original_amount": original_amount,

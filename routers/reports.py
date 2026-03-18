@@ -81,6 +81,10 @@ def export_csv(
                 "debit_name",
                 "credit_name",
                 "amount",
+                "original_amount",
+                "original_currency",
+                "fx_rate",
+                "fx_source",
                 "description",
             ],
         )
@@ -127,6 +131,10 @@ def export_csv(
                 "role",
                 "debit",
                 "credit",
+                "original_amount",
+                "original_currency",
+                "fx_rate",
+                "fx_source",
                 "balance",
             ],
         )

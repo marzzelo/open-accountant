@@ -112,6 +112,7 @@ def journal_data(conn, from_date=None, to_date=None, account_id=None, limit=1000
     where = "WHERE " + " AND ".join(conditions)
     rows = conn.execute(
         f"""SELECT t.id, t.date, t.description, t.amount,
+                   t.original_amount, t.original_currency, t.fx_rate, t.fx_source,
                    da.name AS debit_name, ca.name AS credit_name
             FROM transactions t
             JOIN accounts da ON t.debit_account  = da.id
@@ -128,6 +129,10 @@ def journal_data(conn, from_date=None, to_date=None, account_id=None, limit=1000
             "debit_name": row["debit_name"],
             "credit_name": row["credit_name"],
             "amount": row["amount"],
+            "original_amount": row["original_amount"],
+            "original_currency": row["original_currency"],
+            "fx_rate": row["fx_rate"],
+            "fx_source": row["fx_source"],
             "description": row["description"],
         }
         for row in rows
@@ -151,6 +156,7 @@ def get_ledger(
 
     rows = conn.execute(
         """SELECT t.id, t.date, t.description, t.amount,
+                  t.original_amount, t.original_currency, t.fx_rate, t.fx_source,
                   t.debit_account, t.credit_account,
                   da.name AS debit_name, ca.name AS credit_name
            FROM transactions t
@@ -187,6 +193,10 @@ def get_ledger(
                 "role": role,
                 "debit": row["amount"] if role == "Débito" else None,
                 "credit": row["amount"] if role == "Crédito" else None,
+                "original_amount": row["original_amount"],
+                "original_currency": row["original_currency"],
+                "fx_rate": row["fx_rate"],
+                "fx_source": row["fx_source"],
                 "balance": round(running, 4),
             }
         )

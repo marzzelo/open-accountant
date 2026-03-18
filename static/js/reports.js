@@ -16,7 +16,7 @@ function _typeLabel(typeId, typeName) {
 const R = {
   view: (title, sub, body) => `
     <div class="flex-1 overflow-y-auto">
-      <div class="max-w-6xl mx-auto px-5 sm:px-10 py-6">
+      <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-5 xl:px-4 py-6">
         <h1 class="text-xl font-bold text-dark-100 mb-1">${title}</h1>
         <p class="text-xs text-dark-400 mb-5">${sub}</p>
         ${body}
@@ -69,6 +69,104 @@ const Reports = {
 
   _downloadUrl(path) {
     return buildApiUrl(path);
+  },
+
+  _fxSourceLabel(source) {
+    const labels = {
+      USD_CARD: t('report.fx.source.usd_card'),
+      USD_BUY: t('report.fx.source.usd_buy'),
+      USD_SELL: t('report.fx.source.usd_sell'),
+      BLUE_BUY: t('report.fx.source.blue_buy'),
+      BLUE_SELL: t('report.fx.source.blue_sell'),
+    };
+    if (!source) return t('report.fx.source.direct');
+    return labels[source] || source;
+  },
+
+  _fmtPlainAmount(value) {
+    return Number(value || 0).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  },
+
+  _fxCell(tx) {
+    const originalCurrency = tx.original_currency || 'ARS';
+    const originalAmount = tx.original_amount ?? tx.amount;
+    const fxRate = tx.fx_rate ?? 1;
+
+    return `
+      <div class="leading-4 min-w-[132px]">
+        <div class="font-mono text-xs text-dark-200">${escapeHtml(originalCurrency)} ${this._fmtPlainAmount(originalAmount)}</div>
+        <div class="text-[11px] text-dark-400">${escapeHtml(this._fxSourceLabel(tx.fx_source))} · ${t('report.fx.rate_short')}: ${fmt(fxRate)}</div>
+      </div>`;
+  },
+
+  _isForeignCurrencyTx(tx) {
+    return (tx.original_currency || 'ARS') !== 'ARS';
+  },
+
+  _txDetailBody(tx) {
+    return `
+      <div class="p-5 space-y-5">
+        <p data-modal-description class="text-sm text-dark-400">${t('report.tx_detail.subtitle')}</p>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="rounded-xl border border-dark-600 bg-dark-700/50 p-4">
+            <div class="text-[11px] uppercase tracking-wide text-dark-500 mb-1">${t('report.col.debited')}</div>
+            <div class="text-sm font-semibold text-dark-100">${escapeHtml(tx.debit_name)}</div>
+          </div>
+          <div class="rounded-xl border border-dark-600 bg-dark-700/50 p-4">
+            <div class="text-[11px] uppercase tracking-wide text-dark-500 mb-1">${t('report.col.credited')}</div>
+            <div class="text-sm font-semibold text-dark-100">${escapeHtml(tx.credit_name)}</div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="rounded-xl border border-dark-600 p-4">
+            <div class="text-[11px] uppercase tracking-wide text-dark-500 mb-1">${t('report.tx_detail.booked_amount')}</div>
+            <div class="font-mono text-lg font-semibold text-dark-100">${fmt(tx.amount)}</div>
+          </div>
+          <div class="rounded-xl border border-dark-600 p-4">
+            <div class="text-[11px] uppercase tracking-wide text-dark-500 mb-1">${t('report.tx_detail.original_amount')}</div>
+            <div class="font-mono text-lg font-semibold text-dark-100">${escapeHtml(tx.original_currency || 'ARS')} ${this._fmtPlainAmount(tx.original_amount ?? tx.amount)}</div>
+          </div>
+          <div class="rounded-xl border border-dark-600 p-4">
+            <div class="text-[11px] uppercase tracking-wide text-dark-500 mb-1">${t('report.tx_detail.fx_rate')}</div>
+            <div class="font-mono text-base font-semibold text-dark-100">${fmt(tx.fx_rate ?? 1)}</div>
+          </div>
+          <div class="rounded-xl border border-dark-600 p-4">
+            <div class="text-[11px] uppercase tracking-wide text-dark-500 mb-1">${t('report.tx_detail.fx_source')}</div>
+            <div class="text-sm font-semibold text-dark-100">${escapeHtml(this._fxSourceLabel(tx.fx_source))}</div>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-dark-600 p-4 space-y-2">
+          <div>
+            <div class="text-[11px] uppercase tracking-wide text-dark-500 mb-1">${t('report.col.date')}</div>
+            <div class="text-sm text-dark-100 font-mono">${escapeHtml((tx.date || '').slice(0, 16))}</div>
+          </div>
+          <div>
+            <div class="text-[11px] uppercase tracking-wide text-dark-500 mb-1">${t('report.col.description')}</div>
+            <div class="text-sm text-dark-300">${escapeHtml(tx.description || '—')}</div>
+          </div>
+        </div>
+
+        <div class="flex justify-end pt-1 border-t border-dark-600">
+          <button type="button" data-modal-close class="tbtn px-4 py-2 text-sm">${t('btn.close')}</button>
+        </div>
+      </div>`;
+  },
+
+  async _viewTx(txId) {
+    try {
+      const tx = await API.get(`/transactions/${txId}`);
+      Modal.open(this._txDetailBody(tx), {
+        title: `${t('report.tx_detail.title')} #${tx.id}`,
+      });
+    } catch (e) {
+      Toast.show(e.message, 'err');
+    }
   },
 
   _isZeroBalance(value) {
@@ -247,10 +345,26 @@ const Reports = {
       { v: `<span class="text-dark-400">${escapeHtml(r.credit_name)}</span>` },
       { v: R.amt(r.amount), cls: 'text-right' },
       { v: `<span class="text-dark-400">${escapeHtml(r.description || '')}</span>` },
-      { v: R.actionBtn('🗑', 'text-xs px-2 py-1 border border-pasivo/30 rounded text-pasivo/60 hover:text-pasivo bg-transparent cursor-pointer font-sans', {
-        'data-report-action': 'delete-tx',
-        'data-tx-id': r.id,
-      }) },
+      { v: `<div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
+        ${this._isForeignCurrencyTx(r) ? `<span class="inline-flex items-center justify-center text-sm text-gasto" title="${escapeHtml(t('report.tx_foreign_currency'))}" aria-label="${escapeHtml(t('report.tx_foreign_currency'))}">💱</span>` : ''}
+        ${R.actionBtn('👁', 'text-xs px-2 py-1 border border-dark-600 rounded text-dark-300 hover:text-dark-100 bg-transparent cursor-pointer font-sans', {
+          'data-report-action': 'view-tx',
+          'data-tx-id': r.id,
+          title: t('btn.view'),
+          'aria-label': t('btn.view'),
+        })}
+        ${R.actionBtn('✏️', 'text-xs px-2 py-1 border border-dark-600 rounded text-dark-400 hover:text-dark-300 bg-transparent cursor-pointer font-sans', {
+          'data-report-action': 'edit-tx',
+          'data-tx-id': r.id,
+          title: t('btn.edit'),
+          'aria-label': t('btn.edit'),
+        })}
+        ${R.actionBtn('🗑️', 'text-xs px-2 py-1 border border-pasivo/30 rounded text-pasivo/60 hover:text-pasivo bg-transparent cursor-pointer font-sans', {
+          'data-report-action': 'delete-tx',
+          'data-tx-id': r.id,
+          title: t('btn.delete'),
+          'aria-label': t('btn.delete'),
+        })}</div>` },
     ])).join('');
 
     main.innerHTML = R.view(`📒 ${t('report.journal')}`,
@@ -289,6 +403,26 @@ const Reports = {
       { v: e.debit  ? R.amt(e.debit)  : '', cls: 'text-right' },
       { v: e.credit ? R.amt(e.credit) : '', cls: 'text-right' },
       { v: `<span class="font-semibold">${R.amt(e.balance)}</span>`, cls: 'text-right' },
+      { v: `<div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
+        ${this._isForeignCurrencyTx(e) ? `<span class="inline-flex items-center justify-center text-sm text-gasto" title="${escapeHtml(t('report.tx_foreign_currency'))}" aria-label="${escapeHtml(t('report.tx_foreign_currency'))}">💱</span>` : ''}
+        ${R.actionBtn('👁', 'text-xs px-2 py-1 border border-dark-600 rounded text-dark-300 hover:text-dark-100 bg-transparent cursor-pointer font-sans', {
+          'data-report-action': 'view-tx',
+          'data-tx-id': e.id,
+          title: t('btn.view'),
+          'aria-label': t('btn.view'),
+        })}
+        ${R.actionBtn('✏️', 'text-xs px-2 py-1 border border-dark-600 rounded text-dark-400 hover:text-dark-300 bg-transparent cursor-pointer font-sans', {
+          'data-report-action': 'edit-tx',
+          'data-tx-id': e.id,
+          title: t('btn.edit'),
+          'aria-label': t('btn.edit'),
+        })}
+        ${R.actionBtn('🗑️', 'text-xs px-2 py-1 border border-pasivo/30 rounded text-pasivo/60 hover:text-pasivo bg-transparent cursor-pointer font-sans', {
+          'data-report-action': 'delete-tx',
+          'data-tx-id': e.id,
+          title: t('btn.delete'),
+          'aria-label': t('btn.delete'),
+        })}</div>` },
     ])).join('');
 
     main.innerHTML = R.view(`📖 ${t('report.ledger')}`, t('report.ledger_summary', { count: entries.length }), `
@@ -307,44 +441,15 @@ const Reports = {
       </div>` +
       R.table(
         [{label:t('report.col.date')},{label:t('report.col.description')},{label:t('report.col.account')},
-         {label:t('report.col.debit'),right:true},{label:t('report.col.credit'),right:true},{label:t('report.col.balance'),right:true}],
-        rows || `<tr><td colspan='6' class='text-center py-8 text-dark-500 text-xs'>${t('report.no_data')}</td></tr>`
+         {label:t('report.col.debit'),right:true},{label:t('report.col.credit'),right:true},{label:t('report.col.balance'),right:true},{label:''}],
+        rows || `<tr><td colspan='7' class='text-center py-8 text-dark-500 text-xs'>${t('report.no_data')}</td></tr>`
       )
     );
   },
 
   /* ── Lista de transacciones ───────────────────────────────────── */
   async txlist() {
-    const sep  = State.apiDateParams ? '&' : '?';
-    const data = await API.get('/transactions' + State.apiDateParams + sep + 'limit=300');
-    const main = document.getElementById('main');
-    const sorted = this._sortByDate(data, 'txlist');
-
-    const rows = sorted.map(tx => R.row([
-      { v: `<span class="font-mono text-xs">${tx.date.slice(0,16)}</span>` },
-      { v: escapeHtml(tx.debit_name) },
-      { v: `<span class="text-dark-400">${escapeHtml(tx.credit_name)}</span>` },
-      { v: R.amt(tx.amount), cls: 'text-right' },
-      { v: `<span class="text-dark-400 text-xs">${escapeHtml(tx.description || '')}</span>` },
-      { v: `
-        ${R.actionBtn('✏️', 'text-xs px-2 py-1 border border-dark-600 rounded text-dark-400 hover:text-dark-300 bg-transparent cursor-pointer font-sans mr-1', {
-          'data-report-action': 'edit-tx',
-          'data-tx-id': tx.id,
-        })}
-        ${R.actionBtn('🗑', 'text-xs px-2 py-1 border border-pasivo/30 rounded text-pasivo/60 hover:text-pasivo bg-transparent cursor-pointer font-sans', {
-          'data-report-action': 'delete-tx',
-          'data-tx-id': tx.id,
-        })}` }
-    ])).join('');
-
-    main.innerHTML = R.view(`🔁 ${t('nav.transactions')}`, t('report.txlist_summary', { count: sorted.length }),
-      `<div class="flex gap-2 flex-wrap mb-4">${this._sortToggleButton('txlist')}</div>` +
-      R.table(
-        [{label:t('report.col.date')},{label:t('report.col.debited')},{label:t('report.col.credited')},
-         {label:t('report.col.amount'),right:true},{label:t('report.col.description')},{label:''}],
-        rows || `<tr><td colspan="6" class="text-center py-8 text-dark-500 text-xs">${t('report.no_transactions')}</td></tr>`
-      )
-    );
+    return this.journal();
   },
 
   /* ── Subtipos (re-usa Forms) ──────────────────────────────────── */
@@ -389,6 +494,9 @@ document.addEventListener('click', event => {
       break;
     case 'delete-tx':
       Reports._deleteTx(Number(action.dataset.txId));
+      break;
+    case 'view-tx':
+      Reports._viewTx(Number(action.dataset.txId));
       break;
     case 'edit-tx':
       Reports._editTx(Number(action.dataset.txId));

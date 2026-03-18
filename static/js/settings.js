@@ -49,7 +49,7 @@ const Settings = {
 
   _buildHTML() {
     return `
-      <div class="max-w-4xl mx-auto px-5 sm:px-10 py-6 w-full">
+      <div class="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-5 xl:px-4 py-6 w-full">
         <h2 class="text-xl font-semibold text-dark-200 mb-6">⚙️ ${t('settings.title')}</h2>
 
         <!-- Tab strip -->

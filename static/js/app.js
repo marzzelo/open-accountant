@@ -282,7 +282,7 @@ const View = {
         case 'ledger':   await Reports.ledger();  break;
         case 'stats':    await Charts.stats();    break;
         case 'subtypes':  await Reports.subtypes();  break;
-        case 'txlist':    await Reports.txlist();    break;
+        case 'txlist':    await Reports.journal();   break;
         case 'settings':  await Settings.render(); break;
         case 'about':     await About.render();    break;
         default: main.innerHTML = '<div class="empty">Vista no encontrada</div>';

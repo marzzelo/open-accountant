@@ -6,6 +6,21 @@ The format is based on Keep a Changelog, and this project is intended to follow 
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-03-17
+
+### Added
+
+- Persisted multicurrency traceability on transactions with original amount, original currency, FX rate, and FX source fields.
+- Journal and ledger actions now include view and edit affordances alongside foreign-currency indicators.
+- Transaction detail dialogs now expose the stored FX traceability for each movement.
+- API coverage for FX persistence, journal exposure, and transaction update recalculation flows.
+
+### Changed
+
+- Transaction editing now preserves the originally recorded FX ratio while new transactions continue using the current configured rate.
+- Journal and ledger layouts were simplified by removing duplicate transaction panels, shrinking large-screen margins, and replacing text actions with icon-only controls.
+- Report exports now include FX traceability columns so CSV output stays aligned with the report payloads.
+
 ## [1.2.1] - 2026-03-16
 
 ### Added

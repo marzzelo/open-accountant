@@ -92,6 +92,7 @@ class TransactionIn(BaseModel):
     amount: Optional[float] = Field(None, gt=0)
     original_amount: Optional[float] = Field(None, gt=0)
     original_currency: Optional[str] = None
+    fx_rate: Optional[float] = Field(None, gt=0)
     fx_source: Optional[str] = None
     description: str = ""
     date: Optional[str] = None  # ISO datetime; default = now()
@@ -107,6 +108,7 @@ class TransactionUpdate(BaseModel):
     amount: Optional[float] = Field(None, gt=0)
     original_amount: Optional[float] = Field(None, gt=0)
     original_currency: Optional[str] = None
+    fx_rate: Optional[float] = Field(None, gt=0)
     fx_source: Optional[str] = None
     description: Optional[str] = None
     date: Optional[str] = None
