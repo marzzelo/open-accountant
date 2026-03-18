@@ -35,7 +35,10 @@ const R = {
       </table>
     </div>`,
 
-  row: (cells, cls = '') => `<tr class="border-b border-dark-600/50 hover:bg-dark-700/40 ${cls}">
+  row: (cells, cls = '', attrs = {}) => `<tr ${htmlAttrs({
+    class: `border-b border-dark-600/50 hover:bg-dark-700/40 ${cls}`.trim(),
+    ...attrs,
+  })}>
     ${cells.map(c => `<td class="px-3 py-2.5 ${c.cls || ''}">${c.v}</td>`).join('')}
   </tr>`,
 
@@ -234,6 +237,12 @@ const Reports = {
     }
   },
 
+  openLedger(accountId) {
+    if (!accountId) return;
+    State._ledgerAccount = accountId;
+    View.show('ledger');
+  },
+
   /* ── Balance General ──────────────────────────────────────────── */
   async balance() {
     const bs = await API.get('/reports/balance' + State.apiDateParams);
@@ -244,9 +253,16 @@ const Reports = {
       const color = TYPE_COLORS[g.type_id] || '#fff';
       const rows = g.subgroups.flatMap(sg => [
         ...sg.items.map(i => R.row([
-          { v: `<span class="pl-6 text-dark-400">${i.account_name}</span>` },
+          { v: `<span class="pl-6 text-dark-300">${i.account_name}</span>` },
           { v: R.amt(i.balance), cls: 'text-right font-mono' },
-        ])),
+        ], 'cursor-pointer hover:!bg-blue-600/10', {
+          'data-report-action': 'open-ledger',
+          'data-account-id': i.account_id,
+          tabindex: '0',
+          role: 'button',
+          title: t('report.open_ledger_account', { account: i.account_name }),
+          'aria-label': t('report.open_ledger_account', { account: i.account_name }),
+        })),
         R.row([
           { v: `<span class="pl-4 font-semibold text-blue-300">${sg.subtype_name}</span>` },
           { v: R.amt(sg.subtotal), cls: 'text-right font-mono font-semibold text-blue-300' },
@@ -501,9 +517,25 @@ document.addEventListener('click', event => {
     case 'edit-tx':
       Reports._editTx(Number(action.dataset.txId));
       break;
+    case 'open-ledger':
+      Reports.openLedger(Number(action.dataset.accountId));
+      break;
     default:
       break;
   }
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+
+  const action = event.target.closest('[data-report-action="open-ledger"]');
+  if (!action) return;
+
+  const main = document.getElementById('main');
+  if (main && !main.contains(action)) return;
+
+  event.preventDefault();
+  Reports.openLedger(Number(action.dataset.accountId));
 });
 
 document.addEventListener('change', event => {

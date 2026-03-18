@@ -1,5 +1,16 @@
 /* ─── CUSTOM COMPONENTS (Tailwind no puede manejar esto solo) ─────────── */
 
+.input-no-spin {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.input-no-spin::-webkit-inner-spin-button,
+.input-no-spin::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 /* ── Toolbar buttons ── */
 .tbtn {
   padding: 5px 11px;

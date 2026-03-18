@@ -78,6 +78,272 @@ const Forms = {
     return Number.isFinite(value) && value > 0 ? value : null;
   },
 
+  _isDebitNormal(typeId) {
+    return typeId === 1 || typeId === 4;
+  },
+
+  _accountBalanceSide(typeId, balance) {
+    if (!Number.isFinite(balance) || Math.abs(balance) < 0.005) return 'zero';
+    const normalSide = this._isDebitNormal(typeId) ? 'debit' : 'credit';
+    if (balance > 0) return normalSide;
+    return normalSide === 'debit' ? 'credit' : 'debit';
+  },
+
+  _sideLabel(side) {
+    if (side === 'zero') return t('form.balance_side_zero');
+    return t(`form.balance_side_${side}`);
+  },
+
+  _signedBalanceForSide(typeId, side, magnitude) {
+    const normalizedMagnitude = Math.round(Math.abs(Number(magnitude) || 0) * 100) / 100;
+    if (normalizedMagnitude === 0) return 0;
+    const normalSide = this._isDebitNormal(typeId) ? 'debit' : 'credit';
+    return Math.round(normalizedMagnitude * (side === normalSide ? 1 : -1) * 100) / 100;
+  },
+
+  _balanceDeltaSign(typeId, role) {
+    if (role === 'debit') return this._isDebitNormal(typeId) ? 1 : -1;
+    return this._isDebitNormal(typeId) ? -1 : 1;
+  },
+
+  _currentBalanceNote(account) {
+    if (!account) return '';
+    const balance = Number(account.balance) || 0;
+    return t('form.force_balance_current', {
+      name: account.name,
+      side: this._sideLabel(this._accountBalanceSide(account.type_id, balance)),
+      amount: fmt(Math.abs(balance)),
+    });
+  },
+
+  _roundMoney(value) {
+    return Math.round((Number(value) || 0) * 100) / 100;
+  },
+
+  _plainAmount(value) {
+    return Math.abs(Number(value) || 0).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  },
+
+  _currencyAmountLabel(currency, value) {
+    if (currency === 'ARS') return fmt(value);
+    return `${currency} ${this._plainAmount(value)}`;
+  },
+
+  _previewTransactionRate() {
+    const currency = this._selectedAmountCurrency();
+    if (currency === 'ARS') return 1;
+    return this._selectedFxRate() || this._getCurrencyRate(currency);
+  },
+
+  _effectiveAmountPreviewField(opts = {}) {
+    return `
+      <div id="f-effective-amount-preview" ${htmlAttrs({
+        'data-credit-id': opts.creditId,
+        'data-debit-id': opts.debitId,
+        class: 'mb-4 rounded-xl border border-emerald-900/30 bg-emerald-950/20 px-3 py-3',
+      })}>
+        <div class="text-[11px] font-semibold uppercase tracking-wide text-emerald-300/80 mb-1">${escapeHtml(t('form.effective_amount_title'))}</div>
+        <div id="f-effective-amount-preview-body" class="text-sm text-dark-300">${escapeHtml(t('form.effective_amount_placeholder'))}</div>
+      </div>`;
+  },
+
+  _previewAccountIds() {
+    const preview = document.getElementById('f-effective-amount-preview');
+    const creditId = Number.parseInt(preview?.dataset.creditId || document.getElementById('f-credit')?.value || '', 10);
+    const debitId = Number.parseInt(preview?.dataset.debitId || document.getElementById('f-debit')?.value || '', 10);
+    return { creditId, debitId };
+  },
+
+  _effectiveAmountPreviewState({ creditId = null, debitId = null } = {}) {
+    const preview = {
+      tone: 'muted',
+      text: t('form.effective_amount_placeholder'),
+    };
+    const rawAmount = this._transactionInputAmount();
+    const forceMode = this._selectedForceBalanceMode();
+    const currency = this._selectedAmountCurrency();
+    const meta = this._transactionCurrencyMeta(currency);
+    const rate = this._previewTransactionRate();
+
+    if (forceMode === 'invalid') {
+      return { tone: 'err', text: t('msg.force_balance_single_option') };
+    }
+
+    if (!forceMode && (!Number.isFinite(rawAmount) || rawAmount <= 0)) return preview;
+    if (forceMode && (!Number.isFinite(rawAmount) || rawAmount < 0)) return preview;
+
+    if (currency !== 'ARS' && !(Number.isFinite(rate) && rate > 0)) {
+      return {
+        tone: 'err',
+        text: t('form.effective_amount_rate_missing', { label: meta.label }),
+      };
+    }
+
+    if (!forceMode) {
+      const bookedAmount = currency === 'ARS' ? this._roundMoney(rawAmount) : this._roundMoney(rawAmount * rate);
+      if (currency === 'ARS') {
+        return {
+          tone: 'ok',
+          text: t('form.effective_amount_preview', { amount: fmt(bookedAmount) }),
+        };
+      }
+
+      return {
+        tone: 'ok',
+        text: t('form.effective_amount_preview_fx', {
+          amount: fmt(bookedAmount),
+          original: this._currencyAmountLabel(meta.originalCurrency, rawAmount),
+        }),
+      };
+    }
+
+    const fallbackIds = this._previewAccountIds();
+    const resolvedCreditId = creditId ?? fallbackIds.creditId;
+    const resolvedDebitId = debitId ?? fallbackIds.debitId;
+    const targetAccountId = forceMode === 'credit' ? resolvedCreditId : resolvedDebitId;
+    const targetAccount = State.accounts.find(account => account.id === targetAccountId);
+    if (!targetAccount) return preview;
+
+    const targetBookedBalance = currency === 'ARS' ? this._roundMoney(rawAmount) : this._roundMoney(rawAmount * rate);
+    const desiredBalance = this._signedBalanceForSide(targetAccount.type_id, forceMode, targetBookedBalance);
+    const currentBalance = this._roundMoney(targetAccount.balance);
+    const bookedAmount = this._roundMoney((desiredBalance - currentBalance) / this._balanceDeltaSign(targetAccount.type_id, forceMode));
+
+    if (Math.abs(bookedAmount) < 0.005) {
+      return { tone: 'muted', text: t('msg.force_balance_no_change') };
+    }
+
+    if (!Number.isFinite(bookedAmount) || bookedAmount < 0) {
+      return { tone: 'err', text: t('msg.force_balance_conflict') };
+    }
+
+    if (currency === 'ARS') {
+      return {
+        tone: 'ok',
+        text: t('form.effective_amount_preview_forced', {
+          amount: fmt(bookedAmount),
+          name: targetAccount.name,
+          side: this._sideLabel(forceMode),
+          target: fmt(targetBookedBalance),
+        }),
+      };
+    }
+
+    return {
+      tone: 'ok',
+      text: t('form.effective_amount_preview_forced_fx', {
+        amount: fmt(bookedAmount),
+        original: this._currencyAmountLabel(meta.originalCurrency, this._roundMoney(bookedAmount / rate)),
+        name: targetAccount.name,
+        side: this._sideLabel(forceMode),
+        target: fmt(targetBookedBalance),
+      }),
+    };
+  },
+
+  _refreshTransactionEffectiveAmountNote({ creditId = null, debitId = null } = {}) {
+    const wrapper = document.getElementById('f-effective-amount-preview');
+    const body = document.getElementById('f-effective-amount-preview-body');
+    if (!wrapper || !body) return;
+
+    const forceMode = this._selectedForceBalanceMode();
+    wrapper.classList.toggle('hidden', !forceMode);
+    if (!forceMode) return;
+
+    const preview = this._effectiveAmountPreviewState({ creditId, debitId });
+    body.textContent = preview.text;
+
+    wrapper.className = 'mb-4 rounded-xl border px-3 py-3';
+    body.className = 'text-sm';
+
+    if (preview.tone === 'err') {
+      wrapper.classList.add('border-red-900/40', 'bg-red-950/20');
+      body.classList.add('text-red-300');
+      return;
+    }
+
+    if (preview.tone === 'ok') {
+      wrapper.classList.add('border-emerald-900/30', 'bg-emerald-950/20');
+      body.classList.add('text-emerald-200');
+      return;
+    }
+
+    wrapper.classList.add('border-dark-600', 'bg-dark-800/50');
+    body.classList.add('text-dark-400');
+  },
+
+  _forcedBalanceField(opts = {}) {
+    return `
+      <div class="mb-4 rounded-xl border border-dark-600 bg-dark-800/60 p-3">
+        <div class="text-[11px] font-semibold uppercase tracking-wide text-dark-400 mb-3">${escapeHtml(t('form.force_balance_title'))}</div>
+        <div class="space-y-3">
+          <label class="flex items-start gap-3 rounded-lg border border-dark-600/70 bg-dark-700/40 px-3 py-3 cursor-pointer">
+            <input id="f-force-credit-balance" type="checkbox" data-form-change="toggle-force-balance" data-target="credit"
+              class="mt-0.5 h-4 w-4 rounded border-dark-500 bg-dark-800 text-blue-500 focus:ring-blue-500/40 cursor-pointer">
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-dark-100">${escapeHtml(t('form.force_credit_balance'))}</div>
+              <div id="f-force-credit-balance-note" class="mt-1 text-[11px] text-dark-500">${escapeHtml(this._currentBalanceNote(opts.creditAccount))}</div>
+            </div>
+          </label>
+          <label class="flex items-start gap-3 rounded-lg border border-dark-600/70 bg-dark-700/40 px-3 py-3 cursor-pointer">
+            <input id="f-force-debit-balance" type="checkbox" data-form-change="toggle-force-balance" data-target="debit"
+              class="mt-0.5 h-4 w-4 rounded border-dark-500 bg-dark-800 text-blue-500 focus:ring-blue-500/40 cursor-pointer">
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-dark-100">${escapeHtml(t('form.force_debit_balance'))}</div>
+              <div id="f-force-debit-balance-note" class="mt-1 text-[11px] text-dark-500">${escapeHtml(this._currentBalanceNote(opts.debitAccount))}</div>
+            </div>
+          </label>
+        </div>
+      </div>`;
+  },
+
+  _selectedForceBalanceMode() {
+    const creditChecked = !!document.getElementById('f-force-credit-balance')?.checked;
+    const debitChecked = !!document.getElementById('f-force-debit-balance')?.checked;
+
+    if (creditChecked && debitChecked) return 'invalid';
+    if (creditChecked) return 'credit';
+    if (debitChecked) return 'debit';
+    return null;
+  },
+
+  _syncForceBalanceMode(target) {
+    const creditCheckbox = document.getElementById('f-force-credit-balance');
+    const debitCheckbox = document.getElementById('f-force-debit-balance');
+    if (!creditCheckbox || !debitCheckbox) return;
+
+    if (target === 'credit' && creditCheckbox.checked) debitCheckbox.checked = false;
+    if (target === 'debit' && debitCheckbox.checked) creditCheckbox.checked = false;
+  },
+
+  _refreshForceBalanceNotes({ creditId = null, debitId = null } = {}) {
+    const resolvedCreditId = creditId ?? Number.parseInt(document.getElementById('f-credit')?.value || '', 10);
+    const resolvedDebitId = debitId ?? Number.parseInt(document.getElementById('f-debit')?.value || '', 10);
+    const creditAccount = State.accounts.find(account => account.id === resolvedCreditId);
+    const debitAccount = State.accounts.find(account => account.id === resolvedDebitId);
+    const creditNote = document.getElementById('f-force-credit-balance-note');
+    const debitNote = document.getElementById('f-force-debit-balance-note');
+
+    if (creditNote) creditNote.textContent = this._currentBalanceNote(creditAccount);
+    if (debitNote) debitNote.textContent = this._currentBalanceNote(debitAccount);
+    this._refreshTransactionEffectiveAmountNote({ creditId: resolvedCreditId, debitId: resolvedDebitId });
+  },
+
+  _transactionInputAmount() {
+    const rawValue = document.getElementById('f-amount')?.value;
+    if (rawValue == null || rawValue === '') return Number.NaN;
+    return Number.parseFloat(rawValue);
+  },
+
+  async _selectedTransactionRate() {
+    const currency = this._selectedAmountCurrency();
+    if (currency === 'ARS') return 1;
+    return this._selectedFxRate() || await this._resolveCurrencyRate(currency);
+  },
+
   _syncTransactionFxUi(currency, { preserveRate = false } = {}) {
     const meta = this._transactionCurrencyMeta(currency);
     const originalCurrencyDisplay = document.getElementById('f-original-currency-display');
@@ -153,10 +419,10 @@ const Forms = {
         <input id="f-amount-currency" type="hidden" value="${selected}">
       </div>
       ${T.input('f-amount', {
-        type: 'number', step: '0.01', min: '0.01', ph: t('form.placeholder.amount'), auto: opts.auto !== false,
+          type: 'number', step: '0.01', min: opts.min ?? '0.01', ph: t('form.placeholder.amount'), auto: opts.auto !== false,
         val: opts.value,
         inputmode: 'decimal',
-        cls: '!text-[22px] !font-bold !text-center !text-ingreso !tracking-tight'
+          cls: `!text-[22px] !font-bold !text-center !text-ingreso !tracking-tight ${opts.hideSpin ? 'input-no-spin' : ''}`.trim()
       })}
       <div id="f-amount-currency-note" class="mt-2 text-[11px] text-dark-500">
         ${escapeHtml(this._amountCurrencyHelp(selected, opts.rate))}
@@ -229,6 +495,7 @@ const Forms = {
 
     if (amountInput) amountInput.placeholder = this._currencyPlaceholder(nextCurrency);
     this._syncTransactionFxUi(nextCurrency);
+    this._refreshTransactionEffectiveAmountNote();
   },
 
   async _primeAmountCurrencyHelp() {
@@ -239,17 +506,70 @@ const Forms = {
     note.textContent = this._amountCurrencyHelp(currency, rate);
   },
 
-  async _normalizeTransactionAmount(rawAmount) {
+  async _normalizeTransactionAmount(rawAmount, rate = null) {
     const currency = this._selectedAmountCurrency();
     if (currency === 'ARS') return rawAmount;
 
-    const rate = await this._resolveCurrencyRate(currency);
-    if (!rate) {
+    const resolvedRate = rate || await this._selectedTransactionRate();
+    if (!resolvedRate) {
       Toast.show(this._missingCurrencyRateMessage(currency), 'err');
       return null;
     }
 
-    return Math.round(rawAmount * rate * 100) / 100;
+    return Math.round(rawAmount * resolvedRate * 100) / 100;
+  },
+
+  async _resolveTransactionEntryAmount(rawAmount, { creditId, debitId }) {
+    const forceMode = this._selectedForceBalanceMode();
+
+    if (forceMode === 'invalid') {
+      Toast.show(t('msg.force_balance_single_option'), 'err');
+      return null;
+    }
+
+    if (!forceMode) {
+      if (!Number.isFinite(rawAmount) || rawAmount <= 0) {
+        Toast.show(t('msg.invalid_amount'), 'err');
+        return null;
+      }
+      return rawAmount;
+    }
+
+    if (!Number.isFinite(rawAmount) || rawAmount < 0) {
+      Toast.show(t('msg.invalid_amount'), 'err');
+      return null;
+    }
+
+    const targetAccountId = forceMode === 'credit' ? creditId : debitId;
+    const targetAccount = State.accounts.find(account => account.id === targetAccountId);
+    if (!targetAccount) {
+      Toast.show(t('msg.invalid_value'), 'err');
+      return null;
+    }
+
+    const rate = await this._selectedTransactionRate();
+    const targetMagnitude = await this._normalizeTransactionAmount(rawAmount, rate);
+    if (targetMagnitude == null) return null;
+
+    const desiredBalance = this._signedBalanceForSide(targetAccount.type_id, forceMode, targetMagnitude);
+    const currentBalance = Math.round((Number(targetAccount.balance) || 0) * 100) / 100;
+    const amount = Math.round(((desiredBalance - currentBalance) / this._balanceDeltaSign(targetAccount.type_id, forceMode)) * 100) / 100;
+
+    if (!Number.isFinite(amount)) {
+      Toast.show(t('msg.invalid_amount'), 'err');
+      return null;
+    }
+    if (Math.abs(amount) < 0.005) {
+      Toast.show(t('msg.force_balance_no_change'), 'err');
+      return null;
+    }
+    if (amount < 0) {
+      Toast.show(t('msg.force_balance_conflict'), 'err');
+      return null;
+    }
+    if (this._selectedAmountCurrency() === 'ARS') return amount;
+
+    return Math.round((amount / rate) * 100) / 100;
   },
 
   async _buildTransactionPayload(rawAmount) {
@@ -382,13 +702,18 @@ const Forms = {
           <div class="text-[11px] text-dark-400">${escapeHtml(debit.type_name)}</div>
         </div>
       </div>
-      ${T.group(`${t('form.label.amount')} *`, this._transactionAmountField())}
+      ${T.group(`${t('form.label.amount')} *`, this._transactionAmountField({ hideSpin: true, min: '0' }))}
       ${T.group(t('form.label.description'), T.input('f-desc', { ph: t('form.placeholder.desc_tx'), val: description }))}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: now }))}
+      ${this._forcedBalanceField({ creditAccount: credit, debitAccount: debit })}
+      ${this._effectiveAmountPreviewField({ creditId, debitId })}
     `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true }) +
        T.btnSuccess(t('btn.register'), { 'data-form-action': 'save-transaction', 'data-credit-id': creditId, 'data-debit-id': debitId })));
 
-    setTimeout(() => this._focusTransactionAmount(), 80);
+    setTimeout(() => {
+      this._focusTransactionAmount();
+      this._refreshForceBalanceNotes({ creditId, debitId });
+    }, 80);
   },
 
   /* ── FAB: transacción manual (mobile) ────────────────────────── */
@@ -396,17 +721,23 @@ const Forms = {
     const opts = State.accounts.map(a =>
       `<option value="${a.id}">${escapeHtml(a.name)} (${escapeHtml(a.type_name)})</option>`).join('');
     const now = localNow();
+    const [firstAccount] = State.accounts;
 
     Modal.open(T.modalShell(`💸 ${t('form.new_transaction')}`, `
-      ${T.group(`${t('form.label.amount')} *`, this._transactionAmountField())}
-      ${T.group(t('form.label.credit'), T.select('f-credit', opts))}
-      ${T.group(t('form.label.debit'),  T.select('f-debit',  opts))}
+      ${T.group(`${t('form.label.amount')} *`, this._transactionAmountField({ hideSpin: true, min: '0' }))}
+      ${T.group(t('form.label.credit'), T.select('f-credit', opts, { 'data-form-change': 'refresh-force-balance' }))}
+      ${T.group(t('form.label.debit'),  T.select('f-debit',  opts, { 'data-form-change': 'refresh-force-balance' }))}
       ${T.group(t('form.label.description'), T.input('f-desc', { ph: t('form.placeholder.desc_tx') }))}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: now }))}
+      ${this._forcedBalanceField({ creditAccount: firstAccount || null, debitAccount: firstAccount || null })}
+      ${this._effectiveAmountPreviewField()}
     `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true }) +
        T.btnSuccess(t('btn.register'), { 'data-form-action': 'save-transaction-fab' })));
 
-    setTimeout(() => this._focusTransactionAmount(), 80);
+    setTimeout(() => {
+      this._focusTransactionAmount();
+      this._refreshForceBalanceNotes();
+    }, 80);
   },
 
   /* ── Gestión de subtipos ──────────────────────────────────────── */
@@ -547,12 +878,14 @@ const Forms = {
   },
 
   async _saveTransaction(creditId, debitId) {
-    const rawAmount = parseFloat(document.getElementById('f-amount')?.value);
+    const rawAmount = this._transactionInputAmount();
     const desc   = document.getElementById('f-desc')?.value || '';
     const date   = document.getElementById('f-date')?.value?.replace('T', ' ');
-    if (!rawAmount || rawAmount <= 0) return Toast.show(t('msg.invalid_amount'), 'err');
 
-    const txPayload = await this._buildTransactionPayload(rawAmount);
+    const entryAmount = await this._resolveTransactionEntryAmount(rawAmount, { creditId, debitId });
+    if (entryAmount == null) return;
+
+    const txPayload = await this._buildTransactionPayload(entryAmount);
     if (!txPayload) return;
 
     try {
@@ -569,15 +902,17 @@ const Forms = {
   },
 
   async _saveTransactionFAB() {
-    const rawAmount = parseFloat(document.getElementById('f-amount')?.value);
+    const rawAmount = this._transactionInputAmount();
     const creditId = parseInt(document.getElementById('f-credit')?.value);
     const debitId  = parseInt(document.getElementById('f-debit')?.value);
     const desc     = document.getElementById('f-desc')?.value || '';
     const date     = document.getElementById('f-date')?.value?.replace('T', ' ');
-    if (!rawAmount || rawAmount <= 0)  return Toast.show(t('msg.invalid_amount'), 'err');
     if (creditId === debitId)    return Toast.show(t('msg.same_account'), 'err');
 
-    const txPayload = await this._buildTransactionPayload(rawAmount);
+    const entryAmount = await this._resolveTransactionEntryAmount(rawAmount, { creditId, debitId });
+    if (entryAmount == null) return;
+
+    const txPayload = await this._buildTransactionPayload(entryAmount);
     if (!txPayload) return;
 
     try {
@@ -716,7 +1051,30 @@ document.addEventListener('change', event => {
   const modalContent = document.getElementById('modal-content');
   if (modalContent && !modalContent.contains(target)) return;
 
-  if (target.dataset.formChange === 'load-subtypes') {
-    Forms._loadSubtypes(target.value);
+  switch (target.dataset.formChange) {
+    case 'load-subtypes':
+      Forms._loadSubtypes(target.value);
+      break;
+    case 'toggle-force-balance':
+      Forms._syncForceBalanceMode(target.dataset.target);
+      Forms._refreshTransactionEffectiveAmountNote();
+      break;
+    case 'refresh-force-balance':
+      Forms._refreshForceBalanceNotes();
+      break;
+    default:
+      break;
+  }
+});
+
+document.addEventListener('input', event => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+
+  const modalContent = document.getElementById('modal-content');
+  if (modalContent && !modalContent.contains(target)) return;
+
+  if (target.id === 'f-amount') {
+    Forms._refreshTransactionEffectiveAmountNote();
   }
 });
