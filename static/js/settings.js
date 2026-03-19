@@ -49,29 +49,31 @@ const Settings = {
 
   _buildHTML() {
     return `
-      <div class="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-5 xl:px-4 py-6 w-full">
-        <h2 class="text-xl font-semibold text-dark-200 mb-6">⚙️ ${t('settings.title')}</h2>
+      <div class="flex-1 min-h-0 overflow-y-auto overscroll-y-contain">
+        <div class="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-5 xl:px-4 py-6 pb-24 sm:pb-8 w-full">
+          <h2 class="text-xl font-semibold text-dark-200 mb-6">⚙️ ${t('settings.title')}</h2>
 
-        <!-- Tab strip -->
-        <div class="flex gap-1 mb-0 border-b border-dark-600">
-          ${['books','config','env'].map(tab => {
-            const tabLabels = { books: t('settings.tab.books'), config: t('settings.tab.config'), env: t('settings.tab.env') };
-            return `<button id="stab-${tab}" onclick="Settings._switchTab('${tab}')"
-                    class="stab-btn px-4 py-2 text-sm rounded-t-lg border border-dark-600 border-b-0
-                           cursor-pointer transition-colors
-                           ${this._tab === tab
-                             ? 'bg-dark-700 text-dark-200 border-b-dark-700'
-                             : 'bg-dark-800 text-dark-400 hover:text-dark-300'}">
-              ${tabLabels[tab]}
-            </button>`;
-          }).join('')}
-        </div>
+          <!-- Tab strip -->
+          <div class="sticky top-0 z-10 flex gap-1 mb-0 border-b border-dark-600 bg-dark-900/95 backdrop-blur supports-[backdrop-filter]:bg-dark-900/80">
+            ${['books','config','env'].map(tab => {
+              const tabLabels = { books: t('settings.tab.books'), config: t('settings.tab.config'), env: t('settings.tab.env') };
+              return `<button id="stab-${tab}" onclick="Settings._switchTab('${tab}')"
+                      class="stab-btn px-4 py-2 text-sm rounded-t-lg border border-dark-600 border-b-0
+                             cursor-pointer transition-colors
+                             ${this._tab === tab
+                               ? 'bg-dark-700 text-dark-200 border-b-dark-700'
+                               : 'bg-dark-800 text-dark-400 hover:text-dark-300'}">
+                ${tabLabels[tab]}
+              </button>`;
+            }).join('')}
+          </div>
 
-        <!-- Panels -->
-        <div class="bg-dark-800 border border-dark-600 border-t-0 rounded-b-xl rounded-tr-xl p-5">
-          <div id="spanel-books"  class="${this._tab !== 'books'  ? 'hidden' : ''}">${this._booksHTML()}</div>
-          <div id="spanel-config" class="${this._tab !== 'config' ? 'hidden' : ''}">${this._configHTML()}</div>
-          <div id="spanel-env"    class="${this._tab !== 'env'    ? 'hidden' : ''}">${this._envHTML()}</div>
+          <!-- Panels -->
+          <div class="bg-dark-800 border border-dark-600 border-t-0 rounded-b-xl rounded-tr-xl p-5">
+            <div id="spanel-books"  class="${this._tab !== 'books'  ? 'hidden' : ''}">${this._booksHTML()}</div>
+            <div id="spanel-config" class="${this._tab !== 'config' ? 'hidden' : ''}">${this._configHTML()}</div>
+            <div id="spanel-env"    class="${this._tab !== 'env'    ? 'hidden' : ''}">${this._envHTML()}</div>
+          </div>
         </div>
       </div>`;
   },

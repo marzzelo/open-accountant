@@ -82,25 +82,6 @@ const Forms = {
     return typeId === 1 || typeId === 4;
   },
 
-  _accountBalanceSide(typeId, balance) {
-    if (!Number.isFinite(balance) || Math.abs(balance) < 0.005) return 'zero';
-    const normalSide = this._isDebitNormal(typeId) ? 'debit' : 'credit';
-    if (balance > 0) return normalSide;
-    return normalSide === 'debit' ? 'credit' : 'debit';
-  },
-
-  _sideLabel(side) {
-    if (side === 'zero') return t('form.balance_side_zero');
-    return t(`form.balance_side_${side}`);
-  },
-
-  _signedBalanceForSide(typeId, side, magnitude) {
-    const normalizedMagnitude = Math.round(Math.abs(Number(magnitude) || 0) * 100) / 100;
-    if (normalizedMagnitude === 0) return 0;
-    const normalSide = this._isDebitNormal(typeId) ? 'debit' : 'credit';
-    return Math.round(normalizedMagnitude * (side === normalSide ? 1 : -1) * 100) / 100;
-  },
-
   _balanceDeltaSign(typeId, role) {
     if (role === 'debit') return this._isDebitNormal(typeId) ? 1 : -1;
     return this._isDebitNormal(typeId) ? -1 : 1;
@@ -108,12 +89,13 @@ const Forms = {
 
   _currentBalanceNote(account) {
     if (!account) return '';
-    const balance = Number(account.balance) || 0;
     return t('form.force_balance_current', {
-      name: account.name,
-      side: this._sideLabel(this._accountBalanceSide(account.type_id, balance)),
-      amount: fmt(Math.abs(balance)),
+      amount: fmt(account.balance),
     });
+  },
+
+  _forceBalanceLabel(account) {
+    return t('form.force_account_balance', { name: account?.name || '' });
   },
 
   _roundMoney(value) {
@@ -157,12 +139,63 @@ const Forms = {
     return { creditId, debitId };
   },
 
+  _forceBalanceAccounts({ creditId = null, debitId = null } = {}) {
+    const fallbackIds = this._previewAccountIds();
+    const resolvedCreditId = creditId ?? fallbackIds.creditId;
+    const resolvedDebitId = debitId ?? fallbackIds.debitId;
+    const creditAccount = State.accounts.find(account => account.id === resolvedCreditId) || null;
+    const debitAccount = State.accounts.find(account => account.id === resolvedDebitId) || null;
+
+    return {
+      creditId: resolvedCreditId,
+      debitId: resolvedDebitId,
+      creditAccount,
+      debitAccount,
+    };
+  },
+
+  _forcedBalanceComputation(rawAmount, { creditId = null, debitId = null, rate = null } = {}) {
+    const forceMode = this._selectedForceBalanceMode();
+    if (!forceMode || forceMode === 'invalid') return null;
+
+    const { creditAccount, debitAccount } = this._forceBalanceAccounts({ creditId, debitId });
+    const targetAccount = forceMode === 'credit' ? creditAccount : debitAccount;
+    const otherAccount = forceMode === 'credit' ? debitAccount : creditAccount;
+    if (!targetAccount || !otherAccount) return null;
+
+    const currency = this._selectedAmountCurrency();
+    const targetBalance = currency === 'ARS'
+      ? this._roundMoney(rawAmount)
+      : this._roundMoney(rawAmount * rate);
+    const currentTargetBalance = this._roundMoney(targetAccount.balance);
+    const bookedAmount = this._roundMoney(
+      (targetBalance - currentTargetBalance) / this._balanceDeltaSign(targetAccount.type_id, forceMode)
+    );
+    const otherRole = forceMode === 'credit' ? 'debit' : 'credit';
+    const otherFinalBalance = this._roundMoney(
+      this._roundMoney(otherAccount.balance)
+      + bookedAmount * this._balanceDeltaSign(otherAccount.type_id, otherRole)
+    );
+
+    return {
+      targetAccount,
+      otherAccount,
+      targetBalance,
+      otherFinalBalance,
+      bookedAmount,
+      originalAmount: currency === 'ARS' || !Number.isFinite(rate) || rate <= 0
+        ? bookedAmount
+        : this._roundMoney(bookedAmount / rate),
+    };
+  },
+
   _effectiveAmountPreviewState({ creditId = null, debitId = null } = {}) {
     const preview = {
       tone: 'muted',
       text: t('form.effective_amount_placeholder'),
     };
-    const rawAmount = this._transactionInputAmount();
+    const amountState = this._transactionAmountState();
+    const rawAmount = amountState.value;
     const forceMode = this._selectedForceBalanceMode();
     const currency = this._selectedAmountCurrency();
     const meta = this._transactionCurrencyMeta(currency);
@@ -172,8 +205,12 @@ const Forms = {
       return { tone: 'err', text: t('msg.force_balance_single_option') };
     }
 
-    if (!forceMode && (!Number.isFinite(rawAmount) || rawAmount <= 0)) return preview;
-    if (forceMode && (!Number.isFinite(rawAmount) || rawAmount < 0)) return preview;
+    if (!amountState.isEmpty && !amountState.isValid) {
+      return { tone: 'err', text: t('msg.invalid_amount') };
+    }
+
+    if (!forceMode && (amountState.isEmpty || !Number.isFinite(rawAmount) || rawAmount <= 0)) return preview;
+    if (forceMode && (amountState.isEmpty || !Number.isFinite(rawAmount))) return preview;
 
     if (currency !== 'ARS' && !(Number.isFinite(rate) && rate > 0)) {
       return {
@@ -200,17 +237,17 @@ const Forms = {
       };
     }
 
-    const fallbackIds = this._previewAccountIds();
-    const resolvedCreditId = creditId ?? fallbackIds.creditId;
-    const resolvedDebitId = debitId ?? fallbackIds.debitId;
-    const targetAccountId = forceMode === 'credit' ? resolvedCreditId : resolvedDebitId;
-    const targetAccount = State.accounts.find(account => account.id === targetAccountId);
-    if (!targetAccount) return preview;
+    const computation = this._forcedBalanceComputation(rawAmount, { creditId, debitId, rate });
+    if (!computation) return preview;
 
-    const targetBookedBalance = currency === 'ARS' ? this._roundMoney(rawAmount) : this._roundMoney(rawAmount * rate);
-    const desiredBalance = this._signedBalanceForSide(targetAccount.type_id, forceMode, targetBookedBalance);
-    const currentBalance = this._roundMoney(targetAccount.balance);
-    const bookedAmount = this._roundMoney((desiredBalance - currentBalance) / this._balanceDeltaSign(targetAccount.type_id, forceMode));
+    const {
+      targetAccount,
+      otherAccount,
+      targetBalance,
+      otherFinalBalance,
+      bookedAmount,
+      originalAmount,
+    } = computation;
 
     if (Math.abs(bookedAmount) < 0.005) {
       return { tone: 'muted', text: t('msg.force_balance_no_change') };
@@ -220,27 +257,26 @@ const Forms = {
       return { tone: 'err', text: t('msg.force_balance_conflict') };
     }
 
-    if (currency === 'ARS') {
-      return {
-        tone: 'ok',
-        text: t('form.effective_amount_preview_forced', {
+    const lines = [
+      currency === 'ARS'
+        ? t('form.effective_amount_preview_forced_amount_line', { amount: fmt(bookedAmount) })
+        : t('form.effective_amount_preview_forced_amount_line_fx', {
           amount: fmt(bookedAmount),
-          name: targetAccount.name,
-          side: this._sideLabel(forceMode),
-          target: fmt(targetBookedBalance),
+          original: this._currencyAmountLabel(meta.originalCurrency, originalAmount),
         }),
-      };
-    }
+      t('form.effective_amount_preview_forced_balance_line', {
+        name: targetAccount.name,
+        amount: fmt(targetBalance),
+      }),
+      t('form.effective_amount_preview_forced_balance_line', {
+        name: otherAccount.name,
+        amount: fmt(otherFinalBalance),
+      }),
+    ];
 
     return {
       tone: 'ok',
-      text: t('form.effective_amount_preview_forced_fx', {
-        amount: fmt(bookedAmount),
-        original: this._currencyAmountLabel(meta.originalCurrency, this._roundMoney(bookedAmount / rate)),
-        name: targetAccount.name,
-        side: this._sideLabel(forceMode),
-        target: fmt(targetBookedBalance),
-      }),
+      text: lines.join('\n'),
     };
   },
 
@@ -257,7 +293,7 @@ const Forms = {
     body.textContent = preview.text;
 
     wrapper.className = 'mb-4 rounded-xl border px-3 py-3';
-    body.className = 'text-sm';
+    body.className = 'text-sm whitespace-pre-line';
 
     if (preview.tone === 'err') {
       wrapper.classList.add('border-red-900/40', 'bg-red-950/20');
@@ -284,7 +320,7 @@ const Forms = {
             <input id="f-force-credit-balance" type="checkbox" data-form-change="toggle-force-balance" data-target="credit"
               class="mt-0.5 h-4 w-4 rounded border-dark-500 bg-dark-800 text-blue-500 focus:ring-blue-500/40 cursor-pointer">
             <div class="min-w-0">
-              <div class="text-sm font-semibold text-dark-100">${escapeHtml(t('form.force_credit_balance'))}</div>
+              <div id="f-force-credit-balance-label" class="text-sm font-semibold text-dark-100">${escapeHtml(this._forceBalanceLabel(opts.creditAccount))}</div>
               <div id="f-force-credit-balance-note" class="mt-1 text-[11px] text-dark-500">${escapeHtml(this._currentBalanceNote(opts.creditAccount))}</div>
             </div>
           </label>
@@ -292,7 +328,7 @@ const Forms = {
             <input id="f-force-debit-balance" type="checkbox" data-form-change="toggle-force-balance" data-target="debit"
               class="mt-0.5 h-4 w-4 rounded border-dark-500 bg-dark-800 text-blue-500 focus:ring-blue-500/40 cursor-pointer">
             <div class="min-w-0">
-              <div class="text-sm font-semibold text-dark-100">${escapeHtml(t('form.force_debit_balance'))}</div>
+              <div id="f-force-debit-balance-label" class="text-sm font-semibold text-dark-100">${escapeHtml(this._forceBalanceLabel(opts.debitAccount))}</div>
               <div id="f-force-debit-balance-note" class="mt-1 text-[11px] text-dark-500">${escapeHtml(this._currentBalanceNote(opts.debitAccount))}</div>
             </div>
           </label>
@@ -324,18 +360,73 @@ const Forms = {
     const resolvedDebitId = debitId ?? Number.parseInt(document.getElementById('f-debit')?.value || '', 10);
     const creditAccount = State.accounts.find(account => account.id === resolvedCreditId);
     const debitAccount = State.accounts.find(account => account.id === resolvedDebitId);
+    const creditLabel = document.getElementById('f-force-credit-balance-label');
+    const debitLabel = document.getElementById('f-force-debit-balance-label');
     const creditNote = document.getElementById('f-force-credit-balance-note');
     const debitNote = document.getElementById('f-force-debit-balance-note');
 
     if (creditNote) creditNote.textContent = this._currentBalanceNote(creditAccount);
     if (debitNote) debitNote.textContent = this._currentBalanceNote(debitAccount);
+    if (creditLabel) creditLabel.textContent = this._forceBalanceLabel(creditAccount);
+    if (debitLabel) debitLabel.textContent = this._forceBalanceLabel(debitAccount);
+    this._syncTransactionAmountConstraints();
     this._refreshTransactionEffectiveAmountNote({ creditId: resolvedCreditId, debitId: resolvedDebitId });
   },
 
+  _syncTransactionAmountConstraints() {
+    const amountInput = document.getElementById('f-amount');
+    if (!amountInput) return;
+
+    if (this._selectedForceBalanceMode()) {
+      amountInput.removeAttribute('min');
+      return;
+    }
+
+    amountInput.setAttribute('min', '0');
+  },
+
+  _evaluateTransactionAmount(rawValue) {
+    const trimmedValue = String(rawValue ?? '').trim();
+    if (!trimmedValue) {
+      return { isEmpty: true, isValid: false, value: Number.NaN };
+    }
+
+    const normalizedValue = trimmedValue.replace(/,/g, '');
+    const directValue = Number(normalizedValue);
+    if (Number.isFinite(directValue)) {
+      return {
+        isEmpty: false,
+        isValid: true,
+        value: this._roundMoney(directValue),
+      };
+    }
+
+    if (!/^[0-9eE+\-*/%().\s]+$/.test(normalizedValue)) {
+      return { isEmpty: false, isValid: false, value: Number.NaN };
+    }
+
+    try {
+      const evaluated = Function(`"use strict"; return (${normalizedValue});`)();
+      if (!Number.isFinite(evaluated)) {
+        return { isEmpty: false, isValid: false, value: Number.NaN };
+      }
+
+      return {
+        isEmpty: false,
+        isValid: true,
+        value: this._roundMoney(evaluated),
+      };
+    } catch (_) {
+      return { isEmpty: false, isValid: false, value: Number.NaN };
+    }
+  },
+
+  _transactionAmountState() {
+    return this._evaluateTransactionAmount(document.getElementById('f-amount')?.value);
+  },
+
   _transactionInputAmount() {
-    const rawValue = document.getElementById('f-amount')?.value;
-    if (rawValue == null || rawValue === '') return Number.NaN;
-    return Number.parseFloat(rawValue);
+    return this._transactionAmountState().value;
   },
 
   async _selectedTransactionRate() {
@@ -419,9 +510,9 @@ const Forms = {
         <input id="f-amount-currency" type="hidden" value="${selected}">
       </div>
       ${T.input('f-amount', {
-          type: 'number', step: '0.01', min: opts.min ?? '0.01', ph: t('form.placeholder.amount'), auto: opts.auto !== false,
+          type: 'text', step: '0.01', min: opts.min ?? '0.01', ph: t('form.placeholder.amount'), auto: opts.auto !== false,
         val: opts.value,
-        inputmode: 'decimal',
+        inputmode: 'text',
           cls: `!text-[22px] !font-bold !text-center !text-ingreso !tracking-tight ${opts.hideSpin ? 'input-no-spin' : ''}`.trim()
       })}
       <div id="f-amount-currency-note" class="mt-2 text-[11px] text-dark-500">
@@ -520,10 +611,16 @@ const Forms = {
   },
 
   async _resolveTransactionEntryAmount(rawAmount, { creditId, debitId }) {
+    const amountState = this._transactionAmountState();
     const forceMode = this._selectedForceBalanceMode();
 
     if (forceMode === 'invalid') {
       Toast.show(t('msg.force_balance_single_option'), 'err');
+      return null;
+    }
+
+    if (!amountState.isEmpty && !amountState.isValid) {
+      Toast.show(t('msg.invalid_amount'), 'err');
       return null;
     }
 
@@ -535,41 +632,40 @@ const Forms = {
       return rawAmount;
     }
 
-    if (!Number.isFinite(rawAmount) || rawAmount < 0) {
+    if (!Number.isFinite(rawAmount)) {
       Toast.show(t('msg.invalid_amount'), 'err');
-      return null;
-    }
-
-    const targetAccountId = forceMode === 'credit' ? creditId : debitId;
-    const targetAccount = State.accounts.find(account => account.id === targetAccountId);
-    if (!targetAccount) {
-      Toast.show(t('msg.invalid_value'), 'err');
       return null;
     }
 
     const rate = await this._selectedTransactionRate();
-    const targetMagnitude = await this._normalizeTransactionAmount(rawAmount, rate);
-    if (targetMagnitude == null) return null;
+    if (this._selectedAmountCurrency() !== 'ARS' && !(Number.isFinite(rate) && rate > 0)) {
+      Toast.show(this._missingCurrencyRateMessage(this._selectedAmountCurrency()), 'err');
+      return null;
+    }
 
-    const desiredBalance = this._signedBalanceForSide(targetAccount.type_id, forceMode, targetMagnitude);
-    const currentBalance = Math.round((Number(targetAccount.balance) || 0) * 100) / 100;
-    const amount = Math.round(((desiredBalance - currentBalance) / this._balanceDeltaSign(targetAccount.type_id, forceMode)) * 100) / 100;
+    const computation = this._forcedBalanceComputation(rawAmount, { creditId, debitId, rate });
+    if (!computation) {
+      Toast.show(t('msg.invalid_value'), 'err');
+      return null;
+    }
 
-    if (!Number.isFinite(amount)) {
+    const { bookedAmount, originalAmount } = computation;
+
+    if (!Number.isFinite(bookedAmount)) {
       Toast.show(t('msg.invalid_amount'), 'err');
       return null;
     }
-    if (Math.abs(amount) < 0.005) {
+    if (Math.abs(bookedAmount) < 0.005) {
       Toast.show(t('msg.force_balance_no_change'), 'err');
       return null;
     }
-    if (amount < 0) {
+    if (bookedAmount < 0) {
       Toast.show(t('msg.force_balance_conflict'), 'err');
       return null;
     }
-    if (this._selectedAmountCurrency() === 'ARS') return amount;
+    if (this._selectedAmountCurrency() === 'ARS') return bookedAmount;
 
-    return Math.round((amount / rate) * 100) / 100;
+    return originalAmount;
   },
 
   async _buildTransactionPayload(rawAmount) {
@@ -609,6 +705,7 @@ const Forms = {
     input?.focus();
     input?.select();
     this._syncTransactionFxUi(this._selectedAmountCurrency(), { preserveRate });
+    this._syncTransactionAmountConstraints();
     this._primeAmountCurrencyHelp();
   },
 
@@ -929,10 +1026,11 @@ const Forms = {
   },
 
   async _updateTransaction(txId) {
-    const rawAmount = parseFloat(document.getElementById('f-amount')?.value);
+    const amountState = this._transactionAmountState();
+    const rawAmount = amountState.value;
     const desc   = document.getElementById('f-desc')?.value;
     const date   = document.getElementById('f-date')?.value?.replace('T', ' ');
-    if (!rawAmount || rawAmount <= 0) return Toast.show(t('msg.invalid_amount'), 'err');
+    if (!amountState.isValid || rawAmount <= 0) return Toast.show(t('msg.invalid_amount'), 'err');
 
     const txPayload = await this._buildTransactionPayload(rawAmount);
     if (!txPayload) return;
@@ -1057,7 +1155,7 @@ document.addEventListener('change', event => {
       break;
     case 'toggle-force-balance':
       Forms._syncForceBalanceMode(target.dataset.target);
-      Forms._refreshTransactionEffectiveAmountNote();
+      Forms._refreshForceBalanceNotes();
       break;
     case 'refresh-force-balance':
       Forms._refreshForceBalanceNotes();

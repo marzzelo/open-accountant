@@ -24,7 +24,7 @@ const Charts = {
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-5" id="stats-grid">
         <div class="lg:col-span-2 bg-dark-800 border border-dark-600 rounded-xl p-4">
           <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.monthly_cashflow')}</h3>
-          <canvas id="ch-cashflow" height="80"></canvas>
+          <canvas id="ch-cashflow" height="200"></canvas>
         </div>
         <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
           <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.expense_by_type')}</h3>
