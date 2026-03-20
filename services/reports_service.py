@@ -25,8 +25,60 @@ def date_params(from_date: Optional[str], to_date: Optional[str]) -> tuple[str, 
     return from_dt, to_dt
 
 
+def _is_zero_balance(value: float) -> bool:
+    return abs(float(value or 0)) < 0.005
+
+
+def _apply_balance_filters(
+    groups: list[BalanceGroup],
+    *,
+    hide_accounts: bool = False,
+    show_zero_balance: bool = True,
+) -> list[BalanceGroup]:
+    filtered_groups: list[BalanceGroup] = []
+
+    for group in groups:
+        next_subgroups: list[BalanceSubgroup] = []
+
+        for subgroup in group.subgroups:
+            if not show_zero_balance and _is_zero_balance(subgroup.subtotal):
+                continue
+
+            next_items = subgroup.items
+            if not show_zero_balance:
+                next_items = [item for item in next_items if not _is_zero_balance(item.balance)]
+            if hide_accounts:
+                next_items = []
+
+            next_subgroups.append(
+                BalanceSubgroup(
+                    subtype_name=subgroup.subtype_name,
+                    items=next_items,
+                    subtotal=subgroup.subtotal,
+                )
+            )
+
+        if next_subgroups or show_zero_balance or not _is_zero_balance(group.total):
+            filtered_groups.append(
+                BalanceGroup(
+                    type_name=group.type_name,
+                    type_id=group.type_id,
+                    subgroups=next_subgroups,
+                    total=group.total,
+                )
+            )
+
+    return filtered_groups
+
+
 def get_balance(
-    conn, from_date: Optional[str] = None, to_date: Optional[str] = None
+    conn,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    *,
+    hide_accounts: bool = False,
+    show_zero_balance: bool = True,
+    type_ids: Optional[set[int]] = None,
 ) -> BalanceSheet:
     from_dt, to_dt, filtered = resolve_date_range(from_date, to_date)
     type_map: dict = {}
@@ -43,6 +95,9 @@ def get_balance(
     ).fetchall()
 
     for row in rows:
+        if type_ids is not None and row["type_id"] not in type_ids:
+            continue
+
         balance = (
             compute_filtered_balance(
                 conn, row["id"], row["type_id"], row["initial_balance"], from_dt, to_dt
@@ -91,7 +146,11 @@ def get_balance(
     return BalanceSheet(
         period_from=from_dt[:10],
         period_to=to_dt[:10],
-        groups=groups,
+        groups=_apply_balance_filters(
+            groups,
+            hide_accounts=hide_accounts,
+            show_zero_balance=show_zero_balance,
+        ),
         total_activo=totals[1],
         total_pasivo=totals[2],
         total_patrimonio=totals[5],

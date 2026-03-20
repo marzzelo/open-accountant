@@ -64,6 +64,7 @@ const State = {
   userPreferences: {},
   hideBalanceAccounts: false,
   showZeroBalanceItems: false,
+  balanceTypeFilter: [1, 2, 3, 4, 5],
   usageOrder: JSON.parse(localStorage.getItem('acct_usage') || '{}'), // {id: timestamp}
 
   get filtered() { return !!(this.filterFrom && this.filterTo); },

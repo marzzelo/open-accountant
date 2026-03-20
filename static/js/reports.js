@@ -74,6 +74,64 @@ const Reports = {
     return buildApiUrl(path);
   },
 
+  _balanceQueryParams(fromDate = null, toDate = null) {
+    const params = new URLSearchParams();
+    if (fromDate) params.set('from', fromDate);
+    if (toDate) params.set('to', toDate);
+    params.set('hide_accounts', String(State.hideBalanceAccounts));
+    params.set('show_zero_balance', String(State.showZeroBalanceItems));
+    params.set('type_ids', this._selectedBalanceTypeIds().join(','));
+    return params.toString();
+  },
+
+  _balanceApiPath() {
+    const query = this._balanceQueryParams(State.filterFrom, State.filterTo);
+    return `/reports/balance${query ? `?${query}` : ''}`;
+  },
+
+  _balanceExportQuery(fromDate, toDate) {
+    const params = new URLSearchParams(this._balanceQueryParams(fromDate, toDate));
+    params.set('report', 'balance');
+    return params.toString();
+  },
+
+  _allBalanceTypeIds() {
+    return [1, 2, 3, 4, 5];
+  },
+
+  _selectedBalanceTypeIds() {
+    const selected = Array.isArray(State.balanceTypeFilter) ? State.balanceTypeFilter : [];
+    return this._allBalanceTypeIds().filter(typeId => selected.includes(typeId));
+  },
+
+  _balanceTypeFilterButtons() {
+    return this._allBalanceTypeIds().map(typeId => {
+      const active = this._selectedBalanceTypeIds().includes(typeId);
+      const accent = TYPE_COLORS[typeId] || '#c9d1d9';
+      return `<button ${htmlAttrs({
+        type: 'button',
+        'data-report-action': 'toggle-balance-type',
+        'data-type-id': typeId,
+        'aria-pressed': String(active),
+        class: `px-3 py-2 rounded-lg border text-xs font-semibold transition-colors ${active
+          ? 'text-dark-950 shadow-sm'
+          : 'text-dark-400 hover:text-dark-200 bg-transparent border-dark-600 hover:bg-dark-700'}`,
+        style: active ? `background:${accent};border-color:${accent};` : null,
+      })}>${escapeHtml(_typeLabel(typeId, ''))}</button>`;
+    }).join('');
+  },
+
+  async toggleBalanceType(typeId) {
+    const nextSelected = new Set(this._selectedBalanceTypeIds());
+    if (nextSelected.has(typeId)) {
+      nextSelected.delete(typeId);
+    } else {
+      nextSelected.add(typeId);
+    }
+    State.balanceTypeFilter = this._allBalanceTypeIds().filter(id => nextSelected.has(id));
+    await this.balance();
+  },
+
   _fxSourceLabel(source) {
     const labels = {
       USD_CARD: t('report.fx.source.usd_card'),
@@ -172,38 +230,14 @@ const Reports = {
     }
   },
 
-  _isZeroBalance(value) {
-    return Math.abs(Number(value) || 0) < 0.005;
-  },
-
-  _filterBalanceGroups(groups) {
-    if (State.showZeroBalanceItems) return groups;
-
-    return groups
-      .map(group => {
-        const subgroups = group.subgroups
-          .filter(subgroup => !this._isZeroBalance(subgroup.subtotal))
-          .map(subgroup => ({
-            ...subgroup,
-            items: subgroup.items.filter(item => !this._isZeroBalance(item.balance)),
-          }));
-
-        return {
-          ...group,
-          subgroups,
-        };
-      })
-      .filter(group => group.subgroups.length > 0 || !this._isZeroBalance(group.total));
-  },
-
   _balanceGroupRows(group) {
     return group.subgroups.flatMap(subgroup => {
       const subgroupRow = R.row([
-        { v: `<span class="pl-4 font-semibold text-blue-300">${subgroup.subtype_name}</span>` },
-        { v: R.amt(subgroup.subtotal), cls: 'text-right font-mono font-semibold text-blue-300' },
+        { v: `<span class="pl-4 font-bold text-blue-200 text-sm">${subgroup.subtype_name}</span>` },
+        { v: R.amt(subgroup.subtotal), cls: 'text-right font-mono font-bold text-blue-200' },
       ], 'bg-dark-700/60');
 
-      if (State.hideBalanceAccounts) return [subgroupRow];
+      if (!subgroup.items.length) return [subgroupRow];
 
       return [
         ...subgroup.items.map(item => R.row([
@@ -271,9 +305,9 @@ const Reports = {
 
   /* ── Balance General ──────────────────────────────────────────── */
   async balance() {
-    const bs = await API.get('/reports/balance' + State.apiDateParams);
+    const bs = await API.get(this._balanceApiPath());
     const main = document.getElementById('main');
-    const visibleGroups = this._filterBalanceGroups(bs.groups);
+    const visibleGroups = bs.groups;
 
     const groupHtml = g => {
       const color = TYPE_COLORS[g.type_id] || '#fff';
@@ -281,7 +315,7 @@ const Reports = {
 
       return `
         <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden mb-4">
-          <div class="px-4 py-2.5 text-xs font-bold uppercase tracking-wide border-b-2"
+          <div class="px-4 py-3 text-sm sm:text-base font-bold uppercase tracking-[0.12em] border-b-2 text-center"
                style="color:${color};border-color:${color}33">
             ${_typeLabel(g.type_id, g.type_name).toUpperCase()}
           </div>
@@ -295,8 +329,8 @@ const Reports = {
         </div>`;
     };
 
-      const left  = visibleGroups.filter(g => [1, 4].includes(g.type_id));
-      const right = visibleGroups.filter(g => [2, 3, 5].includes(g.type_id));
+    const left  = visibleGroups.filter(g => [1, 4].includes(g.type_id));
+    const right = visibleGroups.filter(g => [2, 3, 5].includes(g.type_id));
 
     const eqOk     = Math.abs(bs.equation_check) < 0.01;
     const resColor  = bs.resultado >= 0 ? 'text-ingreso' : 'text-pasivo';
@@ -304,15 +338,20 @@ const Reports = {
     const expFrom   = State.filterFrom || `${new Date().getFullYear()}-01-01`;
     const expTo     = State.filterTo   || `${new Date().getFullYear()}-12-31`;
 
-    const kpi = (label, val, cls) => `
-      <div class="text-center min-w-[100px]">
-        <div class="text-[10px] text-dark-400 uppercase tracking-wide mb-1">${label}</div>
-        <div class="text-base font-bold ${cls}">${fmt(val)}</div>
+    const kpi = (label, val, cls, toneClass) => `
+      <div class="rounded-xl border ${toneClass} bg-dark-800 p-4 sm:p-5 min-w-0">
+        <div class="text-[10px] text-dark-400 uppercase tracking-[0.12em] mb-2">${label}</div>
+        <div class="text-xl sm:text-2xl font-bold ${cls}">${fmt(val)}</div>
       </div>`;
 
     main.innerHTML = R.view(`⚖️ ${t('report.balance')}`,
       t('report.period_range', { from: bs.period_from, to: bs.period_to }), `
-      <div class="flex flex-wrap gap-4 mb-4">
+      <div class="flex flex-col gap-4 mb-5">
+        <div class="flex flex-wrap gap-2">
+          ${this._balanceTypeFilterButtons()}
+        </div>
+
+        <div class="flex flex-wrap gap-4">
         <label class="inline-flex items-center gap-2 text-xs text-dark-300 select-none cursor-pointer">
           <input type="checkbox"
                  class="h-3.5 w-3.5 rounded border-dark-500 bg-dark-700 text-blue-500 focus:ring-blue-500/40"
@@ -328,28 +367,35 @@ const Reports = {
                  data-report-change="toggle-zero-balance">
           <span>${t('report.show_zero_balance_items')}</span>
         </label>
+        </div>
       </div>
 
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
+        ${kpi(t('report.total_assets'), bs.total_activo, 'text-activo', 'border-activo/30')}
+        ${kpi(t('report.total_liab'), bs.total_pasivo, 'text-pasivo', 'border-pasivo/30')}
+        ${kpi(t('report.total_equity'), bs.total_patrimonio, 'text-patrimonio', 'border-patrimonio/30')}
+        ${kpi(t('report.result'), bs.resultado, resColor, bs.resultado >= 0 ? 'border-ingreso/30' : 'border-pasivo/30')}
+      </div>
+
+      ${visibleGroups.length ? `
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
         <div>${left.map(groupHtml).join('')}</div>
         <div>${right.map(groupHtml).join('')}</div>
-      </div>
+      </div>` : `
+      <div class="bg-dark-800 border border-dark-600 rounded-xl px-4 py-10 text-center text-sm text-dark-400 mb-5">
+        ${t('report.no_data')}
+      </div>`}
 
-      <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-5
-                  flex gap-5 flex-wrap">
-        ${kpi(t('report.total_assets'), bs.total_activo, 'text-activo')}
-        ${kpi(t('report.total_liab'), bs.total_pasivo, 'text-pasivo')}
-        ${kpi(t('report.total_equity'), bs.total_patrimonio, 'text-patrimonio')}
-        ${kpi(t('report.result'), bs.resultado, resColor)}
-        <div class="text-center min-w-[100px]">
+      <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-5 flex justify-center">
+        <div class="text-center min-w-[140px]">
           <div class="text-[10px] text-dark-400 uppercase tracking-wide mb-1">${t('report.equation')}</div>
           <div class="text-base font-bold ${eqColor}">${bs.equation_check.toFixed(2)}</div>
         </div>
       </div>
 
       <div class="flex gap-2 flex-wrap">
-        ${R.btn('⬇ CSV', this._downloadUrl(`/reports/export/csv?report=balance&from=${expFrom}&to=${expTo}`), true)}
-        ${R.btn('⬇ PDF', this._downloadUrl(`/reports/export/pdf?report=balance&from=${expFrom}&to=${expTo}`), true)}
+        ${R.btn('⬇ CSV', this._downloadUrl(`/reports/export/csv?${this._balanceExportQuery(expFrom, expTo)}`), true)}
+        ${R.btn('⬇ PDF', this._downloadUrl(`/reports/export/pdf?${this._balanceExportQuery(expFrom, expTo)}`), true)}
       </div>`
     );
   },
@@ -549,6 +595,9 @@ document.addEventListener('click', event => {
       break;
     case 'edit-tx':
       Reports._editTx(Number(action.dataset.txId));
+      break;
+    case 'toggle-balance-type':
+      Reports.toggleBalanceType(Number(action.dataset.typeId));
       break;
     case 'open-ledger':
       Reports.openLedger(Number(action.dataset.accountId));

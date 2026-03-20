@@ -4,6 +4,7 @@ import pytest
 
 from database import get_db, init_db
 from models import AccountIn, SubtypeIn, SubtypeUpdate, TransactionIn
+from routers import reports as reports_router
 from services import (
     about_service,
     accounts_service,
@@ -215,6 +216,58 @@ def test_accounts_transactions_and_reports_services_work_directly(
         assert balance_sheet.equation_check == 0.0
 
 
+def test_reports_service_balance_filters_hide_accounts_and_zero_balances(
+    initialized_environment,
+):
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=accounts["Bank"].id,
+                credit_account=accounts["Salary"].id,
+                amount=200.0,
+                description="Bonus",
+            ),
+        )
+
+        filtered_balance = reports_service.get_balance(
+            conn,
+            hide_accounts=True,
+            show_zero_balance=False,
+        )
+
+    asset_group = next(group for group in filtered_balance.groups if group.type_id == 1)
+    assert all(len(subgroup.items) == 0 for subgroup in asset_group.subgroups)
+    assert any(subgroup.subtotal == 200.0 for subgroup in asset_group.subgroups)
+    assert all(group.type_id != 4 for group in filtered_balance.groups)
+    assert any(group.type_id == 3 and group.total == 200.0 for group in filtered_balance.groups)
+
+
+def test_reports_service_balance_filters_type_ids(initialized_environment):
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=accounts["Bank"].id,
+                credit_account=accounts["Salary"].id,
+                amount=175.0,
+                description="Bonus",
+            ),
+        )
+
+        filtered_balance = reports_service.get_balance(conn, type_ids={1, 3})
+
+    assert {group.type_id for group in filtered_balance.groups} == {1, 3}
+    assert filtered_balance.total_activo == 175.0
+    assert filtered_balance.total_ingreso == 175.0
+    assert filtered_balance.total_pasivo == 0.0
+    assert filtered_balance.total_patrimonio == 0.0
+
+
 def test_transactions_service_computes_fx_traceability_fields(initialized_environment):
     app_config.set_value("finance", "usd_official_buy_ars", "1100.00")
 
@@ -238,6 +291,35 @@ def test_transactions_service_computes_fx_traceability_fields(initialized_enviro
         assert tx.original_currency == "USD"
         assert tx.fx_rate == 1100.0
         assert tx.fx_source == "USD_BUY"
+
+
+def test_balance_pdf_table_builds_spans_and_total_rows(initialized_environment):
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+        accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Travel Cash",
+                type_id=1,
+                subtype_id=accounts["Bank"].subtype_id,
+                description="Cash reserve",
+                initial_balance=50.0,
+                properties="{}",
+            ),
+        )
+
+        balance_sheet = reports_service.get_balance(conn)
+
+    table_data, spans, group_total_rows, summary_rows = reports_router._build_balance_pdf_table(
+        balance_sheet
+    )
+
+    assert table_data[0] == ["Tipo", "Subtipo", "Cuenta", "Saldo"]
+    assert any(start_col == 0 and end_col == 0 for start_col, _, end_col, _ in spans)
+    assert any(start_col == 1 and end_col == 1 for start_col, _, end_col, _ in spans)
+    assert group_total_rows
+    assert all(table_data[row][0].startswith("TOTAL ") for row in group_total_rows)
+    assert summary_rows == [len(table_data) - 2, len(table_data) - 1]
 
 
 def test_types_service_get_type_raises_for_missing_id(initialized_environment):

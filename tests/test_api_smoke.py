@@ -194,6 +194,91 @@ def test_reports_and_csv_export_work_for_basic_journal_flow(client):
     assert "Salary" in body
 
 
+def test_balance_exports_honor_hide_accounts_and_zero_balance_filters(client):
+    accounts = _accounts_by_name(client)
+
+    tx_response = client.post(
+        "/api/transactions",
+        json={
+            "debit_account": accounts["Bank"]["id"],
+            "credit_account": accounts["Salary"]["id"],
+            "amount": 250.0,
+            "description": "Monthly salary",
+        },
+    )
+    assert tx_response.status_code == 201
+
+    csv_response = client.get(
+        "/api/reports/export/csv?report=balance&hide_accounts=true&show_zero_balance=false"
+    )
+    assert csv_response.status_code == 200
+    csv_body = csv_response.text
+    assert "Asset,Bank,,250.0" in csv_body
+    assert "Bank,250.0" not in csv_body
+    assert "Grocery" not in csv_body
+    assert "Income,Salary,,250.0" in csv_body
+
+    pdf_response = client.get(
+        "/api/reports/export/pdf?report=balance&hide_accounts=true&show_zero_balance=false"
+    )
+    assert pdf_response.status_code == 200
+    assert "application/pdf" in pdf_response.headers["content-type"]
+
+
+def test_balance_endpoint_honors_hide_accounts_and_zero_balance_filters(client):
+    accounts = _accounts_by_name(client)
+
+    tx_response = client.post(
+        "/api/transactions",
+        json={
+            "debit_account": accounts["Bank"]["id"],
+            "credit_account": accounts["Salary"]["id"],
+            "amount": 300.0,
+            "description": "Monthly salary",
+        },
+    )
+    assert tx_response.status_code == 201
+
+    response = client.get(
+        "/api/reports/balance?hide_accounts=true&show_zero_balance=false"
+    )
+    assert response.status_code == 200
+
+    payload = response.json()
+    asset_group = next(group for group in payload["groups"] if group["type_id"] == 1)
+    income_group = next(group for group in payload["groups"] if group["type_id"] == 3)
+
+    assert all(subgroup["items"] == [] for subgroup in asset_group["subgroups"])
+    assert all(subgroup["items"] == [] for subgroup in income_group["subgroups"])
+    assert any(subgroup["subtotal"] == 300.0 for subgroup in asset_group["subgroups"])
+    assert all(group["type_id"] != 4 for group in payload["groups"])
+
+
+def test_balance_endpoint_honors_type_ids_filter(client):
+    accounts = _accounts_by_name(client)
+
+    tx_response = client.post(
+        "/api/transactions",
+        json={
+            "debit_account": accounts["Bank"]["id"],
+            "credit_account": accounts["Salary"]["id"],
+            "amount": 150.0,
+            "description": "Monthly salary",
+        },
+    )
+    assert tx_response.status_code == 201
+
+    response = client.get("/api/reports/balance?type_ids=1,3")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert {group["type_id"] for group in payload["groups"]} == {1, 3}
+    assert payload["total_activo"] == 150.0
+    assert payload["total_ingreso"] == 150.0
+    assert payload["total_pasivo"] == 0.0
+    assert payload["total_patrimonio"] == 0.0
+
+
 def test_create_transaction_persists_fx_traceability_fields(client):
     app_config.set_value("finance", "usd_official_buy_ars", "1100.00")
     accounts = _accounts_by_name(client)

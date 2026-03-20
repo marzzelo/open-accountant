@@ -19,13 +19,94 @@ def _fmt(v: float) -> str:
     return f"$ {v:,.2f}"
 
 
+def _parse_type_ids(type_ids: Optional[str]) -> Optional[set[int]]:
+    if type_ids is None:
+        return None
+
+    raw_values = [value.strip() for value in type_ids.split(",") if value.strip()]
+    if not raw_values:
+        return set()
+
+    try:
+        return {int(value) for value in raw_values}
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid type_ids filter") from exc
+
+
+def _build_balance_pdf_table(balance_sheet: BalanceSheet):
+    table_data = [["Tipo", "Subtipo", "Cuenta", "Saldo"]]
+    spans: list[tuple[int, int, int, int]] = []
+    group_total_rows: list[int] = []
+    summary_rows: list[int] = []
+    current_row = 1
+
+    for group in balance_sheet.groups:
+        group_start_row = current_row
+
+        for subgroup in group.subgroups:
+            subgroup_start_row = current_row
+            subgroup_rows = subgroup.items or [None]
+
+            for item in subgroup_rows:
+                table_data.append(
+                    [
+                        group.type_name if current_row == group_start_row else "",
+                        subgroup.subtype_name if current_row == subgroup_start_row else "",
+                        item.account_name if item else "",
+                        _fmt(item.balance if item else subgroup.subtotal),
+                    ]
+                )
+                current_row += 1
+
+            subgroup_end_row = current_row - 1
+            if subgroup_end_row > subgroup_start_row:
+                spans.append((1, subgroup_start_row, 1, subgroup_end_row))
+
+        group_end_row = current_row - 1
+        if group_end_row > group_start_row:
+            spans.append((0, group_start_row, 0, group_end_row))
+
+        table_data.append([f"TOTAL {group.type_name.upper()}", "", "", _fmt(group.total)])
+        spans.append((0, current_row, 2, current_row))
+        group_total_rows.append(current_row)
+        current_row += 1
+
+    table_data.append(["Resultado neto", "", "", _fmt(balance_sheet.resultado)])
+    spans.append((0, current_row, 2, current_row))
+    summary_rows.append(current_row)
+    current_row += 1
+
+    table_data.append(
+        [
+            "Ecuación (Activo - Pas - Pat - Res)",
+            "",
+            "",
+            str(round(balance_sheet.equation_check, 2)),
+        ]
+    )
+    spans.append((0, current_row, 2, current_row))
+    summary_rows.append(current_row)
+
+    return table_data, spans, group_total_rows, summary_rows
+
+
 @router.get("/reports/balance", response_model=BalanceSheet)
 def get_balance(
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
+    hide_accounts: bool = Query(False),
+    show_zero_balance: bool = Query(True),
+    type_ids: Optional[str] = Query(None),
 ):
     with get_db() as conn:
-        return reports_service.get_balance(conn, from_date, to_date)
+        return reports_service.get_balance(
+            conn,
+            from_date,
+            to_date,
+            hide_accounts=hide_accounts,
+            show_zero_balance=show_zero_balance,
+            type_ids=_parse_type_ids(type_ids),
+        )
 
 
 @router.get("/reports/journal")
@@ -67,6 +148,9 @@ def export_csv(
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
     account_id: Optional[int] = None,
+    hide_accounts: bool = Query(False),
+    show_zero_balance: bool = Query(True),
+    type_ids: Optional[str] = Query(None),
 ):
     buf = io.StringIO()
 
@@ -94,20 +178,30 @@ def export_csv(
 
     elif report == "balance":
         with get_db() as conn:
-            balance_sheet = reports_service.get_balance(conn, from_date, to_date)
+            balance_sheet = reports_service.get_balance(
+                conn,
+                from_date,
+                to_date,
+                hide_accounts=hide_accounts,
+                show_zero_balance=show_zero_balance,
+                type_ids=_parse_type_ids(type_ids),
+            )
         writer = csv.writer(buf)
         writer.writerow(["Tipo", "Subtipo", "Cuenta", "Saldo"])
         for group in balance_sheet.groups:
             for subgroup in group.subgroups:
-                for item in subgroup.items:
-                    writer.writerow(
-                        [
-                            group.type_name,
-                            subgroup.subtype_name,
-                            item.account_name,
-                            item.balance,
-                        ]
-                    )
+                if subgroup.items:
+                    for item in subgroup.items:
+                        writer.writerow(
+                            [
+                                group.type_name,
+                                subgroup.subtype_name,
+                                item.account_name,
+                                item.balance,
+                            ]
+                        )
+                else:
+                    writer.writerow([group.type_name, subgroup.subtype_name, "", subgroup.subtotal])
             writer.writerow([group.type_name, "TOTAL", "", group.total])
         writer.writerow([])
         writer.writerow(
@@ -155,6 +249,9 @@ def export_pdf(
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
     account_id: Optional[int] = None,
+    hide_accounts: bool = Query(False),
+    show_zero_balance: bool = Query(True),
+    type_ids: Optional[str] = Query(None),
 ):
     try:
         from reportlab.lib import colors
@@ -220,34 +317,20 @@ def export_pdf(
 
     elif report == "balance":
         with get_db() as conn:
-            balance_sheet = reports_service.get_balance(conn, from_date, to_date)
+            balance_sheet = reports_service.get_balance(
+                conn,
+                from_date,
+                to_date,
+                hide_accounts=hide_accounts,
+                show_zero_balance=show_zero_balance,
+                type_ids=_parse_type_ids(type_ids),
+            )
         elements.append(Paragraph("Balance General", title_style))
         elements.append(Paragraph(period_str, sub_style))
         elements.append(Spacer(1, 0.4 * cm))
 
-        table_data = [["Tipo", "Subtipo", "Cuenta", "Saldo"]]
-        for group in balance_sheet.groups:
-            for subgroup in group.subgroups:
-                for item in subgroup.items:
-                    table_data.append(
-                        [
-                            group.type_name,
-                            subgroup.subtype_name,
-                            item.account_name,
-                            _fmt(item.balance),
-                        ]
-                    )
-            table_data.append(
-                ["", f"TOTAL {group.type_name.upper()}", "", _fmt(group.total)]
-            )
-        table_data.append(["", "Resultado neto", "", _fmt(balance_sheet.resultado)])
-        table_data.append(
-            [
-                "",
-                "Ecuación (Activo - Pas - Pat - Res)",
-                "",
-                str(round(balance_sheet.equation_check, 2)),
-            ]
+        table_data, balance_spans, balance_total_rows, balance_summary_rows = _build_balance_pdf_table(
+            balance_sheet
         )
 
         doc = SimpleDocTemplate(
@@ -318,6 +401,40 @@ def export_pdf(
             ]
         )
     )
+
+    if report == "balance":
+        balance_style_commands = []
+
+        for start_col, start_row, end_col, end_row in balance_spans:
+            balance_style_commands.extend(
+                [
+                    ("SPAN", (start_col, start_row), (end_col, end_row)),
+                    ("VALIGN", (start_col, start_row), (end_col, end_row), "MIDDLE"),
+                ]
+            )
+
+        for row in balance_total_rows:
+            balance_style_commands.extend(
+                [
+                    ("BACKGROUND", (0, row), (-1, row), colors.HexColor("#dbeafe")),
+                    ("TEXTCOLOR", (0, row), (-1, row), colors.HexColor("#0f172a")),
+                    ("FONTNAME", (0, row), (-1, row), "Helvetica-Bold"),
+                    ("LINEABOVE", (0, row), (-1, row), 0.6, colors.HexColor("#93c5fd")),
+                ]
+            )
+
+        for row in balance_summary_rows:
+            balance_style_commands.extend(
+                [
+                    ("BACKGROUND", (0, row), (-1, row), colors.HexColor("#e2e8f0")),
+                    ("TEXTCOLOR", (0, row), (-1, row), colors.HexColor("#111827")),
+                    ("FONTNAME", (0, row), (-1, row), "Helvetica-Bold"),
+                    ("LINEABOVE", (0, row), (-1, row), 0.6, colors.HexColor("#94a3b8")),
+                ]
+            )
+
+        table.setStyle(TableStyle(balance_style_commands))
+
     elements.append(table)
     doc.build(elements)
 
