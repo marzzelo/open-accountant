@@ -174,3 +174,31 @@ class StatsData(BaseModel):
     asset_composition: list[dict]  # {account, balance}
     top_accounts: list[dict]  # {account, volume, tx_count}
     balance_evolution: list[dict]  # {month, account_id, account_name, balance}
+
+
+# ── Projections ────────────────────────────────────────────────────────────────
+
+class ProjectionSeriesIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    type: str = Field(..., pattern=r'^(income|expense)$')
+    start_date: str  # "YYYY-MM-DD"
+    months: int = Field(..., ge=1)
+    monthly_amount: float = Field(..., gt=0)
+
+
+class ProjectionSeriesUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    type: Optional[str] = Field(None, pattern=r'^(income|expense)$')
+    start_date: Optional[str] = None
+    months: Optional[int] = Field(None, ge=1)
+    monthly_amount: Optional[float] = Field(None, gt=0)
+
+
+class ProjectionSeriesOut(BaseModel):
+    id: int
+    name: str
+    type: str
+    start_date: str
+    months: int
+    monthly_amount: float
+    created_at: str

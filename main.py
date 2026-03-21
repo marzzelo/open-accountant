@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from database import init_db
 from routers import types, subtypes, accounts, transactions, reports
 from routers import books, settings as settings_router, about as about_router
+from routers import projections as projections_router
 
 
 @asynccontextmanager
@@ -57,6 +58,7 @@ app.include_router(reports.router, prefix="/api", tags=["Reports"])
 app.include_router(books.router, prefix="/api", tags=["Books"])
 app.include_router(settings_router.router, prefix="/api", tags=["Settings"])
 app.include_router(about_router.router, prefix="/api", tags=["About"])
+app.include_router(projections_router.router, prefix="/api", tags=["Projections"])
 
 # ── Static frontend ────────────────────────────────────────────────────────────
 STATIC_DIR = Path(__file__).parent / "static"

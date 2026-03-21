@@ -6,6 +6,20 @@ The format is based on Keep a Changelog, and this project is intended to follow 
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-03-21
+
+### Added
+
+- **Financial Projections page** (`🔮 Proyecciones`): new dedicated navigation view that forecasts income, expenses, savings, total assets, and total liabilities using ordinary-least-squares linear regression on historical data.
+- Configurable **projection horizon** (1, 2, 5, or 10 years) and **history window** (3, 6, 12, or 24 months) with one-click controls.
+- **Scheduled series** (projection_series): users can define future income or expense flows with a name, type, start month, duration, and monthly amount. Series are persisted in SQLite and overlaid on top of the regression baseline.
+- Horizontally scrollable **series table** with a sticky name column, per-month amounts for active series, and a totals row.
+- Five interactive **Chart.js charts** per metric — historical scatter points, dashed regression trend line, and solid filled projection line.
+- Accumulated assets and liabilities projections anchored to the real current balance with cumulative cash-flow summation.
+- Backward extrapolation of sparse historical months: months without transactions are filled using regression on the months that do have data, preventing zero-filling from distorting the trend.
+- New API endpoints: `GET/POST /api/projections/series`, `PUT/DELETE /api/projections/series/{id}`, `GET /api/reports/projections`.
+- i18n keys for all new UI labels in English and Spanish.
+
 ## [1.3.1] - 2026-03-18
 
 ### Added

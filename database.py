@@ -60,6 +60,16 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS projection_series (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    name           TEXT NOT NULL,
+    type           TEXT NOT NULL CHECK(type IN ('income','expense')),
+    start_date     TEXT NOT NULL,
+    months         INTEGER NOT NULL CHECK(months >= 1),
+    monthly_amount REAL NOT NULL CHECK(monthly_amount > 0),
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_tx_debit  ON transactions(debit_account);
 CREATE INDEX IF NOT EXISTS idx_tx_credit ON transactions(credit_account);
 CREATE INDEX IF NOT EXISTS idx_tx_date   ON transactions(date);

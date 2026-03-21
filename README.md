@@ -26,6 +26,7 @@ The project has been developed in large part with AI assistance, especially thro
 | **Common transactions**    | Collapsible shortcut panel with recent transaction patterns and PIN / UNPIN   |
 | **Reports**                 | Balance Sheet, General Journal, General Ledger, Transactions list            |
 | **Report sorting**          | Toggle ascending / descending date order in Journal, Ledger, and Transactions |
+| **Financial projections**   | Linear-regression forecast for income, expenses, savings, assets, and liabilities; configurable horizon (1–10 yr) and history window (3–24 m); user-defined scheduled series (income or expense installments) overlaid on the projection; five interactive charts with historical scatter, dashed trend line, and solid projection |
 | **Statistics**              | Bar charts (monthly cash flow), donut charts (by category), top accounts     |
 | **CSV / PDF export**        | One-click export for all reports                                             |
 | **Internationalization**    | English and Spanish UI — switchable at runtime                               |
@@ -178,6 +179,19 @@ After installation, a demo book named **Home** (`data/home.db`) is created with:
 
 - Open any report view (Balance, Journal, Ledger, Transactions)
 - Click **CSV** or **PDF** in the top-right of the panel
+
+### Financial projections
+
+Open the **🔮 Projections** view from the navigation bar to visualise the future evolution of your net worth:
+
+- **Horizon** — choose how far ahead to project: 1, 2, 5, or 10 years
+- **History window** — select how many past months feed the regression: 3, 6, 12, or 24 months
+- **Trend line** — a dashed line shows the linear regression extended over the full timeline
+- **Projection line** — a solid filled line starts from today and adds any scheduled series on top of the baseline
+- **Scheduled series** — click **＋ Add series** to register future income or expense flows (e.g., monthly loan installments, a one-time bonus). Each series has a name, type (income / expense), start month, duration, and monthly amount. Active series are shown in the scrollable table below the controls
+- **Five charts** — income, expenses, savings, total assets, and total liabilities are each projected separately
+- **Accumulated balance** — assets and liabilities projections are anchored to the real current balance and accumulate projected cash flows month by month
+- Months in the historical window with no recorded transactions are extrapolated backward using regression on the months that do have data, so sparse periods do not distort the trend
 
 ### Reviewing movements
 
@@ -337,7 +351,7 @@ Open Accountant is intended to follow **Semantic Versioning**.
 
 - Release notes live in `CHANGELOG.md`
 - Git tags should use the `vX.Y.Z` format
-- The current release baseline is `v1.3.1`
+- The current release baseline is `v1.4.0`
 - GitHub Actions can build test artifacts and Docker images from the repository
 - Tagged releases can also publish a packaged source zip asset automatically
 
@@ -366,11 +380,15 @@ open-accountant/
 │   ├── accounts.py
 │   ├── transactions.py
 │   ├── reports.py           # Balance, Journal, Ledger, CSV/PDF
+│   ├── projections.py       # Projection series CRUD + projection endpoint
 │   ├── types.py
 │   ├── subtypes.py
 │   ├── books.py             # Multi-book management
 │   ├── settings.py          # app settings, preferences, and .env API
 │   └── about.py             # Developer info (HMAC sealed)
+├── services/
+│   ├── projections_service.py  # Regression engine, series CRUD, projection calc
+│   └── ...                     # accounts, transactions, reports, helpers
 ├── scripts/
 │   └── seed_demo.py         # Demo database generator
 ├── static/
@@ -385,6 +403,7 @@ open-accountant/
 │       ├── forms.js         # Account / transaction modals
 │       ├── reports.js       # Report views
 │       ├── charts.js        # Chart.js statistics
+│       ├── projections.js   # Financial projections view + series management
 │       ├── settings.js      # Settings panel
 │       └── about.js         # About panel
 ├── locales/                 # Gettext .po / .mo catalogs

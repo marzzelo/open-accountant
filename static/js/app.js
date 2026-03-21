@@ -289,6 +289,7 @@ const View = {
         case 'journal':  await Reports.journal(); break;
         case 'ledger':   await Reports.ledger();  break;
         case 'stats':    await Charts.stats();    break;
+        case 'proyecciones': await Projections.render(); break;
         case 'subtypes':  await Reports.subtypes();  break;
         case 'txlist':    await Reports.journal();   break;
         case 'settings':  await Settings.render(); break;

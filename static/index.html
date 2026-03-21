@@ -84,6 +84,10 @@
         <span class="nav-icon" aria-hidden="true">📈</span>
         <span class="nav-label" data-i18n="nav.stats">Stats</span>
       </button>
+      <button class="tbtn nav-icon-btn" data-view="proyecciones" data-i18n-title="nav.proyecciones" title="Proyecciones" aria-label="Proyecciones" onclick="View.show('proyecciones')">
+        <span class="nav-icon" aria-hidden="true">🔮</span>
+        <span class="nav-label" data-i18n="nav.proyecciones">Proyecciones</span>
+      </button>
       <div class="w-px h-5 bg-dark-600 mx-1 shrink-0"></div>
       <button class="tbtn nav-icon-btn !bg-blue-600 !text-white hover:!bg-blue-500 !border-blue-600"
             title="＋ Account" aria-label="＋ Account"
@@ -160,6 +164,7 @@
       <button class="drawer-btn" onclick="Nav.go('journal')"><span>📒</span> <span data-i18n='nav.journal'>Journal</span></button>
       <button class="drawer-btn" onclick="Nav.go('ledger')"><span>📖</span> <span data-i18n='nav.ledger'>Ledger</span></button>
       <button class="drawer-btn" onclick="Nav.go('stats')"><span>📈</span> <span data-i18n='nav.stats'>Stats</span></button>
+      <button class="drawer-btn" onclick="Nav.go('proyecciones')"><span>🔮</span> <span data-i18n='nav.proyecciones'>Proyecciones</span></button>
       <hr class="border-dark-600 my-1">
       <button class="drawer-btn font-semibold text-blue-400" onclick="Nav.go('new-account')"><span data-i18n='form.new_account'>＋ New Account</span></button>
       <button class="drawer-btn" onclick="Nav.go('subtypes')"><span class="emoji">🏷</span> <span data-i18n="nav.subtypes">Subtypes</span></button>
@@ -280,6 +285,7 @@
 <script src="/js/forms.js?v=1773509929"></script>
 <script src="/js/reports.js?v=1773509929"></script>
 <script src="/js/charts.js?v=1773509929"></script>
+<script src="/js/projections.js?v=1773509929"></script>
 <script src="/js/about.js?v=1773509929"></script>
 <script src="/js/settings.js?v=1773509929"></script>
 </body>
