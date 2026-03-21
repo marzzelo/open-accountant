@@ -104,37 +104,54 @@ def _fill_by_regression(sparse: list) -> list[float]:
 
 # ── Historical data helpers ───────────────────────────────────────────────────
 
-def _get_monthly_cashflow(conn, from_date: str, to_date: str) -> list[dict]:
-    """Returns monthly income/expense totals for the given date range."""
-    rows = conn.execute(
-        """WITH tx_legs AS (
-             SELECT strftime('%Y-%m', t.date) AS month,
-                 da.type_id AS type_id,
-                 t.amount AS debit_amount,
-                 0 AS credit_amount
-             FROM transactions t
-             JOIN accounts da ON t.debit_account = da.id
-             WHERE t.date BETWEEN ? AND ?
+def _get_monthly_cashflow(
+    conn, from_date: str, to_date: str
+) -> tuple[dict[str, float], dict[str, float]]:
+    """
+    Returns (income_map, expense_map) where each maps YYYY-MM → value.
+    Only months that actually have transactions for the respective account type
+    appear in each map, so that months with no income/expense activity are
+    correctly treated as missing data (None) by the caller.
+    """
+    legs_cte = """WITH tx_legs AS (
+        SELECT strftime('%Y-%m', t.date) AS month,
+               da.type_id AS type_id,
+               t.amount    AS debit_amount,
+               0           AS credit_amount
+        FROM transactions t
+        JOIN accounts da ON t.debit_account = da.id
+        WHERE t.date BETWEEN ? AND ?
 
-             UNION ALL
+        UNION ALL
 
-             SELECT strftime('%Y-%m', t.date) AS month,
-                 ca.type_id AS type_id,
-                 0 AS debit_amount,
-                 t.amount AS credit_amount
-             FROM transactions t
-             JOIN accounts ca ON t.credit_account = ca.id
-             WHERE t.date BETWEEN ? AND ?
-         )
-         SELECT month,
-             SUM(CASE WHEN type_id = 3 THEN credit_amount - debit_amount ELSE 0 END) AS income,
-             SUM(CASE WHEN type_id = 4 THEN debit_amount - credit_amount ELSE 0 END) AS expenses
-         FROM tx_legs
-         GROUP BY month
-         ORDER BY month""",
+        SELECT strftime('%Y-%m', t.date) AS month,
+               ca.type_id AS type_id,
+               0           AS debit_amount,
+               t.amount    AS credit_amount
+        FROM transactions t
+        JOIN accounts ca ON t.credit_account = ca.id
+        WHERE t.date BETWEEN ? AND ?
+    )"""
+
+    income_rows = conn.execute(
+        legs_cte + """
+        SELECT month, SUM(credit_amount - debit_amount) AS value
+        FROM tx_legs WHERE type_id = 3
+        GROUP BY month ORDER BY month""",
         (from_date, to_date, from_date, to_date),
     ).fetchall()
-    return [{"month": r["month"], "income": r["income"], "expenses": r["expenses"]} for r in rows]
+
+    expense_rows = conn.execute(
+        legs_cte + """
+        SELECT month, SUM(debit_amount - credit_amount) AS value
+        FROM tx_legs WHERE type_id = 4
+        GROUP BY month ORDER BY month""",
+        (from_date, to_date, from_date, to_date),
+    ).fetchall()
+
+    income_map  = {r["month"]: float(r["value"]) for r in income_rows}
+    expense_map = {r["month"]: float(r["value"]) for r in expense_rows}
+    return income_map, expense_map
 
 
 def _get_monthly_balances(conn, from_date: str, to_date: str, type_id: int) -> dict[str, float]:
@@ -311,15 +328,16 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
     history_end = today_ym + "-31 23:59:59"
 
     # ── Historical cashflow ──
-    cashflow = _get_monthly_cashflow(conn, history_start, history_end)
+    income_map, expense_map = _get_monthly_cashflow(conn, history_start, history_end)
 
     # Build dense arrays covering all months in the window
     all_hist_months = _months_range(_month_str(hist_y, hist_m), history_months + 1)
-    cashflow_map = {r["month"]: r for r in cashflow}
 
-    # Sparse arrays: None for months with no transactions
-    sparse_income   = [cashflow_map.get(m, {}).get("income",   None) for m in all_hist_months]
-    sparse_expenses = [cashflow_map.get(m, {}).get("expenses", None) for m in all_hist_months]
+    # Sparse arrays: None for months with no transactions for that metric.
+    # Using separate maps ensures a month with only expenses shows None for
+    # income (and vice-versa), so _fill_by_regression extrapolates correctly.
+    sparse_income   = [income_map.get(m)  for m in all_hist_months]
+    sparse_expenses = [expense_map.get(m) for m in all_hist_months]
 
     # Fill missing months by regression on known data points (or copy if only 1 known)
     hist_income   = _fill_by_regression(sparse_income)
