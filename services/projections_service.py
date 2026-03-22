@@ -61,6 +61,30 @@ def _linear_regression(points: list[float]) -> tuple[float, float]:
     return slope, intercept
 
 
+def _sparse_linear_regression(sparse: list) -> tuple[float, float]:
+    """OLS on non-None entries using their actual indices. Returns (slope, intercept).
+
+    Unlike running _linear_regression on a filled array, this avoids the distortion
+    caused by _fill_by_regression clamping predicted negatives to 0 before re-fitting.
+    The returned line is guaranteed to pass through the known data points when n=2.
+    """
+    known = [(i, float(v)) for i, v in enumerate(sparse) if v is not None]
+    n = len(known)
+    if n == 0:
+        return 0.0, 0.0
+    if n == 1:
+        return 0.0, known[0][1]
+    xs = [p[0] for p in known]
+    ys = [p[1] for p in known]
+    x_mean = sum(xs) / n
+    y_mean = sum(ys) / n
+    num = sum((xs[i] - x_mean) * (ys[i] - y_mean) for i in range(n))
+    den = sum((xs[i] - x_mean) ** 2 for i in range(n))
+    slope = num / den if den else 0.0
+    intercept = y_mean - slope * x_mean
+    return slope, intercept
+
+
 def _fill_by_regression(sparse: list) -> list[float]:
     """
     Fill None entries in a sparse historical series by extrapolating with OLS
@@ -370,9 +394,17 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
     )
 
     # ── Regressions ──
-    reg_income = _linear_regression(hist_income)
-    reg_expenses = _linear_regression(hist_expenses)
-    reg_savings = _linear_regression(hist_savings)
+    # Use sparse regression directly on known data points to avoid distortion:
+    # _fill_by_regression clamps negative predictions to 0, so running
+    # _linear_regression on the filled array produces a line that doesn't pass
+    # through the original historical scatter points.
+    sparse_savings: list[float | None] = []
+    for i in range(len(all_hist_months)):
+        si, se = sparse_income[i], sparse_expenses[i]
+        sparse_savings.append(si - se if si is not None and se is not None else None)
+    reg_income = _sparse_linear_regression(sparse_income)
+    reg_expenses = _sparse_linear_regression(sparse_expenses)
+    reg_savings = _sparse_linear_regression(sparse_savings)
     reg_assets = _linear_regression(hist_assets_filled)
     reg_liabilities = _linear_regression(hist_liabilities_filled)
 

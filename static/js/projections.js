@@ -9,6 +9,11 @@ let _projState = {
   historyMonths: 12,
   series: [],
   projData: null,
+  trendPanelOpen: false,
+  trendSettings: {
+    income:   { mode: 'linear', minVal: '', maxVal: '', inflationBase: '', inflationRate: '' },
+    expenses: { mode: 'linear', minVal: '', maxVal: '', inflationBase: '', inflationRate: '' },
+  },
 };
 
 function _destroyProjCharts() {
@@ -37,6 +42,122 @@ function _monthActive(series, monthStr) {
   const { y: my, mo: mm } = _parseMonth(monthStr);
   const idx = (my - sy) * 12 + (mm - sm);
   return idx >= 0 && idx < series.months;
+}
+
+function _getLastKnownValue(metric, projData) {
+  if (!projData) return null;
+  const pts = projData.historical[metric] || [];
+  return pts.length > 0 ? pts[pts.length - 1].value : null;
+}
+
+// ── Trend computation ─────────────────────────────────────────────────────────
+
+function _olsFromPoints(pts) {
+  // OLS on [{idx, value}] using actual indices (not re-indexed 0..n-1).
+  // This ensures the result is consistent with the index space of allLabels.
+  const n = pts.length;
+  if (n === 0) return { slope: 0, intercept: 0 };
+  if (n === 1) return { slope: 0, intercept: pts[0].value };
+  const xm = pts.reduce((s, p) => s + p.idx, 0) / n;
+  const ym = pts.reduce((s, p) => s + p.value, 0) / n;
+  const num = pts.reduce((s, p) => s + (p.idx - xm) * (p.value - ym), 0);
+  const den = pts.reduce((s, p) => s + (p.idx - xm) ** 2, 0);
+  const slope = den ? num / den : 0;
+  return { slope, intercept: ym - slope * xm };
+}
+
+function _computeTrendDatasets(allLabels, histMonths, histMap, color, settings) {
+  // Returns { trendDataset, outlierDataset } — either may be null.
+  // idx of each known point = its position in allLabels (== position in histMonths).
+  const allPts = histMonths
+    .map((m, i) => histMap[m] != null ? { idx: i, month: m, value: histMap[m] } : null)
+    .filter(Boolean);
+
+  // ── Inflation mode ──────────────────────────────────────────────────────────
+  if (settings.mode === 'inflation') {
+    if (allPts.length === 0) return { trendDataset: null, outlierDataset: null };
+
+    const lastPt  = allPts[allPts.length - 1];
+    const rawBase = settings.inflationBase;
+    const base    = (rawBase !== '' && rawBase !== null) ? parseFloat(rawBase) : lastPt.value;
+    const rawRate = settings.inflationRate;
+    // Guard against incomplete typed numbers like '-' or '1.'
+    const rate    = (rawRate !== '' && rawRate !== null && !isNaN(parseFloat(rawRate)))
+      ? parseFloat(rawRate) / 100 : 0;
+
+    if (isNaN(base)) return { trendDataset: null, outlierDataset: null };
+
+    // Trend starts at lastPt.idx (last known month) and extends into the future.
+    // Historical months before that point are left null (no backward extrapolation).
+    const trendData = allLabels.map((_, i) => {
+      if (i < lastPt.idx) return null;
+      return Math.max(0, Math.round(base * Math.pow(1 + rate, i - lastPt.idx) * 100) / 100);
+    });
+
+    return {
+      trendDataset: {
+        label: t('proj.chart.trend'),
+        type: 'line',
+        data: trendData,
+        borderColor: color + '88',
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        borderDash: [6, 3],
+        pointRadius: 0,
+        fill: false,
+        tension: 0,
+        order: 2,
+        spanGaps: false,
+      },
+      outlierDataset: null,
+    };
+  }
+
+  // ── Linear regression mode (with optional outlier filtering) ────────────────
+  const minVal = settings.minVal !== '' ? parseFloat(settings.minVal) : null;
+  const maxVal = settings.maxVal !== '' ? parseFloat(settings.maxVal) : null;
+  const hasMin = minVal !== null && !isNaN(minVal);
+  const hasMax = maxVal !== null && !isNaN(maxVal);
+
+  const inliers  = allPts.filter(p => (!hasMin || p.value >= minVal) && (!hasMax || p.value <= maxVal));
+  const outliers = allPts.filter(p => (hasMin && p.value < minVal) || (hasMax && p.value > maxVal));
+
+  if (inliers.length === 0) return { trendDataset: null, outlierDataset: null };
+
+  const { slope, intercept } = _olsFromPoints(inliers);
+  const trendData = allLabels.map((_, i) =>
+    Math.max(0, Math.round((intercept + slope * i) * 100) / 100)
+  );
+
+  const trendDataset = {
+    label: t('proj.chart.trend'),
+    type: 'line',
+    data: trendData,
+    borderColor: color + '88',
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderDash: [6, 3],
+    pointRadius: 0,
+    fill: false,
+    tension: 0,
+    order: 2,
+  };
+
+  const outlierDataset = outliers.length > 0 ? {
+    label: t('proj.chart.outliers'),
+    type: 'scatter',
+    data: outliers.map(p => ({ x: p.month, y: p.value })),
+    parsing: false,
+    pointStyle: 'crossRot',
+    pointRadius: 7,
+    pointBorderWidth: 2.5,
+    pointBackgroundColor: 'transparent',
+    pointBorderColor: '#ef4444',
+    showLine: false,
+    order: 0,
+  } : null;
+
+  return { trendDataset, outlierDataset };
 }
 
 // ── Series table ──────────────────────────────────────────────────────────────
@@ -160,30 +281,81 @@ const _projDefaults = {
   },
 };
 
-function _buildProjectionDatasets(metric, histMonths, projMonths, projData, color) {
+function _buildProjectionDatasets(metric, histMonths, projMonths, projData, color, showTrend = true, trendSettings = null) {
   const allLabels = [...histMonths, ...projMonths];
   const n_hist = histMonths.length;
-  const n_proj = projMonths.length;
-  const n_all = allLabels.length;
 
-  // 1. Historical scatter
+  // 1. Build histMap from real data points
   const histMap = {};
   (projData.historical[metric] || []).forEach(p => { histMap[p.month] = p.value; });
-  const scatterData = histMonths.map(m => histMap[m] != null ? histMap[m] : null);
 
-  // 2. Regression trend line across all months
-  const reg = projData.regression[metric];
-  const trendData = allLabels.map((_, i) => {
-    const val = reg.intercept + reg.slope * i;
-    return Math.max(0, Math.round(val * 100) / 100);
-  });
+  // 2. Compute trend datasets
+  let trendDataset = null;
+  let outlierDataset = null;
 
-  // 3. Final projection (future only) = baseline + series adjustment
-  const baseline = projData.baseline_projection[metric] || [];
-  const adjArr   = projData.series_adjustment[metric]   || [];
-  const projFull = Array(n_hist).fill(null).concat(
-    baseline.map((b, i) => Math.max(0, Math.round((b + (adjArr[i] || 0)) * 100) / 100))
-  );
+  if (showTrend) {
+    if (trendSettings) {
+      // Frontend computation (income / expenses):
+      // supports outlier filtering and inflation mode.
+      ({ trendDataset, outlierDataset } = _computeTrendDatasets(
+        allLabels, histMonths, histMap, color, trendSettings
+      ));
+    } else {
+      // Backend regression (savings): use pre-computed slope/intercept.
+      // Assets/liabilities have showTrend=false and never reach this branch.
+      const reg = projData.regression[metric];
+      if (reg) {
+        const trendData = allLabels.map((_, i) =>
+          Math.max(0, Math.round((reg.intercept + reg.slope * i) * 100) / 100)
+        );
+        trendDataset = {
+          label: t('proj.chart.trend'),
+          type: 'line',
+          data: trendData,
+          borderColor: color + '88',
+          backgroundColor: 'transparent',
+          borderWidth: 1.5,
+          borderDash: [6, 3],
+          pointRadius: 0,
+          fill: false,
+          tension: 0,
+          order: 2,
+        };
+      }
+    }
+  }
+
+  // 3. Historical scatter — inlier points only (outliers get their own dataset)
+  const outlierMonths = new Set((outlierDataset?.data || []).map(p => p.x));
+  const scatterPoints = histMonths
+    .filter(m => histMap[m] != null && !outlierMonths.has(m))
+    .map(m => ({ x: m, y: histMap[m] }));
+
+  // 4. Projection (future only) = trend baseline + series adjustment
+  //    When trendSettings is provided (income/expenses), we read the already-computed
+  //    trend line values so that the projection curve always follows the chosen mode
+  //    (linear regression or inflation). Otherwise (savings) we fall back to the
+  //    backend-computed baseline.
+  const adjArr = projData.series_adjustment[metric] || [];
+  let projFull;
+  if (trendSettings && trendDataset) {
+    // trendDataset.data is indexed over allLabels; projected months start at n_hist.
+    projFull = Array(n_hist).fill(null).concat(
+      projMonths.map((_, projIdx) => {
+        const trendVal = trendDataset.data[n_hist + projIdx] ?? 0;
+        return Math.max(0, Math.round((trendVal + (adjArr[projIdx] || 0)) * 100) / 100);
+      })
+    );
+  } else {
+    const baseline = projData.baseline_projection[metric] || [];
+    projFull = Array(n_hist).fill(null).concat(
+      baseline.map((b, i) => Math.max(0, Math.round((b + (adjArr[i] || 0)) * 100) / 100))
+    );
+  }
+
+  // Expose raw numerical arrays so derived metrics (savings = income - expenses)
+  // can subtract them without re-parsing the chart dataset objects.
+  const rawTrendData = trendDataset?.data ?? null;
 
   return {
     labels: allLabels,
@@ -191,7 +363,7 @@ function _buildProjectionDatasets(metric, histMonths, projMonths, projData, colo
       {
         label: t('proj.chart.historical'),
         type: 'scatter',
-        data: scatterData.map((v, i) => v != null ? { x: histMonths[i], y: v } : null).filter(Boolean),
+        data: scatterPoints,
         parsing: false,
         pointRadius: 5,
         pointBackgroundColor: color,
@@ -199,21 +371,10 @@ function _buildProjectionDatasets(metric, histMonths, projMonths, projData, colo
         showLine: false,
         order: 1,
       },
+      ...(trendDataset   ? [trendDataset]   : []),
+      ...(outlierDataset ? [outlierDataset] : []),
       {
-        label: t('proj.chart.trend'),
-        type: 'line',
-        data: trendData,
-        borderColor: color + '88',
-        backgroundColor: 'transparent',
-        borderWidth: 1.5,
-        borderDash: [6, 3],
-        pointRadius: 0,
-        fill: false,
-        tension: 0,
-        order: 2,
-      },
-      {
-        label: t('proj.chart.with_series'),
+        label: t('proj.chart.projection'),
         type: 'line',
         data: projFull,
         borderColor: color,
@@ -224,64 +385,108 @@ function _buildProjectionDatasets(metric, histMonths, projMonths, projData, colo
         tension: 0.3,
         order: 0,
       },
-    ]
+    ],
+    _raw: { trendData: rawTrendData, projFull },
   };
 }
 
-function _renderCharts() {
-  _destroyProjCharts();
-  const { projData } = _projState;
-  if (!projData) return;
+// ── Trend settings panel ──────────────────────────────────────────────────────
 
-  const histMonths = projData.historical_months || [];
-  const projMonths = projData.projected_months || [];
+function _buildTrendSection(metricKey, sectionLabel, color) {
+  const s = _projState.trendSettings[metricKey];
 
-  const metrics = [
-    { key: 'income',      labelKey: 'proj.chart.income',      id: 'ch-proj-income' },
-    { key: 'expenses',    labelKey: 'proj.chart.expenses',    id: 'ch-proj-expenses' },
-    { key: 'savings',     labelKey: 'proj.chart.savings',     id: 'ch-proj-savings' },
-    { key: 'assets',      labelKey: 'proj.chart.assets',      id: 'ch-proj-assets' },
-    { key: 'liabilities', labelKey: 'proj.chart.liabilities', id: 'ch-proj-liabilities' },
-  ];
+  const modeBtn = (val, fallback) => {
+    const active = s.mode === val;
+    return `<button onclick="Projections._onTrendMode('${metricKey}', '${val}')"
+               class="tbtn text-xs px-2.5 py-1${active ? ' !bg-blue-600/20 !border-blue-500/40 !text-blue-300' : ''}">
+              ${t('proj.trend.mode_' + val) || fallback}
+            </button>`;
+  };
 
-  for (const m of metrics) {
-    const canvas = document.getElementById(m.id);
-    if (!canvas) continue;
-    const hasHist = (projData.historical[m.key] || []).length > 0;
-    if (!hasHist && projMonths.length === 0) {
-      canvas.parentElement.innerHTML +=
-        `<div class="empty text-xs py-2">${t('proj.no_history')}</div>`;
-      continue;
-    }
+  const inputCls = 'w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-200 text-xs px-2 py-1.5 focus:outline-none focus:border-blue-500';
+  const labelCls = 'text-[11px] text-dark-400 w-16 shrink-0';
 
-    const { labels, datasets } = _buildProjectionDatasets(
-      m.key, histMonths, projMonths, projData, PROJ_COLORS[m.key]
-    );
+  const linearBlock = `
+    <div class="space-y-2${s.mode === 'linear' ? '' : ' hidden'}" id="trend-linear-${metricKey}">
+      <div class="flex items-center gap-2">
+        <label class="${labelCls}">${t('proj.trend.min') || 'Mín'}</label>
+        <input type="number" value="${s.minVal}"
+               placeholder="${t('proj.trend.no_limit') || 'sin límite'}"
+               onchange="Projections._onTrendSetting('${metricKey}', 'minVal', this.value)"
+               class="${inputCls}">
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="${labelCls}">${t('proj.trend.max') || 'Máx'}</label>
+        <input type="number" value="${s.maxVal}"
+               placeholder="${t('proj.trend.no_limit') || 'sin límite'}"
+               onchange="Projections._onTrendSetting('${metricKey}', 'maxVal', this.value)"
+               class="${inputCls}">
+      </div>
+      <p class="text-[10px] text-dark-500 leading-snug">${t('proj.trend.linear_hint') || 'Valores fuera del rango se excluyen del cálculo y se marcan con ✕ en el gráfico.'}</p>
+    </div>`;
 
-    _projCharts[m.id] = new Chart(canvas, {
-      type: 'line',
-      data: { labels, datasets },
-      options: {
-        ..._projDefaults,
-        responsive: true,
-        plugins: {
-          ..._projDefaults.plugins,
-          legend: { ..._projDefaults.plugins.legend },
-        },
-        scales: {
-          x: {
-            ..._projDefaults.scales.x,
-            ticks: {
-              ..._projDefaults.scales.x.ticks,
-              maxTicksLimit: 24,
-              maxRotation: 45,
-            },
-          },
-          y: _projDefaults.scales.y,
-        },
-      },
-    });
+  const inflationBlock = `
+    <div class="space-y-2${s.mode === 'inflation' ? '' : ' hidden'}" id="trend-inflation-${metricKey}">
+      <div class="flex items-center gap-2">
+        <label class="${labelCls}">${t('proj.trend.base') || 'Base'}</label>
+        <input type="number" value="${s.inflationBase}"
+               placeholder="${t('proj.trend.last_value') || 'último valor'}"
+               onchange="Projections._onTrendSetting('${metricKey}', 'inflationBase', this.value)"
+               class="${inputCls}">
+      </div>
+      <div class="flex items-center gap-2">
+        <label class="${labelCls}">${t('proj.trend.rate') || '% / mes'}</label>
+        <input type="number" step="0.01" value="${s.inflationRate}"
+               placeholder="0.00"
+               onchange="Projections._onTrendSetting('${metricKey}', 'inflationRate', this.value)"
+               class="${inputCls}">
+      </div>
+      <p class="text-[10px] text-dark-500 leading-snug">${t('proj.trend.inflation_hint') || 'La tendencia parte del último valor registrado y crece por interés compuesto mensual.'}</p>
+    </div>`;
+
+  return `
+    <div class="flex-1 min-w-[230px] space-y-3">
+      <div class="flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${color}"></span>
+        <span class="text-xs font-semibold text-dark-200 uppercase tracking-wide">${sectionLabel}</span>
+      </div>
+      <div class="flex gap-1">
+        ${modeBtn('linear',    'Regresión lineal')}
+        ${modeBtn('inflation', 'Inflación')}
+      </div>
+      ${linearBlock}
+      ${inflationBlock}
+    </div>`;
+}
+
+function _buildTrendPanel() {
+  const open  = _projState.trendPanelOpen;
+  const arrow = open ? '▲' : '▼';
+  const title = t('proj.trend.panel_title') || 'Línea de tendencia';
+
+  const header = `
+    <button onclick="Projections._toggleTrendPanel()"
+            class="w-full flex items-center justify-between px-4 py-3 text-xs text-dark-400 hover:text-dark-200 transition-colors">
+      <span class="font-medium uppercase tracking-wide">${title}</span>
+      <span class="text-dark-500">${arrow}</span>
+    </button>`;
+
+  if (!open) {
+    return `<div class="bg-dark-800 border border-dark-600 rounded-xl">${header}</div>`;
   }
+
+  const body = `
+    <div class="border-t border-dark-600 px-4 py-4 flex flex-wrap gap-8">
+      ${_buildTrendSection('income',   t('proj.trend.section_income')   || 'Ingresos', PROJ_COLORS.income)}
+      ${_buildTrendSection('expenses', t('proj.trend.section_expenses') || 'Gastos',   PROJ_COLORS.expenses)}
+    </div>`;
+
+  return `<div class="bg-dark-800 border border-dark-600 rounded-xl">${header}${body}</div>`;
+}
+
+function _renderTrendPanel() {
+  const el = document.getElementById('proj-trend-panel');
+  if (el) el.innerHTML = _buildTrendPanel();
 }
 
 // ── Controls ──────────────────────────────────────────────────────────────────
@@ -338,6 +543,9 @@ function _buildPageShell() {
                 onclick="Projections.openSeriesDialog()">${t('proj.controls.add_series')}</button>
       </div>
 
+      <!-- Trend settings panel (income & expenses only) -->
+      <div id="proj-trend-panel"></div>
+
       <!-- Series table -->
       <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
         <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('proj.series.table_title')}</h3>
@@ -374,6 +582,189 @@ async function _loadData() {
   }
 }
 
+// ── Chart rendering ───────────────────────────────────────────────────────────
+
+function _makeChartOptions() {
+  return {
+    ..._projDefaults,
+    responsive: true,
+    plugins: { ..._projDefaults.plugins, legend: { ..._projDefaults.plugins.legend } },
+    scales: {
+      x: { ..._projDefaults.scales.x, ticks: { ..._projDefaults.scales.x.ticks, maxTicksLimit: 24, maxRotation: 45 } },
+      y: _projDefaults.scales.y,
+    },
+  };
+}
+
+function _renderCharts() {
+  _destroyProjCharts();
+  const { projData } = _projState;
+  if (!projData) return;
+
+  const histMonths = projData.historical_months || [];
+  const projMonths = projData.projected_months  || [];
+  const allLabels  = [...histMonths, ...projMonths];
+
+  // ── Income & Expenses (user-configurable trend mode) ──────────────────────
+  const incomeResult   = _buildProjectionDatasets('income',   histMonths, projMonths, projData, PROJ_COLORS.income,   true, _projState.trendSettings.income);
+  const expensesResult = _buildProjectionDatasets('expenses', histMonths, projMonths, projData, PROJ_COLORS.expenses, true, _projState.trendSettings.expenses);
+
+  for (const [id, result] of [['ch-proj-income', incomeResult], ['ch-proj-expenses', expensesResult]]) {
+    const canvas = document.getElementById(id);
+    if (!canvas) continue;
+    _projCharts[id] = new Chart(canvas, { type: 'line', data: { labels: result.labels, datasets: result.datasets }, options: _makeChartOptions() });
+  }
+
+  // ── Shared savings arrays (used by both Savings and Assets charts) ──────────
+  const incTrend = incomeResult._raw.trendData;
+  const expTrend = expensesResult._raw.trendData;
+  const incProj  = incomeResult._raw.projFull;
+  const expProj  = expensesResult._raw.projFull;
+
+  const incHistMap = {}, expHistMap = {};
+  (projData.historical.income   || []).forEach(p => { incHistMap[p.month] = p.value; });
+  (projData.historical.expenses || []).forEach(p => { expHistMap[p.month] = p.value; });
+
+  // Trend line for savings: income_trend[i] − expenses_trend[i]
+  const savingsTrendData = (incTrend && expTrend)
+    ? allLabels.map((_, i) => {
+        const inc = incTrend[i], exp = expTrend[i];
+        return (inc != null && exp != null) ? Math.round((inc - exp) * 100) / 100 : null;
+      })
+    : null;
+
+  // Monthly savings projection (null for historical months — those are scatter only)
+  const savingsProjFull = allLabels.map((_, i) => {
+    const inc = incProj[i], exp = expProj[i];
+    return (inc != null && exp != null) ? Math.round((inc - exp) * 100) / 100 : null;
+  });
+
+  // ── Savings chart ─────────────────────────────────────────────────────────
+  const savingsCanvas = document.getElementById('ch-proj-savings');
+  if (savingsCanvas) {
+    const savingsScatter = histMonths
+      .filter(m => incHistMap[m] != null && expHistMap[m] != null)
+      .map(m => ({ x: m, y: Math.round((incHistMap[m] - expHistMap[m]) * 100) / 100 }));
+
+    const color = PROJ_COLORS.savings;
+    _projCharts['ch-proj-savings'] = new Chart(savingsCanvas, {
+      type: 'line',
+      data: {
+        labels: allLabels,
+        datasets: [
+          {
+            label: t('proj.chart.historical'),
+            type: 'scatter',
+            data: savingsScatter,
+            parsing: false,
+            pointRadius: 5,
+            pointBackgroundColor: color,
+            pointBorderColor: color,
+            showLine: false,
+            order: 1,
+          },
+          ...(savingsTrendData ? [{
+            label: t('proj.chart.trend'),
+            type: 'line',
+            data: savingsTrendData,
+            borderColor: color + '88',
+            backgroundColor: 'transparent',
+            borderWidth: 1.5,
+            borderDash: [6, 3],
+            pointRadius: 0,
+            fill: false,
+            tension: 0,
+            order: 2,
+            spanGaps: false,
+          }] : []),
+          {
+            label: t('proj.chart.projection'),
+            type: 'line',
+            data: savingsProjFull,
+            borderColor: color,
+            backgroundColor: color + '18',
+            borderWidth: 2,
+            pointRadius: 2,
+            fill: 'origin',
+            tension: 0.3,
+            order: 0,
+            spanGaps: false,
+          },
+        ],
+      },
+      options: _makeChartOptions(),
+    });
+  }
+
+  // ── Assets = current balance + cumulative projected savings ───────────────
+  const assetsCanvas = document.getElementById('ch-proj-assets');
+  if (assetsCanvas) {
+    const currentAssets = projData.current_balances?.total_assets ?? 0;
+
+    // Cumulate monthly savings over projected months only
+    let cumSavings = 0;
+    const assetsProjFull = allLabels.map((_, i) => {
+      const s = savingsProjFull[i];
+      if (s == null) return null;   // historical months
+      cumSavings += s;
+      return Math.round((currentAssets + cumSavings) * 100) / 100;
+    });
+
+    const assetsHistMap = {};
+    (projData.historical.assets || []).forEach(p => { assetsHistMap[p.month] = p.value; });
+    const assetsScatter = histMonths
+      .filter(m => assetsHistMap[m] != null)
+      .map(m => ({ x: m, y: assetsHistMap[m] }));
+
+    const color = PROJ_COLORS.assets;
+    _projCharts['ch-proj-assets'] = new Chart(assetsCanvas, {
+      type: 'line',
+      data: {
+        labels: allLabels,
+        datasets: [
+          {
+            label: t('proj.chart.historical'),
+            type: 'scatter',
+            data: assetsScatter,
+            parsing: false,
+            pointRadius: 5,
+            pointBackgroundColor: color,
+            pointBorderColor: color,
+            showLine: false,
+            order: 1,
+          },
+          {
+            label: t('proj.chart.projection'),
+            type: 'line',
+            data: assetsProjFull,
+            borderColor: color,
+            backgroundColor: color + '18',
+            borderWidth: 2,
+            pointRadius: 2,
+            fill: 'origin',
+            tension: 0.3,
+            order: 0,
+            spanGaps: false,
+          },
+        ],
+      },
+      options: _makeChartOptions(),
+    });
+  }
+
+  // ── Liabilities (no trend line — stock variable, backend projection) ──────
+  const liabCanvas = document.getElementById('ch-proj-liabilities');
+  if (liabCanvas) {
+    const hasHist = (projData.historical.liabilities || []).length > 0;
+    if (!hasHist && projMonths.length === 0) {
+      liabCanvas.parentElement.innerHTML += `<div class="empty text-xs py-2">${t('proj.no_history')}</div>`;
+    } else {
+      const { labels, datasets } = _buildProjectionDatasets('liabilities', histMonths, projMonths, projData, PROJ_COLORS.liabilities, false, null);
+      _projCharts['ch-proj-liabilities'] = new Chart(liabCanvas, { type: 'line', data: { labels, datasets }, options: _makeChartOptions() });
+    }
+  }
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 const Projections = {
@@ -382,6 +773,7 @@ const Projections = {
     _destroyProjCharts();
     const main = document.getElementById('main');
     main.innerHTML = _buildPageShell();
+    _renderTrendPanel();
     _setActiveBtn('proj-horizon-btns', _projState.horizon);
     _setActiveBtn('proj-history-btns', _projState.historyMonths);
     await _loadData();
@@ -398,6 +790,34 @@ const Projections = {
     _setActiveBtn('proj-history-btns', months);
     _loadData();
   },
+
+  // ── Trend panel handlers ────────────────────────────────────────────────────
+
+  _toggleTrendPanel() {
+    _projState.trendPanelOpen = !_projState.trendPanelOpen;
+    _renderTrendPanel();
+  },
+
+  _onTrendMode(metricKey, mode) {
+    _projState.trendSettings[metricKey].mode = mode;
+    // When switching to inflation, pre-fill base with the last known value
+    // so the user sees the correct default without having to type it.
+    if (mode === 'inflation' && _projState.trendSettings[metricKey].inflationBase === '') {
+      const lastVal = _getLastKnownValue(metricKey, _projState.projData);
+      if (lastVal !== null) {
+        _projState.trendSettings[metricKey].inflationBase = String(Math.round(lastVal * 100) / 100);
+      }
+    }
+    _renderTrendPanel();
+    _renderCharts();
+  },
+
+  _onTrendSetting(metricKey, field, value) {
+    _projState.trendSettings[metricKey][field] = value;
+    _renderCharts();
+  },
+
+  // ── Series dialog ───────────────────────────────────────────────────────────
 
   openSeriesDialog(id = null) {
     const existing = id != null ? _projState.series.find(s => s.id === id) : null;
