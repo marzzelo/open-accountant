@@ -564,6 +564,24 @@ function _buildPageShell() {
     </div></div>`;
 }
 
+// ── Preferences persistence ───────────────────────────────────────────────────
+
+function _saveProjPrefs(patch) {
+  API.put('/settings/preferences', patch).catch(() => {});
+}
+
+async function _loadProjPrefs() {
+  try {
+    const prefs = await API.get('/settings/preferences');
+    if (typeof prefs.proj_horizon === 'number') _projState.horizon = prefs.proj_horizon;
+    if (typeof prefs.proj_history_months === 'number') _projState.historyMonths = prefs.proj_history_months;
+    if (prefs.proj_trend_income   && typeof prefs.proj_trend_income   === 'object')
+      Object.assign(_projState.trendSettings.income,   prefs.proj_trend_income);
+    if (prefs.proj_trend_expenses && typeof prefs.proj_trend_expenses === 'object')
+      Object.assign(_projState.trendSettings.expenses, prefs.proj_trend_expenses);
+  } catch {}
+}
+
 // ── Data loading ──────────────────────────────────────────────────────────────
 
 async function _loadData() {
@@ -771,6 +789,7 @@ const Projections = {
 
   async render() {
     _destroyProjCharts();
+    await _loadProjPrefs();
     const main = document.getElementById('main');
     main.innerHTML = _buildPageShell();
     _renderTrendPanel();
@@ -782,12 +801,14 @@ const Projections = {
   _onHorizonChange(months) {
     _projState.horizon = months;
     _setActiveBtn('proj-horizon-btns', months);
+    _saveProjPrefs({ proj_horizon: months });
     _loadData();
   },
 
   _onHistoryChange(months) {
     _projState.historyMonths = months;
     _setActiveBtn('proj-history-btns', months);
+    _saveProjPrefs({ proj_history_months: months });
     _loadData();
   },
 
@@ -808,12 +829,14 @@ const Projections = {
         _projState.trendSettings[metricKey].inflationBase = String(Math.round(lastVal * 100) / 100);
       }
     }
+    _saveProjPrefs({ [`proj_trend_${metricKey}`]: _projState.trendSettings[metricKey] });
     _renderTrendPanel();
     _renderCharts();
   },
 
   _onTrendSetting(metricKey, field, value) {
     _projState.trendSettings[metricKey][field] = value;
+    _saveProjPrefs({ [`proj_trend_${metricKey}`]: _projState.trendSettings[metricKey] });
     _renderCharts();
   },
 
