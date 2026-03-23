@@ -287,10 +287,10 @@
 
 /* ── Quick-filter button active state ── */
 .qfilter-btn.qfilter-active {
-  color: #93c5fd;
-  border-color: #3b82f680;
-  background: #1d4ed830;
-  box-shadow: 0 0 0 1px #3b82f620;
+  color: #fde68a;
+  border-color: #f59e0b;
+  background: #f59e0b22;
+  box-shadow: 0 0 0 1px #f59e0b40;
 }
 
 /* ── Common transactions panel ── */

@@ -12,6 +12,7 @@
   "nav.new_account": "＋ Account",
   "nav.subtypes": "Subtypes",
   "nav.transactions": "Transactions",
+  "filter.today": "Today",
   "filter.current_year": "Current year",
   "filter.current_month": "Current month",
   "filter.prev_month": "Prev. month",

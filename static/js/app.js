@@ -351,6 +351,12 @@ const Filter = {
   },
 
   /* ── Atajos de período ── */
+  setToday() {
+    const now = new Date();
+    const d = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    this.setRange(d, d, t('filter.today'), 'filter.today');
+  },
+
   setCurrentYear() {
     const y = new Date().getFullYear();
     this.setRange(`${y}-01-01`, `${y}-12-31`, t('filter.current_year'), 'filter.current_year');

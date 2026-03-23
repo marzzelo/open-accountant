@@ -114,6 +114,8 @@
       <div id="tl-filter" class="filter-controls hidden xl:flex items-center gap-1.5 shrink-0 rounded-lg px-2 py-1 transition-colors">
         <span class="text-[10px] text-dark-500 shrink-0">📅</span>
 
+        <button onclick="Filter.setToday()"
+              class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.today" data-i18n="filter.today">Today</button>
         <button onclick="Filter.setCurrentYear()"
               class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.current_year" data-i18n="filter.current_year">Current year</button>
         <button onclick="Filter.setCurrentMonth()"
@@ -185,7 +187,11 @@
       <p class="text-[11px] text-dark-400 mb-3">📅 Filtro de fechas</p>
 
       <!-- Quick-filter buttons -->
-      <div class="grid grid-cols-3 gap-1.5 mb-3">
+      <div class="grid grid-cols-4 gap-1.5 mb-3">
+        <button onclick="Nav.close();Filter.setToday()"
+                class="qfilter-btn text-[11px] px-2 py-2 border border-dark-600 rounded-lg
+                       text-dark-400 hover:text-dark-300 hover:bg-dark-700 font-sans cursor-pointer
+                 bg-transparent text-center" data-filter-key="filter.today" data-i18n="filter.today">Today</button>
         <button onclick="Nav.close();Filter.setCurrentYear()"
                 class="qfilter-btn text-[11px] px-2 py-2 border border-dark-600 rounded-lg
                        text-dark-400 hover:text-dark-300 hover:bg-dark-700 font-sans cursor-pointer
