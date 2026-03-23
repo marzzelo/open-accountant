@@ -199,14 +199,15 @@ const StatusBar = {
       .reduce((total, account) => total + (Number(account.balance) || 0), 0);
   },
 
-  _isCurrentAsset(account) {
+  _isDisponibilidad(account) {
     if (account.type_id !== 1) return false;
     const subtypeName = String(account.subtype_name || '').toLowerCase();
-    return account.subtype_id === 1 || subtypeName === 'current asset';
+    return account.subtype_id === 1 || account.subtype_id === 2
+      || subtypeName === 'current asset' || subtypeName === 'bank';
   },
 
   _metrics() {
-    const currentAssets = this._sumAccounts(account => this._isCurrentAsset(account));
+    const currentAssets = this._sumAccounts(account => this._isDisponibilidad(account));
     const totalAssets = this._sumAccounts(account => account.type_id === 1);
     const totalLiabilities = this._sumAccounts(account => account.type_id === 2);
     const totalIncome = this._sumAccounts(account => account.type_id === 3);

@@ -332,11 +332,12 @@ const Reports = {
     const left  = visibleGroups.filter(g => [1, 4].includes(g.type_id));
     const right = visibleGroups.filter(g => [2, 3, 5].includes(g.type_id));
 
-    const eqOk     = Math.abs(bs.equation_check) < 0.01;
-    const resColor  = bs.resultado >= 0 ? 'text-ingreso' : 'text-pasivo';
-    const eqColor   = eqOk ? 'text-ingreso' : 'text-pasivo';
-    const expFrom   = State.filterFrom || `${new Date().getFullYear()}-01-01`;
-    const expTo     = State.filterTo   || `${new Date().getFullYear()}-12-31`;
+    const eqOk        = Math.abs(bs.equation_check) < 0.01;
+    const resColor    = bs.resultado >= 0 ? 'text-ingreso' : 'text-pasivo';
+    const eqColor     = eqOk ? 'text-ingreso' : 'text-pasivo';
+    const expFrom     = State.filterFrom || `${new Date().getFullYear()}-01-01`;
+    const expTo       = State.filterTo   || `${new Date().getFullYear()}-12-31`;
+    const hasFilter   = !!(State.filterFrom || State.filterTo);
 
     const kpi = (label, val, cls, toneClass) => `
       <div class="rounded-xl border ${toneClass} bg-dark-800 p-4 sm:p-5 min-w-0">
@@ -371,10 +372,10 @@ const Reports = {
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
-        ${kpi(t('report.total_assets'), bs.total_activo, 'text-activo', 'border-activo/30')}
-        ${kpi(t('report.total_liab'), bs.total_pasivo, 'text-pasivo', 'border-pasivo/30')}
-        ${kpi(t('report.total_equity'), bs.total_patrimonio, 'text-patrimonio', 'border-patrimonio/30')}
-        ${kpi(t('report.result'), bs.resultado, resColor, bs.resultado >= 0 ? 'border-ingreso/30' : 'border-pasivo/30')}
+        ${kpi(hasFilter ? t('report.incr_assets')  : t('report.total_assets'),  bs.total_activo,     'text-activo',     'border-activo/30')}
+        ${kpi(hasFilter ? t('report.incr_liab')    : t('report.total_liab'),    bs.total_pasivo,     'text-pasivo',     'border-pasivo/30')}
+        ${kpi(hasFilter ? t('report.incr_equity')  : t('report.total_equity'),  bs.total_patrimonio, 'text-patrimonio', 'border-patrimonio/30')}
+        ${kpi(hasFilter ? t('report.period_result'): t('report.result'),        bs.resultado,        resColor,          bs.resultado >= 0 ? 'border-ingreso/30' : 'border-pasivo/30')}
       </div>
 
       ${visibleGroups.length ? `
@@ -529,8 +530,7 @@ const Reports = {
           ${opts}
         </select>
         ${this._sortToggleButton('ledger')}
-        <span class="text-sm text-dark-400">${t('report.opening')}: <strong class="text-dark-300">${fmt(data.opening_balance)}</strong></span>
-        <span class="text-sm text-dark-400">${t('report.closing')}: <strong class="text-dark-300">${fmt(data.closing_balance)}</strong></span>
+        <span class="text-base font-bold text-activo">${t('report.closing')}: <strong class="text-lg">${fmt(data.closing_balance)}</strong></span>
         ${R.btn('⬇ CSV', this._downloadUrl(`/reports/export/csv?report=ledger&account_id=${accId}&from=${expFrom}&to=${expTo}`), true)}
         ${R.btn('⬇ PDF', this._downloadUrl(`/reports/export/pdf?report=ledger&account_id=${accId}&from=${expFrom}&to=${expTo}`), true)}
       </div>` +
