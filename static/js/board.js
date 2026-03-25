@@ -576,7 +576,11 @@ const Board = {
     if (Number.isNaN(accountId)) return;
 
     if (this._shouldSuppressClick(accountId)) return;
-    if (!this._pendingCredit.accountId) return;
+
+    if (!this._pendingCredit.accountId) {
+      this.showLedger(accountId);
+      return;
+    }
 
     const creditId = this._pendingCredit.accountId;
     this._clearPendingCredit();
