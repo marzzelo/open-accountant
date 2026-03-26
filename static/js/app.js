@@ -800,6 +800,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     StatusBar.refresh();
     Filter._syncUi();
     await View.show('board');
+    if (typeof FX !== 'undefined') FX.init();
   } catch (e) {
     document.getElementById('main').innerHTML =
       `<div class="empty" style="color:#ef5350">

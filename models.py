@@ -79,6 +79,7 @@ class AccountOut(BaseModel):
     description: str
     initial_balance: float
     balance: float
+    properties: dict = Field(default_factory=dict)
     last_movements: list[MovementOut] = []
     monthly_history: list[MonthlyBar] = []
 
@@ -168,19 +169,22 @@ class BalanceSheet(BaseModel):
 
 
 class StatsData(BaseModel):
+    summary: dict  # {total_income, total_expense, net_result, savings_rate, ...}
     monthly_cashflow: list[dict]  # {month, ingresos, gastos, neto}
     expenses_by_subtype: list[dict]  # {subtype, amount}
     income_by_subtype: list[dict]  # {subtype, amount}
     asset_composition: list[dict]  # {account, balance}
     top_accounts: list[dict]  # {account, volume, tx_count}
     balance_evolution: list[dict]  # {month, account_id, account_name, balance}
+    net_worth_evolution: list[dict]  # {month, assets, liabilities, net_worth}
 
 
 # ── Projections ────────────────────────────────────────────────────────────────
 
+
 class ProjectionSeriesIn(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
-    type: str = Field(..., pattern=r'^(income|expense)$')
+    type: str = Field(..., pattern=r"^(income|expense)$")
     start_date: str  # "YYYY-MM-DD"
     months: int = Field(..., ge=1)
     monthly_amount: float = Field(..., gt=0)
@@ -188,7 +192,7 @@ class ProjectionSeriesIn(BaseModel):
 
 class ProjectionSeriesUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
-    type: Optional[str] = Field(None, pattern=r'^(income|expense)$')
+    type: Optional[str] = Field(None, pattern=r"^(income|expense)$")
     start_date: Optional[str] = None
     months: Optional[int] = Field(None, ge=1)
     monthly_amount: Optional[float] = Field(None, gt=0)

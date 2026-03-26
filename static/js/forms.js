@@ -102,6 +102,87 @@ const Forms = {
     return Math.round((Number(value) || 0) * 100) / 100;
   },
 
+  _accountPropertyOptions(typeId, selected = {}) {
+    if (typeId === 1) {
+      return {
+        id: 'f-liquidity-profile',
+        label: t('form.classification.asset_liquidity'),
+        value: selected.liquidity_profile || '',
+        options: [
+          { value: '', label: t('form.classification.auto') },
+          { value: 'quick', label: t('form.classification.asset_quick') },
+          { value: 'current', label: t('form.classification.asset_current') },
+          { value: 'non_current', label: t('form.classification.asset_non_current') },
+        ],
+      };
+    }
+    if (typeId === 2) {
+      return {
+        id: 'f-liability-term',
+        label: t('form.classification.liability_term'),
+        value: selected.liability_term || '',
+        options: [
+          { value: '', label: t('form.classification.auto') },
+          { value: 'current', label: t('form.classification.liability_current') },
+          { value: 'long_term', label: t('form.classification.liability_long_term') },
+        ],
+      };
+    }
+    if (typeId === 4) {
+      return {
+        id: 'f-expense-profile',
+        label: t('form.classification.expense_profile'),
+        value: selected.expense_profile || '',
+        options: [
+          { value: '', label: t('form.classification.auto') },
+          { value: 'essential', label: t('form.classification.expense_essential') },
+          { value: 'discretionary', label: t('form.classification.expense_discretionary') },
+        ],
+      };
+    }
+    return null;
+  },
+
+  _accountPropertiesFields(typeId, properties = {}) {
+    const definition = this._accountPropertyOptions(typeId, properties);
+    if (!definition) return '';
+
+    const options = definition.options.map(option =>
+      `<option value="${option.value}" ${option.value === definition.value ? 'selected' : ''}>${escapeHtml(option.label)}</option>`
+    ).join('');
+
+    return `
+      <div class="mb-4 rounded-xl border border-dark-600 bg-dark-800/70 px-3 py-3">
+        <div class="text-[11px] font-semibold uppercase tracking-wide text-dark-400 mb-2">${escapeHtml(t('form.classification.title'))}</div>
+        <div class="text-xs text-dark-400 mb-3">${escapeHtml(t('form.classification.help'))}</div>
+        ${T.group(definition.label, T.select(definition.id, options))}
+      </div>`;
+  },
+
+  _renderAccountPropertiesFields(typeId, properties = {}) {
+    const container = document.getElementById('f-account-properties');
+    if (!container) return;
+    container.innerHTML = this._accountPropertiesFields(Number.parseInt(typeId, 10), properties);
+  },
+
+  _readAccountProperties(typeId) {
+    const numericTypeId = Number(typeId);
+    const properties = {};
+
+    if (numericTypeId === 1) {
+      const liquidity = document.getElementById('f-liquidity-profile')?.value || '';
+      if (liquidity) properties.liquidity_profile = liquidity;
+    } else if (numericTypeId === 2) {
+      const liabilityTerm = document.getElementById('f-liability-term')?.value || '';
+      if (liabilityTerm) properties.liability_term = liabilityTerm;
+    } else if (numericTypeId === 4) {
+      const expenseProfile = document.getElementById('f-expense-profile')?.value || '';
+      if (expenseProfile) properties.expense_profile = expenseProfile;
+    }
+
+    return JSON.stringify(properties);
+  },
+
   _plainAmount(value) {
     return Math.abs(Number(value) || 0).toLocaleString('en-US', {
       minimumFractionDigits: 2,
@@ -721,8 +802,10 @@ const Forms = {
       )}
       ${T.group(t('form.label.initial_bal'), T.input('f-initial', { type: 'number', step: '0.01', val: '0' }))}
       ${T.group(t('form.label.description'), T.input('f-desc', { ph: t('form.placeholder.desc') }))}
+      <div id="f-account-properties"></div>
     `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
       + T.btnSuccess(t('btn.create'), { 'data-form-action': 'save-account' })));
+    this._renderAccountPropertiesFields(document.getElementById('f-type')?.value);
   },
 
   /* ── Editar cuenta ────────────────────────────────────────────── */
@@ -742,6 +825,7 @@ const Forms = {
         T.label(t('form.label.subtype')) + T.select('f-subtype', subOpts)
       )}
       ${T.group(t('form.label.description'), T.input('f-desc', { val: acc.description || '' }))}
+      <div id="f-account-properties">${this._accountPropertiesFields(acc.type_id, acc.properties || {})}</div>
     `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
       + T.btnPrimary(t('btn.save'), { 'data-form-action': 'update-account', 'data-account-id': accId })));
   },
@@ -933,6 +1017,7 @@ const Forms = {
     const subs = State.subtypes.filter(s => s.type_id == tid);
     sel.innerHTML = `<option value="">${t('form.no_subtype')}</option>` +
       subs.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+    this._renderAccountPropertiesFields(tid);
   },
 
   async _saveAccount() {
@@ -941,20 +1026,23 @@ const Forms = {
     const subId   = document.getElementById('f-subtype')?.value;
     const initial = parseFloat(document.getElementById('f-initial')?.value) || 0;
     const desc    = document.getElementById('f-desc')?.value || '';
+    const properties = this._readAccountProperties(typeId);
     if (!name || !typeId) return Toast.show(t('msg.name_type_required'), 'err');
     try {
       await API.post('/accounts', { name, type_id: typeId,
-        subtype_id: subId ? parseInt(subId) : null, initial_balance: initial, description: desc });
+        subtype_id: subId ? parseInt(subId) : null, initial_balance: initial, description: desc, properties });
       Modal.close(); Toast.show(t('msg.account_created', {name})); await View.refresh();
     } catch (e) { Toast.show(e.message, 'err'); }
   },
 
   async _updateAccount(accId) {
+    const acc = State.accounts.find(item => item.id === accId);
     const name  = document.getElementById('f-name')?.value.trim();
     const subId = document.getElementById('f-subtype')?.value;
     const desc  = document.getElementById('f-desc')?.value || '';
+    const properties = this._readAccountProperties(acc?.type_id);
     try {
-      await API.put(`/accounts/${accId}`, { name, subtype_id: subId ? parseInt(subId) : null, description: desc });
+      await API.put(`/accounts/${accId}`, { name, subtype_id: subId ? parseInt(subId) : null, description: desc, properties });
       Modal.close(); Toast.show(t('msg.account_updated')); await View.refresh();
     } catch (e) { Toast.show(e.message, 'err'); }
   },
