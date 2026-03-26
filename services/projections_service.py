@@ -12,6 +12,7 @@ from services.helpers import normalize_account_properties, require_row
 
 # ── Month helpers ──────────────────────────────────────────────────────────────
 
+
 def _add_months(year: int, month: int, delta: int) -> tuple[int, int]:
     """Return (year, month) after adding delta months."""
     month += delta
@@ -46,6 +47,7 @@ def _months_range(start: str, count: int) -> list[str]:
 
 
 # ── Linear regression (pure Python, no numpy) ─────────────────────────────────
+
 
 def _linear_regression(points: list[float]) -> tuple[float, float]:
     """OLS on y values where x = 0, 1, 2, ... Returns (slope, intercept)."""
@@ -128,6 +130,7 @@ def _fill_by_regression(sparse: list) -> list[float]:
 
 # ── Historical data helpers ───────────────────────────────────────────────────
 
+
 def _get_monthly_cashflow(
     conn, from_date: str, to_date: str
 ) -> tuple[dict[str, float], dict[str, float]]:
@@ -158,7 +161,8 @@ def _get_monthly_cashflow(
     )"""
 
     income_rows = conn.execute(
-        legs_cte + """
+        legs_cte
+        + """
         SELECT month, SUM(credit_amount - debit_amount) AS value
         FROM tx_legs WHERE type_id = 3
         GROUP BY month ORDER BY month""",
@@ -166,19 +170,22 @@ def _get_monthly_cashflow(
     ).fetchall()
 
     expense_rows = conn.execute(
-        legs_cte + """
+        legs_cte
+        + """
         SELECT month, SUM(debit_amount - credit_amount) AS value
         FROM tx_legs WHERE type_id = 4
         GROUP BY month ORDER BY month""",
         (from_date, to_date, from_date, to_date),
     ).fetchall()
 
-    income_map  = {r["month"]: float(r["value"]) for r in income_rows}
+    income_map = {r["month"]: float(r["value"]) for r in income_rows}
     expense_map = {r["month"]: float(r["value"]) for r in expense_rows}
     return income_map, expense_map
 
 
-def _get_monthly_balances(conn, from_date: str, to_date: str, type_id: int) -> dict[str, float]:
+def _get_monthly_balances(
+    conn, from_date: str, to_date: str, type_id: int
+) -> dict[str, float]:
     """
     Returns {YYYY-MM: balance} for accounts of the given type_id,
     computing cumulative balance up to the end of each month.
@@ -201,8 +208,12 @@ def _get_monthly_balances(conn, from_date: str, to_date: str, type_id: int) -> d
         total = 0.0
         for acc in asset_accounts:
             bal = compute_filtered_balance(
-                conn, acc["id"], acc["type_id"], acc["initial_balance"],
-                from_date, month_end,
+                conn,
+                acc["id"],
+                acc["type_id"],
+                acc["initial_balance"],
+                from_date,
+                month_end,
             )
             total += bal
         result[month] = round(total, 4)
@@ -233,7 +244,10 @@ def _round_or_none(value: Optional[float], digits: int = 4) -> Optional[float]:
 
 # ── Series adjustments ────────────────────────────────────────────────────────
 
-def _compute_series_adjustments(series_list: list[dict], projected_months: list[str]) -> dict:
+
+def _compute_series_adjustments(
+    series_list: list[dict], projected_months: list[str]
+) -> dict:
     """
     For each projected month, sum income/expense from active series.
     A series is active in month M if start_date <= M-01 and month_index < series.months.
@@ -282,6 +296,7 @@ def _compute_series_adjustments(series_list: list[dict], projected_months: list[
 
 
 # ── Series CRUD ───────────────────────────────────────────────────────────────
+
 
 def _row_to_dict(row) -> dict:
     return {
@@ -336,9 +351,7 @@ def update_series(conn, series_id: int, data: ProjectionSeriesUpdate) -> dict:
         return _row_to_dict(row)
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [series_id]
-    conn.execute(
-        f"UPDATE projection_series SET {set_clause} WHERE id = ?", values
-    )
+    conn.execute(f"UPDATE projection_series SET {set_clause} WHERE id = ?", values)
     conn.commit()
     return get_series(conn, series_id)
 
@@ -356,6 +369,7 @@ def delete_series(conn, series_id: int) -> None:
 
 
 # ── Main projection function ──────────────────────────────────────────────────
+
 
 def get_projections(conn, horizon: int, history_months: int) -> dict:
     """
@@ -382,21 +396,23 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
     # Sparse arrays: None for months with no transactions for that metric.
     # Using separate maps ensures a month with only expenses shows None for
     # income (and vice-versa), so _fill_by_regression extrapolates correctly.
-    sparse_income   = [income_map.get(m)  for m in all_hist_months]
+    sparse_income = [income_map.get(m) for m in all_hist_months]
     sparse_expenses = [expense_map.get(m) for m in all_hist_months]
 
     # Fill missing months by regression on known data points (or copy if only 1 known)
-    hist_income   = _fill_by_regression(sparse_income)
+    hist_income = _fill_by_regression(sparse_income)
     hist_expenses = _fill_by_regression(sparse_expenses)
-    hist_savings  = [hist_income[i] - hist_expenses[i] for i in range(len(all_hist_months))]
+    hist_savings = [
+        hist_income[i] - hist_expenses[i] for i in range(len(all_hist_months))
+    ]
 
     # ── Historical asset/liability balances ──
     asset_bal_map = _get_monthly_balances(conn, history_start, history_end, type_id=1)
-    liab_bal_map  = _get_monthly_balances(conn, history_start, history_end, type_id=2)
-    hist_assets_sparse      = [asset_bal_map.get(m, None) for m in all_hist_months]
-    hist_liabilities_sparse = [liab_bal_map.get(m,  None) for m in all_hist_months]
+    liab_bal_map = _get_monthly_balances(conn, history_start, history_end, type_id=2)
+    hist_assets_sparse = [asset_bal_map.get(m, None) for m in all_hist_months]
+    hist_liabilities_sparse = [liab_bal_map.get(m, None) for m in all_hist_months]
 
-    hist_assets_filled      = _fill_by_regression(hist_assets_sparse)
+    hist_assets_filled = _fill_by_regression(hist_assets_sparse)
     hist_liabilities_filled = _fill_by_regression(hist_liabilities_sparse)
 
     # ── Current balances ──
@@ -416,7 +432,9 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
     quick_assets = 0.0
     current_liabilities_only = 0.0
     for account in asset_accounts:
-        balance = compute_balance(conn, account["id"], account["type_id"], account["initial_balance"])
+        balance = compute_balance(
+            conn, account["id"], account["type_id"], account["initial_balance"]
+        )
         props = normalize_account_properties(
             account["properties"],
             type_id=1,
@@ -429,7 +447,9 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
             quick_assets += balance
 
     for account in liab_accounts:
-        balance = compute_balance(conn, account["id"], account["type_id"], account["initial_balance"])
+        balance = compute_balance(
+            conn, account["id"], account["type_id"], account["initial_balance"]
+        )
         props = normalize_account_properties(
             account["properties"],
             type_id=2,
@@ -481,7 +501,9 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
 
     # ── Baseline projections ──
     def _project(slope, intercept, x_start, count):
-        return [max(0.0, round(intercept + slope * (x_start + i), 4)) for i in range(count)]
+        return [
+            max(0.0, round(intercept + slope * (x_start + i), 4)) for i in range(count)
+        ]
 
     baseline_income = _project(reg_income[0], reg_income[1], n_hist, horizon)
     baseline_expenses = _project(reg_expenses[0], reg_expenses[1], n_hist, horizon)
@@ -504,26 +526,39 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
     series_list = list_series(conn)
     adj = _compute_series_adjustments(series_list, projected_months)
 
-    observed_hist_months = max(len([m for m in all_hist_months if m in income_map or m in expense_map]), 1)
-    essential_share = (essential_expense_total / sum(expense_map.values())) if sum(expense_map.values()) > 0 else 0.0
+    observed_hist_months = max(
+        len([m for m in all_hist_months if m in income_map or m in expense_map]), 1
+    )
+    essential_share = (
+        (essential_expense_total / sum(expense_map.values()))
+        if sum(expense_map.values()) > 0
+        else 0.0
+    )
     baseline_net_worth = [
         round(baseline_assets[i] - baseline_liabilities[i], 4) for i in range(horizon)
     ]
-    scenario_assets = [round(baseline_assets[i] + adj["assets"][i], 4) for i in range(horizon)]
+    scenario_assets = [
+        round(baseline_assets[i] + adj["assets"][i], 4) for i in range(horizon)
+    ]
     scenario_liabilities = [
-        round(baseline_liabilities[i] + adj["liabilities"][i], 4) for i in range(horizon)
+        round(baseline_liabilities[i] + adj["liabilities"][i], 4)
+        for i in range(horizon)
     ]
     scenario_net_worth = [
         round(scenario_assets[i] - scenario_liabilities[i], 4) for i in range(horizon)
     ]
     current_liability_share = (
-        current_liabilities_only / current_liabilities if current_liabilities > 0 else 0.0
+        current_liabilities_only / current_liabilities
+        if current_liabilities > 0
+        else 0.0
     )
     baseline_current_liabilities = [
-        round(baseline_liabilities[i] * current_liability_share, 4) for i in range(horizon)
+        round(baseline_liabilities[i] * current_liability_share, 4)
+        for i in range(horizon)
     ]
     scenario_current_liabilities = [
-        round(scenario_liabilities[i] * current_liability_share, 4) for i in range(horizon)
+        round(scenario_liabilities[i] * current_liability_share, 4)
+        for i in range(horizon)
     ]
     baseline_current_assets = [
         round(current_assets_only + max(0.0, baseline_assets[i] - current_assets), 4)
@@ -542,19 +577,33 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
         for i in range(horizon)
     ]
     baseline_essential_expense = [
-        round(max(0.0, baseline_expenses[i] * essential_share), 4) for i in range(horizon)
+        round(max(0.0, baseline_expenses[i] * essential_share), 4)
+        for i in range(horizon)
     ]
     scenario_essential_expense = [
-        round(max(0.0, (baseline_expenses[i] + adj["expenses"][i]) * essential_share), 4)
+        round(
+            max(0.0, (baseline_expenses[i] + adj["expenses"][i]) * essential_share), 4
+        )
         for i in range(horizon)
     ]
 
-    def _health_point(month_index: int, month: str, *, net_worth: float, current_assets_val: float,
-                      quick_assets_val: float, current_liabilities_val: float,
-                      essential_expense_val: Optional[float]) -> dict:
+    def _health_point(
+        month_index: int,
+        month: str,
+        *,
+        net_worth: float,
+        current_assets_val: float,
+        quick_assets_val: float,
+        current_liabilities_val: float,
+        essential_expense_val: Optional[float],
+    ) -> dict:
         current_ratio = _safe_ratio(current_assets_val, current_liabilities_val)
         quick_ratio = _safe_ratio(quick_assets_val, current_liabilities_val)
-        runway_months = _safe_ratio(quick_assets_val, essential_expense_val) if essential_expense_val else None
+        runway_months = (
+            _safe_ratio(quick_assets_val, essential_expense_val)
+            if essential_expense_val
+            else None
+        )
         return {
             "month": month,
             "net_worth": round(net_worth, 4),
@@ -568,7 +617,9 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
         }
 
     current_monthly_essential_expense = (
-        essential_expense_total / observed_hist_months if essential_expense_total > 0 else None
+        essential_expense_total / observed_hist_months
+        if essential_expense_total > 0
+        else None
     )
     current_health = _health_point(
         -1,
@@ -582,20 +633,56 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
     baseline_end = _health_point(
         horizon - 1,
         projected_months[-1] if projected_months else today_ym,
-        net_worth=baseline_net_worth[-1] if baseline_net_worth else current_health["net_worth"],
-        current_assets_val=baseline_current_assets[-1] if baseline_current_assets else current_assets_only,
-        quick_assets_val=baseline_quick_assets[-1] if baseline_quick_assets else quick_assets,
-        current_liabilities_val=(baseline_current_liabilities[-1] if baseline_current_liabilities else current_liabilities_only),
-        essential_expense_val=(baseline_essential_expense[-1] if baseline_essential_expense else current_monthly_essential_expense),
+        net_worth=(
+            baseline_net_worth[-1]
+            if baseline_net_worth
+            else current_health["net_worth"]
+        ),
+        current_assets_val=(
+            baseline_current_assets[-1]
+            if baseline_current_assets
+            else current_assets_only
+        ),
+        quick_assets_val=(
+            baseline_quick_assets[-1] if baseline_quick_assets else quick_assets
+        ),
+        current_liabilities_val=(
+            baseline_current_liabilities[-1]
+            if baseline_current_liabilities
+            else current_liabilities_only
+        ),
+        essential_expense_val=(
+            baseline_essential_expense[-1]
+            if baseline_essential_expense
+            else current_monthly_essential_expense
+        ),
     )
     scenario_end = _health_point(
         horizon - 1,
         projected_months[-1] if projected_months else today_ym,
-        net_worth=scenario_net_worth[-1] if scenario_net_worth else current_health["net_worth"],
-        current_assets_val=scenario_current_assets[-1] if scenario_current_assets else current_assets_only,
-        quick_assets_val=scenario_quick_assets[-1] if scenario_quick_assets else quick_assets,
-        current_liabilities_val=(scenario_current_liabilities[-1] if scenario_current_liabilities else current_liabilities_only),
-        essential_expense_val=(scenario_essential_expense[-1] if scenario_essential_expense else current_monthly_essential_expense),
+        net_worth=(
+            scenario_net_worth[-1]
+            if scenario_net_worth
+            else current_health["net_worth"]
+        ),
+        current_assets_val=(
+            scenario_current_assets[-1]
+            if scenario_current_assets
+            else current_assets_only
+        ),
+        quick_assets_val=(
+            scenario_quick_assets[-1] if scenario_quick_assets else quick_assets
+        ),
+        current_liabilities_val=(
+            scenario_current_liabilities[-1]
+            if scenario_current_liabilities
+            else current_liabilities_only
+        ),
+        essential_expense_val=(
+            scenario_essential_expense[-1]
+            if scenario_essential_expense
+            else current_monthly_essential_expense
+        ),
     )
     projected_health = {
         "current": current_health,
@@ -603,20 +690,27 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
         "scenario_end": scenario_end,
         "delta_end": {
             "month": projected_months[-1] if projected_months else today_ym,
-            "net_worth": round(scenario_end["net_worth"] - baseline_end["net_worth"], 4),
+            "net_worth": round(
+                scenario_end["net_worth"] - baseline_end["net_worth"], 4
+            ),
             "runway_months": _round_or_none(
-                (scenario_end["runway_months"] or 0) - (baseline_end["runway_months"] or 0)
-                if scenario_end["runway_months"] is not None and baseline_end["runway_months"] is not None
+                (scenario_end["runway_months"] or 0)
+                - (baseline_end["runway_months"] or 0)
+                if scenario_end["runway_months"] is not None
+                and baseline_end["runway_months"] is not None
                 else None
             ),
             "current_ratio": _round_or_none(
-                (scenario_end["current_ratio"] or 0) - (baseline_end["current_ratio"] or 0)
-                if scenario_end["current_ratio"] is not None and baseline_end["current_ratio"] is not None
+                (scenario_end["current_ratio"] or 0)
+                - (baseline_end["current_ratio"] or 0)
+                if scenario_end["current_ratio"] is not None
+                and baseline_end["current_ratio"] is not None
                 else None
             ),
             "quick_ratio": _round_or_none(
                 (scenario_end["quick_ratio"] or 0) - (baseline_end["quick_ratio"] or 0)
-                if scenario_end["quick_ratio"] is not None and baseline_end["quick_ratio"] is not None
+                if scenario_end["quick_ratio"] is not None
+                and baseline_end["quick_ratio"] is not None
                 else None
             ),
         },
@@ -630,16 +724,28 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
     return {
         "historical": {
             "income": [
-                {"month": all_hist_months[i], "value": round(float(sparse_income[i]), 4)}
-                for i in range(len(all_hist_months)) if sparse_income[i] is not None
+                {
+                    "month": all_hist_months[i],
+                    "value": round(float(sparse_income[i]), 4),
+                }
+                for i in range(len(all_hist_months))
+                if sparse_income[i] is not None
             ],
             "expenses": [
-                {"month": all_hist_months[i], "value": round(float(sparse_expenses[i]), 4)}
-                for i in range(len(all_hist_months)) if sparse_expenses[i] is not None
+                {
+                    "month": all_hist_months[i],
+                    "value": round(float(sparse_expenses[i]), 4),
+                }
+                for i in range(len(all_hist_months))
+                if sparse_expenses[i] is not None
             ],
             "savings": [
-                {"month": all_hist_months[i],
-                 "value": round(float(sparse_income[i]) - float(sparse_expenses[i]), 4)}
+                {
+                    "month": all_hist_months[i],
+                    "value": round(
+                        float(sparse_income[i]) - float(sparse_expenses[i]), 4
+                    ),
+                }
                 for i in range(len(all_hist_months))
                 if sparse_income[i] is not None and sparse_expenses[i] is not None
             ],
@@ -655,23 +761,26 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
             ],
         },
         "regression": {
-            "income":      {"slope": reg_income[0],      "intercept": reg_income[1]},
-            "expenses":    {"slope": reg_expenses[0],    "intercept": reg_expenses[1]},
-            "savings":     {"slope": reg_savings[0],     "intercept": reg_savings[1]},
-            "assets":      {"slope": reg_assets[0],      "intercept": reg_assets[1]},
-            "liabilities": {"slope": reg_liabilities[0], "intercept": reg_liabilities[1]},
+            "income": {"slope": reg_income[0], "intercept": reg_income[1]},
+            "expenses": {"slope": reg_expenses[0], "intercept": reg_expenses[1]},
+            "savings": {"slope": reg_savings[0], "intercept": reg_savings[1]},
+            "assets": {"slope": reg_assets[0], "intercept": reg_assets[1]},
+            "liabilities": {
+                "slope": reg_liabilities[0],
+                "intercept": reg_liabilities[1],
+            },
         },
         "projected_months": projected_months,
         "baseline_projection": {
-            "income":      baseline_income,
-            "expenses":    baseline_expenses,
-            "savings":     baseline_savings,
-            "assets":      baseline_assets,
+            "income": baseline_income,
+            "expenses": baseline_expenses,
+            "savings": baseline_savings,
+            "assets": baseline_assets,
             "liabilities": baseline_liabilities,
         },
         "series_adjustment": adj,
         "current_balances": {
-            "total_assets":      round(current_assets, 4),
+            "total_assets": round(current_assets, 4),
             "total_liabilities": round(current_liabilities, 4),
         },
         "health": projected_health,

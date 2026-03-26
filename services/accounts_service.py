@@ -409,7 +409,9 @@ def update_account(conn, account_id: int, data: AccountUpdate) -> AccountOut:
             raise ValidationError("Subtype does not belong to the selected type")
         subtype_name = subtype["name"]
 
-    raw_properties = data.properties if data.properties is not None else row["properties"]
+    raw_properties = (
+        data.properties if data.properties is not None else row["properties"]
+    )
     try:
         properties = serialize_account_properties(
             raw_properties,

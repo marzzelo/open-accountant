@@ -349,7 +349,9 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
 
         stats = reports_service.get_stats(conn)
         projections = projections_service.get_projections(conn, 3, 3)
-        refreshed_accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+        refreshed_accounts = {
+            item.name: item for item in accounts_service.list_accounts(conn)
+        }
 
     assert stats.summary["total_income"] == 1200.0
     assert stats.summary["total_expense"] == 250.0
@@ -371,14 +373,21 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
     assert stats.summary["top_expense_name"] == expense_account.subtype_name
     assert stats.summary["top_expense_share"] == 1.0
     assert refreshed_accounts["Bank"].properties["liquidity_profile"] == "quick"
-    assert refreshed_accounts["Bond Ladder"].properties["liquidity_profile"] == "non_current"
-    assert refreshed_accounts["Mortgage Loan"].properties["liability_term"] == "long_term"
+    assert (
+        refreshed_accounts["Bond Ladder"].properties["liquidity_profile"]
+        == "non_current"
+    )
+    assert (
+        refreshed_accounts["Mortgage Loan"].properties["liability_term"] == "long_term"
+    )
     assert len(stats.net_worth_evolution) == 1
     assert stats.net_worth_evolution[0]["assets"] == 1750.0
     assert stats.net_worth_evolution[0]["liabilities"] == 800.0
     assert stats.net_worth_evolution[0]["net_worth"] == 950.0
     assert projections["health"]["current"]["net_worth"] == 950.0
-    assert projections["health"]["current"]["current_ratio"] == pytest.approx(1550.0 / 300.0, rel=1e-4)
+    assert projections["health"]["current"]["current_ratio"] == pytest.approx(
+        1550.0 / 300.0, rel=1e-4
+    )
     assert projections["health"]["delta_end"]["net_worth"] == 0.0
 
 

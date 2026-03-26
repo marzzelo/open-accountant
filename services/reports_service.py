@@ -485,7 +485,10 @@ def get_stats(
             name=account["name"],
             subtype_name=account["subtype_name"],
         )
-        if expense_total > 0 and expense_properties.get("expense_profile") == "essential":
+        if (
+            expense_total > 0
+            and expense_properties.get("expense_profile") == "essential"
+        ):
             essential_expense_total += expense_total
 
     top_rows = conn.execute(
