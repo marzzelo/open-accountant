@@ -29,6 +29,31 @@ const PROJ_COLORS = {
   liabilities: '#ce93d8',
 };
 
+function _fmtProjRatio(value) {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  return `${Number(value).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}x`;
+}
+
+function _fmtProjMonths(value) {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  return `${Number(value).toLocaleString('en-US', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}m`;
+}
+
+function _healthCard(label, value, note = '', valueClass = 'text-dark-100') {
+  return `
+    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
+      <div class="text-[11px] text-dark-400 uppercase tracking-wide mb-2">${escapeHtml(label)}</div>
+      <div class="text-2xl font-semibold ${valueClass}">${escapeHtml(value)}</div>
+      <div class="text-xs text-dark-400 mt-2 min-h-[18px]">${escapeHtml(note)}</div>
+    </div>`;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function _parseMonth(m) {
@@ -249,6 +274,43 @@ function _renderSeriesTable() {
           </tr>
         </tbody>
       </table>
+    </div>`;
+}
+
+function _renderHealthSummary() {
+  const container = document.getElementById('proj-health-summary');
+  if (!container) return;
+
+  const health = _projState.projData?.health;
+  if (!health) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const current = health.current || {};
+  const baseline = health.baseline_end || {};
+  const scenario = health.scenario_end || {};
+  const delta = health.delta_end || {};
+  const deltaNetWorth = Number(delta.net_worth || 0);
+  const deltaRunway = delta.runway_months == null ? null : Number(delta.runway_months);
+
+  container.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      ${_healthCard(t('proj.health.current_net_worth'), fmt(current.net_worth), current.month || '', 'text-activo')}
+      ${_healthCard(t('stats.kpi.current_ratio'), _fmtProjRatio(current.current_ratio), `${t('stats.kpi.current_liabilities')}: ${fmt(current.current_liabilities)}`)}
+      ${_healthCard(t('stats.kpi.quick_ratio'), _fmtProjRatio(current.quick_ratio), `${t('stats.kpi.quick_assets')}: ${fmt(current.quick_assets)}`)}
+      ${_healthCard(t('stats.kpi.runway_months'), _fmtProjMonths(current.runway_months), `${t('stats.kpi.essential_expense')}: ${fmt(current.monthly_essential_expense)}`)}
+      ${_healthCard(t('proj.health.baseline_end_net_worth'), fmt(baseline.net_worth), baseline.month || '', 'text-activo')}
+      ${_healthCard(t('proj.health.baseline_end_runway'), _fmtProjMonths(baseline.runway_months), `${t('stats.kpi.current_ratio')}: ${_fmtProjRatio(baseline.current_ratio)}`)}
+      ${_healthCard(t('proj.health.scenario_end_net_worth'), fmt(scenario.net_worth), scenario.month || '', 'text-activo')}
+      ${_healthCard(t('proj.health.scenario_end_runway'), _fmtProjMonths(scenario.runway_months), `${t('stats.kpi.current_ratio')}: ${_fmtProjRatio(scenario.current_ratio)}`)}
+      ${_healthCard(t('proj.health.delta_net_worth'), fmtSigned(delta.net_worth), delta.month || '', deltaNetWorth >= 0 ? 'text-ingreso' : 'text-pasivo')}
+      ${_healthCard(
+        t('proj.health.delta_runway'),
+        deltaRunway == null ? '—' : `${deltaRunway >= 0 ? '+' : ''}${_fmtProjMonths(deltaRunway)}`,
+        '',
+        deltaRunway == null || deltaRunway >= 0 ? 'text-ingreso' : 'text-pasivo'
+      )}
     </div>`;
 }
 
@@ -546,6 +608,9 @@ function _buildPageShell() {
       <!-- Trend settings panel (income & expenses only) -->
       <div id="proj-trend-panel"></div>
 
+      <!-- Health summary -->
+      <div id="proj-health-summary"></div>
+
       <!-- Series table -->
       <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
         <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('proj.series.table_title')}</h3>
@@ -592,6 +657,7 @@ async function _loadData() {
     ]);
     _projState.series = series;
     _projState.projData = projData;
+    _renderHealthSummary();
     _renderSeriesTable();
     _renderCharts();
   } catch (e) {

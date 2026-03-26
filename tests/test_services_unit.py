@@ -9,6 +9,7 @@ from services import (
     about_service,
     accounts_service,
     books_service,
+    projections_service,
     reports_service,
     settings_service,
     subtypes_service,
@@ -242,7 +243,9 @@ def test_reports_service_balance_filters_hide_accounts_and_zero_balances(
     assert all(len(subgroup.items) == 0 for subgroup in asset_group.subgroups)
     assert any(subgroup.subtotal == 200.0 for subgroup in asset_group.subgroups)
     assert all(group.type_id != 4 for group in filtered_balance.groups)
-    assert any(group.type_id == 3 and group.total == 200.0 for group in filtered_balance.groups)
+    assert any(
+        group.type_id == 3 and group.total == 200.0 for group in filtered_balance.groups
+    )
 
 
 def test_reports_service_balance_filters_type_ids(initialized_environment):
@@ -266,6 +269,167 @@ def test_reports_service_balance_filters_type_ids(initialized_environment):
     assert filtered_balance.total_ingreso == 175.0
     assert filtered_balance.total_pasivo == 0.0
     assert filtered_balance.total_patrimonio == 0.0
+
+
+def test_reports_service_stats_summary_and_net_worth_evolution(initialized_environment):
+    with get_db() as conn:
+        accounts = accounts_service.list_accounts(conn)
+        bank = next(item for item in accounts if item.name == "Bank")
+        income_account = next(item for item in accounts if item.type_id == 3)
+        expense_account = next(item for item in accounts if item.type_id == 4)
+        liability_account = next(item for item in accounts if item.type_id == 2)
+        non_current_asset = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Bond Ladder",
+                type_id=1,
+                subtype_id=None,
+                description="Long-term savings",
+                initial_balance=0.0,
+                properties='{"liquidity_profile":"non_current"}',
+            ),
+        )
+        long_term_debt = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Mortgage Loan",
+                type_id=2,
+                subtype_id=None,
+                description="Mortgage",
+                initial_balance=0.0,
+                properties='{"liability_term":"long_term"}',
+            ),
+        )
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=bank.id,
+                credit_account=income_account.id,
+                amount=1000.0,
+                description="Salary inflow",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=expense_account.id,
+                credit_account=bank.id,
+                amount=250.0,
+                description="Groceries",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=bank.id,
+                credit_account=liability_account.id,
+                amount=300.0,
+                description="Card spending moved to debt",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=non_current_asset.id,
+                credit_account=income_account.id,
+                amount=200.0,
+                description="Bond contribution",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=bank.id,
+                credit_account=long_term_debt.id,
+                amount=500.0,
+                description="Mortgage drawdown",
+            ),
+        )
+
+        stats = reports_service.get_stats(conn)
+        projections = projections_service.get_projections(conn, 3, 3)
+        refreshed_accounts = {
+            item.name: item for item in accounts_service.list_accounts(conn)
+        }
+
+    assert stats.summary["total_income"] == 1200.0
+    assert stats.summary["total_expense"] == 250.0
+    assert stats.summary["net_result"] == 950.0
+    assert stats.summary["savings_rate"] == pytest.approx(950.0 / 1200.0, rel=1e-4)
+    assert stats.summary["total_assets"] == 1750.0
+    assert stats.summary["total_liabilities"] == 800.0
+    assert stats.summary["net_worth"] == 950.0
+    assert stats.summary["debt_ratio"] == pytest.approx(800.0 / 1750.0, rel=1e-4)
+    assert stats.summary["current_assets"] == 1550.0
+    assert stats.summary["quick_assets"] == 1550.0
+    assert stats.summary["current_liabilities"] == 300.0
+    assert stats.summary["current_ratio"] == pytest.approx(1550.0 / 300.0, rel=1e-4)
+    assert stats.summary["quick_ratio"] == pytest.approx(1550.0 / 300.0, rel=1e-4)
+    assert stats.summary["monthly_essential_expense"] == 250.0
+    assert stats.summary["runway_months"] == pytest.approx(1550.0 / 250.0, rel=1e-4)
+    assert stats.summary["top_asset_name"] == "Bank"
+    assert stats.summary["top_asset_share"] == pytest.approx(1550.0 / 1750.0, rel=1e-4)
+    assert stats.summary["top_expense_name"] == expense_account.subtype_name
+    assert stats.summary["top_expense_share"] == 1.0
+    assert refreshed_accounts["Bank"].properties["liquidity_profile"] == "quick"
+    assert (
+        refreshed_accounts["Bond Ladder"].properties["liquidity_profile"]
+        == "non_current"
+    )
+    assert (
+        refreshed_accounts["Mortgage Loan"].properties["liability_term"] == "long_term"
+    )
+    assert len(stats.net_worth_evolution) == 1
+    assert stats.net_worth_evolution[0]["assets"] == 1750.0
+    assert stats.net_worth_evolution[0]["liabilities"] == 800.0
+    assert stats.net_worth_evolution[0]["net_worth"] == 950.0
+    assert projections["health"]["current"]["net_worth"] == 950.0
+    assert projections["health"]["current"]["current_ratio"] == pytest.approx(
+        1550.0 / 300.0, rel=1e-4
+    )
+    assert projections["health"]["delta_end"]["net_worth"] == 0.0
+
+
+def test_account_properties_auto_infer_without_subtypes(initialized_environment):
+    with get_db() as conn:
+        cash_reserve = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Cash Reserve",
+                type_id=1,
+                subtype_id=None,
+                description="No subtype needed",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+        mortgage = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Mortgage",
+                type_id=2,
+                subtype_id=None,
+                description="No subtype needed",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+        rent = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Rent",
+                type_id=4,
+                subtype_id=None,
+                description="No subtype needed",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+
+    assert cash_reserve.properties["liquidity_profile"] == "quick"
+    assert mortgage.properties["liability_term"] == "long_term"
+    assert rent.properties["expense_profile"] == "essential"
 
 
 def test_transactions_service_computes_fx_traceability_fields(initialized_environment):
@@ -310,8 +474,8 @@ def test_balance_pdf_table_builds_spans_and_total_rows(initialized_environment):
 
         balance_sheet = reports_service.get_balance(conn)
 
-    table_data, spans, group_total_rows, summary_rows = reports_router._build_balance_pdf_table(
-        balance_sheet
+    table_data, spans, group_total_rows, summary_rows = (
+        reports_router._build_balance_pdf_table(balance_sheet)
     )
 
     assert table_data[0] == ["Tipo", "Subtipo", "Cuenta", "Saldo"]

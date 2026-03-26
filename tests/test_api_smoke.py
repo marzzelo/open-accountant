@@ -49,6 +49,7 @@ def test_create_account_and_transaction_updates_balances(client):
     assert create_response.status_code == 201
 
     new_account = create_response.json()
+    assert new_account["properties"]["liquidity_profile"] == "quick"
     accounts = _accounts_by_name(client)
 
     tx_response = client.post(
@@ -65,6 +66,7 @@ def test_create_account_and_transaction_updates_balances(client):
     account_response = client.get(f"/api/accounts/{new_account['id']}")
     assert account_response.status_code == 200
     assert account_response.json()["balance"] == 150.0
+    assert account_response.json()["properties"]["liquidity_profile"] == "quick"
 
     salary_response = client.get(f"/api/accounts/{accounts['Salary']['id']}")
     assert salary_response.status_code == 200
@@ -150,7 +152,12 @@ def test_init_db_migrates_legacy_accounts_table_without_balance_column(isolated_
         ).fetchone()
 
     assert "balance" not in columns
-    assert {"original_amount", "original_currency", "fx_rate", "fx_source"} <= tx_columns
+    assert {
+        "original_amount",
+        "original_currency",
+        "fx_rate",
+        "fx_source",
+    } <= tx_columns
     assert legacy_cash == ("Legacy Cash", 50.0, "{}")
     assert legacy_tx == (75.0, 75.0, "ARS", 1.0, None)
 
@@ -447,6 +454,9 @@ def test_stats_net_expense_subtypes_ignore_fully_reversed_movements(client):
         row["subtype"] != "Temp Expenses" for row in stats["expenses_by_subtype"]
     )
     assert stats["monthly_cashflow"][0]["gastos"] == 0.0
+    assert "summary" in stats
+    assert stats["summary"]["top_expense_share"] is None
+    assert "net_worth_evolution" in stats
 
 
 def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_paths):
