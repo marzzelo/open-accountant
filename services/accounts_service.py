@@ -1,12 +1,18 @@
 """Account service functions."""
 
+from json import JSONDecodeError
 from typing import Optional
 
 from database import DEBIT_NORMAL, compute_balance, compute_filtered_balance
 from models import AccountIn, AccountOut, AccountUpdate, MonthlyBar, MovementOut
 
 from services.errors import ConflictError, NotFoundError, ValidationError
-from services.helpers import require_row, resolve_date_range
+from services.helpers import (
+    normalize_account_properties,
+    require_row,
+    resolve_date_range,
+    serialize_account_properties,
+)
 
 ACCOUNT_SELECT = """
     SELECT a.*, t.name AS type_name,
@@ -257,6 +263,12 @@ def build_account_out(
         description=row["description"],
         initial_balance=row["initial_balance"],
         balance=balance,
+        properties=normalize_account_properties(
+            row["properties"],
+            type_id=type_id,
+            name=row["name"],
+            subtype_name=row["subtype_name"],
+        ),
         last_movements=last_3_movements(conn, account_id, from_dt, to_dt),
         monthly_history=monthly_history(conn, account_id, type_id),
     )
@@ -283,6 +295,12 @@ def list_accounts(
             description=row["description"],
             initial_balance=row["initial_balance"],
             balance=balance_map.get(row["id"], float(row["initial_balance"])),
+            properties=normalize_account_properties(
+                row["properties"],
+                type_id=row["type_id"],
+                name=row["name"],
+                subtype_name=row["subtype_name"],
+            ),
             last_movements=movement_map.get(row["id"], []),
             monthly_history=history_map.get(row["id"], []),
         )
@@ -315,16 +333,28 @@ def create_account(conn, data: AccountIn) -> AccountOut:
         f"Type {data.type_id} does not exist",
         ValidationError,
     )
+    subtype_name = None
     if data.subtype_id:
         subtype = require_row(
             conn,
-            "SELECT type_id FROM subtypes WHERE id = ?",
+            "SELECT type_id, name FROM subtypes WHERE id = ?",
             (data.subtype_id,),
             "Subtype not found",
             ValidationError,
         )
         if subtype["type_id"] != data.type_id:
             raise ValidationError("Subtype does not belong to the selected type")
+        subtype_name = subtype["name"]
+
+    try:
+        properties = serialize_account_properties(
+            data.properties,
+            type_id=data.type_id,
+            name=data.name.strip(),
+            subtype_name=subtype_name,
+        )
+    except (TypeError, ValueError, JSONDecodeError) as exc:
+        raise ValidationError("Invalid properties payload") from exc
 
     try:
         cur = conn.execute(
@@ -337,7 +367,7 @@ def create_account(conn, data: AccountIn) -> AccountOut:
                 data.subtype_id,
                 data.description,
                 data.initial_balance,
-                data.properties,
+                properties,
             ),
         )
     except Exception as exc:
@@ -360,12 +390,35 @@ def update_account(conn, account_id: int, data: AccountUpdate) -> AccountOut:
     description = (
         data.description if data.description is not None else row["description"]
     )
-    properties = data.properties if data.properties is not None else row["properties"]
     initial_balance = (
         data.initial_balance
         if data.initial_balance is not None
         else row["initial_balance"]
     )
+
+    subtype_name = None
+    if subtype_id:
+        subtype = require_row(
+            conn,
+            "SELECT type_id, name FROM subtypes WHERE id = ?",
+            (subtype_id,),
+            "Subtype not found",
+            ValidationError,
+        )
+        if subtype["type_id"] != row["type_id"]:
+            raise ValidationError("Subtype does not belong to the selected type")
+        subtype_name = subtype["name"]
+
+    raw_properties = data.properties if data.properties is not None else row["properties"]
+    try:
+        properties = serialize_account_properties(
+            raw_properties,
+            type_id=row["type_id"],
+            name=name,
+            subtype_name=subtype_name,
+        )
+    except (TypeError, ValueError, JSONDecodeError) as exc:
+        raise ValidationError("Invalid properties payload") from exc
 
     conn.execute(
         """UPDATE accounts
