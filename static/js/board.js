@@ -457,6 +457,11 @@ const Board = {
     ghost.style.cssText = `left:${clientX}px;top:${clientY}px`;
     ghost.classList.remove('hidden');
     card.classList.add('dragging');
+    if (typeof FX !== 'undefined') {
+      FX.tilt.detach(card);
+      FX.lightning.start(card);
+      FX.sound.drag();
+    }
   },
 
   _updateDrag(clientX, clientY) {
@@ -467,6 +472,7 @@ const Board = {
 
     ghost.style.left = clientX + 'px';
     ghost.style.top = clientY + 'px';
+    if (typeof FX !== 'undefined') FX.lightning.update(clientX, clientY);
     document.querySelectorAll('.card.drag-over').forEach(card => card.classList.remove('drag-over'));
 
     const el = document.elementFromPoint(clientX, clientY);
@@ -479,10 +485,19 @@ const Board = {
     if (!drag.active) return;
 
     const sourceId = drag.sourceId;
+    const sourceEl = drag.sourceEl;
     this._resetDragState();
+    // Suprimir el click sintético que el browser dispara tras pointerup,
+    // para que soltar sobre la misma tarjeta no abra el libro mayor.
+    this._suppressNextClick(sourceId);
+    // Re-adjuntar tilt a la tarjeta origen (fue removido en _startDrag).
+    if (typeof FX !== 'undefined' && sourceEl) FX.tilt.attach(sourceEl);
 
     const el = document.elementFromPoint(clientX, clientY);
     const target = el?.closest('.card');
+    const _dropSuccess = !!(target && parseInt(target.dataset.accountId, 10) !== sourceId);
+    if (typeof FX !== 'undefined') FX.lightning.stop(_dropSuccess);
+
     if (target && parseInt(target.dataset.accountId, 10) !== sourceId)
       Forms.newTransaction(sourceId, parseInt(target.dataset.accountId, 10));
   },
@@ -653,6 +668,7 @@ const Board = {
     shell.appendChild(boardHost);
     main.appendChild(shell);
     this.initDrag();
+    if (typeof FX !== 'undefined') FX.tilt.attachAll();
     this.selectTab(_activeTab);
     this._refreshPendingCreditHint();
   },
@@ -770,6 +786,7 @@ const Board = {
       this._clearSwipe();
       this._clearPress();
       this._resetDragState();
+      if (typeof FX !== 'undefined') FX.lightning.stop(false);
     });
   },
 };

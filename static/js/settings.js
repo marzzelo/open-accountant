@@ -384,6 +384,16 @@ const Settings = {
       <div class="flex flex-col gap-2">
         <label class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.language')}</label>
         <div class="flex gap-2 flex-wrap">${I18n.langSelectorHTML()}</div>
+      </div>
+      <div class="flex flex-col gap-2">
+        <label class="text-xs text-dark-400 uppercase tracking-wide">⚡ FX</label>
+        <label class="flex items-center gap-3 cursor-pointer select-none text-sm text-dark-300">
+          <input type="checkbox" id="pref-fx-sounds"
+                 class="w-4 h-4 accent-blue-500"
+                 ${this._preferences.fx_sounds_enabled ? 'checked' : ''}
+                 onchange="Settings._onFxSoundsChange(event)"/>
+          Sonidos de arrastre (buzz + crash)
+        </label>
       </div>`);
 
     return `
@@ -699,6 +709,16 @@ const Settings = {
           </span>
         </div>
       </form>`;
+  },
+
+  async _onFxSoundsChange(event) {
+    const checked = event.target.checked;
+    // Actualizar la copia local para que re-renders muestren el estado correcto
+    this._preferences.fx_sounds_enabled = checked;
+    // Guardar directamente (mismo patrón que otros toggles del panel)
+    await Preferences.save({ fx_sounds_enabled: checked });
+    // Reproducir preview de audio si se activó
+    if (typeof FX !== 'undefined') FX.toggleSound(checked);
   },
 
   _toggleEnvVis(i) {
