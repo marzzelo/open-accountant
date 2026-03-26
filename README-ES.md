@@ -155,6 +155,11 @@ Las cuentas soportan la estructura habitual de tipo, subtipo, descripción y sal
 - Si dejas esos selectores en automático, el backend infiere una clasificación razonable a partir del nombre de la cuenta y del subtipo
 - Los ratios y el runway siguen funcionando aunque el usuario renombre o elimine etiquetas de subtipos, porque la clasificación se guarda a nivel cuenta y se normaliza del lado servidor
 
+<p align="center">
+  <img src="docs/images/subtypes.png" alt="Gestión de subtipos en Open Accountant" width="70%">
+</p>
+<p align="center"><em>La gestión de subtipos ayuda a mantener ordenado el plan de cuentas y brinda etiquetas estables para reportes y métricas de liquidez.</em></p>
+
 ### Carga de transacciones
 
 - Crea transacciones desde el tablero, la barra superior o las tarjetas de cuenta
@@ -165,6 +170,11 @@ Las cuentas soportan la estructura habitual de tipo, subtipo, descripción y sal
 - Usa el modo de saldo forzado para registrar una transacción cuyo objetivo sea llevar la cuenta debitada o acreditada a un saldo determinado
 - Ingresa expresiones aritméticas simples en el campo de importe cuando te resulte más práctico que calcular afuera
 
+<p align="center">
+  <img src="docs/images/transaction_dialog.png" alt="Diálogo de transacción en Open Accountant" width="70%">
+</p>
+<p align="center"><em>El diálogo de transacciones permite elegir modo de moneda, ajustar la fecha, escribir descripciones libres y usar el modo de saldo objetivo.</em></p>
+
 ### Flujos del tablero y atajos
 
 - Haz pulsación prolongada sobre una tarjeta en mobile para marcarla como cuenta origen de crédito y luego toca otra tarjeta para abrir una transferencia precargada
@@ -172,6 +182,16 @@ Las cuentas soportan la estructura habitual de tipo, subtipo, descripción y sal
 - Cancela una selección de origen tocando nuevamente la tarjeta ya seleccionada
 - Reutiliza patrones recientes desde el panel Common transactions
 - Fija los flujos más usados para mantenerlos arriba
+
+<p align="center">
+  <img src="docs/images/board2.png" alt="Tablero de Open Accountant con transacciones frecuentes" width="70%">
+</p>
+<p align="center"><em>El tablero combina transacciones frecuentes reutilizables con tarjetas de cuentas en vivo para lanzar movimientos rutinarios con mínima carga.</em></p>
+
+<p align="center">
+  <img src="docs/images/transaction_effects.png" alt="Efectos visuales de transferencia en Open Accountant" width="70%">
+</p>
+<p align="center"><em>Las interacciones de arrastre resaltan visualmente la cuenta origen y la de destino durante una transferencia, con efectos FX opcionales como refuerzo visual.</em></p>
 
 ### Reportes y auditoría
 
@@ -183,6 +203,21 @@ Open Accountant incluye cuatro vistas orientadas a reportes: Balance General, Li
 - Al hacer clic sobre cuentas del balance puedes abrir el mayor relacionado
 - Los modales de detalle de transacción muestran monto contabilizado, monto original, moneda, tasa FX, fuente FX, fecha y descripción
 - Las exportaciones CSV y PDF preservan el contexto activo del reporte e incluyen campos FX cuando corresponde
+
+<p align="center">
+  <img src="docs/images/balance.png" alt="Balance General de Open Accountant" width="70%">
+</p>
+<p align="center"><em>El Balance General agrupa cuentas por clase contable y subtotales, manteniendo filtros de período y control sobre los saldos en cero.</em></p>
+
+<p align="center">
+  <img src="docs/images/journal.png" alt="Libro Diario de Open Accountant" width="70%">
+</p>
+<p align="center"><em>El Libro Diario muestra los asientos en orden cronológico y deja a mano las acciones de exportar, ver detalle, editar y eliminar.</em></p>
+
+<p align="center">
+  <img src="docs/images/ledger.png" alt="Libro Mayor de Open Accountant" width="70%">
+</p>
+<p align="center"><em>El Libro Mayor se centra en una cuenta a la vez, mostrando contrapartidas, saldo acumulado y accesos de exportación.</em></p>
 
 ### Dashboard estadístico
 
@@ -196,6 +231,16 @@ La vista de estadísticas va más allá de los gráficos básicos y resume la sa
 - Desgloses de ingresos y gastos por subtipo
 - Composición de activos y concentración por cuentas principales
 - Evolución patrimonial a lo largo del periodo seleccionado
+
+<p align="center">
+  <img src="docs/images/stats1.png" alt="Resumen estadístico de Open Accountant" width="70%">
+</p>
+<p align="center"><em>La cabecera estadística resume ingresos, gastos, ahorro, liquidez y concentración antes de profundizar en la tendencia mensual.</em></p>
+
+<p align="center">
+  <img src="docs/images/stats2.png" alt="Desgloses estadísticos de Open Accountant" width="70%">
+</p>
+<p align="center"><em>Los desgloses por categoría, la composición de activos y la concentración por cuentas facilitan detectar dependencias estructurales del libro.</em></p>
 
 ### Proyecciones financieras
 
@@ -225,6 +270,11 @@ Settings se divide en pestañas de Books, Configuration y Env.
 - Edita el archivo raíz `.env` desde la UI
 - Enmascara variables sensibles y conserva secretos ocultos salvo que se modifiquen explícitamente
 - Habilita efectos de sonido FX opcionales para arrastre y transiciones
+
+<p align="center">
+  <img src="docs/images/config.png" alt="Configuración y finanzas en Open Accountant" width="70%">
+</p>
+<p align="center"><em>La configuración centraliza libro activo, dirección de enlace, cotizaciones, idioma y efectos FX opcionales en un solo panel.</em></p>
 
 ### Backup y restauración
 
@@ -445,3 +495,7 @@ Marcelo Valdez es Ingeniero Electrónico y Desarrollador de Software, enfocado e
 - GitHub: https://github.com/marzzelo
 - LinkedIn: https://www.linkedin.com/in/marcelovaldez/
 - Email: zedlavolecram@gmail.com
+
+
+[Read this in English](README.md)
+
