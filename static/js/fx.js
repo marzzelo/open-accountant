@@ -54,26 +54,27 @@ window.FX = (() => {
   }
 
   /* ════════════════════════════════════════════════════════════════════
-     TILT — Rotación 3D de tarjetas al mouseover
+     TILT — Oscilación transitoria al entrar (mouseenter) en una tarjeta
      ════════════════════════════════════════════════════════════════════ */
   const tilt = {
     attach(card) {
-      if (_tiltListeners.has(card)) return; // ya adjuntado
+      if (_tiltListeners.has(card)) return;
 
-      const onMove = (e) => tilt._onMove(e, card);
-      const onLeave = () => tilt._onLeave(card);
+      const onEnter  = ()  => tilt._onEnter(card);
+      const onAnimEnd = (e) => { if (e.animationName === 'card-wobble') card.classList.remove('card-wobble'); };
 
-      card.addEventListener('mousemove', onMove, { passive: true });
-      card.addEventListener('mouseleave', onLeave, { passive: true });
-      _tiltListeners.set(card, { onMove, onLeave });
+      card.addEventListener('mouseenter',   onEnter,   { passive: true });
+      card.addEventListener('animationend', onAnimEnd, { passive: true });
+      _tiltListeners.set(card, { onEnter, onAnimEnd });
     },
 
     detach(card) {
       const listeners = _tiltListeners.get(card);
       if (!listeners) return;
-      card.removeEventListener('mousemove', listeners.onMove);
-      card.removeEventListener('mouseleave', listeners.onLeave);
+      card.removeEventListener('mouseenter',   listeners.onEnter);
+      card.removeEventListener('animationend', listeners.onAnimEnd);
       _tiltListeners.delete(card);
+      card.classList.remove('card-wobble');
       card.style.transform = '';
     },
 
@@ -81,20 +82,11 @@ window.FX = (() => {
       document.querySelectorAll('.card').forEach(card => tilt.attach(card));
     },
 
-    _onMove(e, card) {
-      if (_lightningState.active) return; // no tilt durante drag
-      const rect = card.getBoundingClientRect();
-      const x = ((e.clientX - rect.left) / rect.width - 0.5) * 2;   // -1 → 1
-      const y = ((e.clientY - rect.top) / rect.height - 0.5) * 2;   // -1 → 1
-      const rotY =  x * 14;   // ±14°
-      const rotX = -y * 14;   // ±14°
-      card.style.transform =
-        `perspective(550px) rotateY(${rotY}deg) rotateX(${rotX}deg) translateY(-3px)`;
-    },
-
-    _onLeave(card) {
-      // CSS transition en .card ya incluye "transition: transform .15s"
-      card.style.transform = '';
+    _onEnter(card) {
+      if (_lightningState.active) return;
+      card.classList.remove('card-wobble');
+      void card.offsetWidth; // fuerza reflow para reiniciar la animación si ya corría
+      card.classList.add('card-wobble');
     },
   };
 

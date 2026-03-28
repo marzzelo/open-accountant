@@ -45,10 +45,17 @@ function _fmtProjMonths(value) {
   })}m`;
 }
 
-function _healthCard(label, value, note = '', valueClass = 'text-dark-100') {
+function _healthCard(label, value, note = '', valueClass = 'text-dark-100', infoKey = null) {
+  const infoBtn = infoKey
+    ? `<button class="kpi-info-btn" onclick="KpiInfo.show('${infoKey}')"
+               title="${escapeHtml(t('kpi.info.btn'))}" aria-label="${escapeHtml(t('kpi.info.btn'))}">ⓘ</button>`
+    : '';
   return `
     <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
-      <div class="text-[11px] text-dark-400 uppercase tracking-wide mb-2">${escapeHtml(label)}</div>
+      <div class="flex items-start justify-between gap-1 mb-2">
+        <div class="text-[11px] text-dark-400 uppercase tracking-wide">${escapeHtml(label)}</div>
+        ${infoBtn}
+      </div>
       <div class="text-2xl font-semibold ${valueClass}">${escapeHtml(value)}</div>
       <div class="text-xs text-dark-400 mt-2 min-h-[18px]">${escapeHtml(note)}</div>
     </div>`;
@@ -294,22 +301,78 @@ function _renderHealthSummary() {
   const deltaNetWorth = Number(delta.net_worth || 0);
   const deltaRunway = delta.runway_months == null ? null : Number(delta.runway_months);
 
+  KpiInfo.set('net_worth', {
+    name: t('kpi.info.net_worth.name'),
+    def: t('kpi.info.net_worth.def'),
+    formula: t('kpi.info.net_worth.formula'),
+    vars: [
+      { label: t('report.total_assets'), value: fmt(current.assets ?? 0) },
+      { label: t('report.total_liab'),   value: fmt(current.liabilities ?? 0) },
+    ],
+  });
+  KpiInfo.set('current_ratio', {
+    name: t('kpi.info.current_ratio.name'),
+    def: t('kpi.info.current_ratio.def'),
+    formula: t('kpi.info.current_ratio.formula'),
+    vars: [
+      { label: t('stats.kpi.current_assets'),      value: fmt(current.current_assets ?? 0) },
+      { label: t('stats.kpi.current_liabilities'), value: fmt(current.current_liabilities ?? 0) },
+    ],
+  });
+  KpiInfo.set('quick_ratio', {
+    name: t('kpi.info.quick_ratio.name'),
+    def: t('kpi.info.quick_ratio.def'),
+    formula: t('kpi.info.quick_ratio.formula'),
+    vars: [
+      { label: t('stats.kpi.quick_assets'),        value: fmt(current.quick_assets ?? 0) },
+      { label: t('stats.kpi.current_liabilities'), value: fmt(current.current_liabilities ?? 0) },
+    ],
+  });
+  KpiInfo.set('runway_months', {
+    name: t('kpi.info.runway_months.name'),
+    def: t('kpi.info.runway_months.def'),
+    formula: t('kpi.info.runway_months.formula'),
+    vars: [
+      { label: t('stats.kpi.quick_assets'),      value: fmt(current.quick_assets ?? 0) },
+      { label: t('stats.kpi.essential_expense'), value: fmt(current.monthly_essential_expense ?? 0) },
+    ],
+  });
+  KpiInfo.set('delta_net_worth', {
+    name: t('kpi.info.delta_net_worth.name'),
+    def: t('kpi.info.delta_net_worth.def'),
+    formula: t('kpi.info.delta_net_worth.formula'),
+    vars: [
+      { label: t('proj.health.scenario_end_net_worth'), value: fmt(scenario.net_worth ?? 0) },
+      { label: t('proj.health.baseline_end_net_worth'), value: fmt(baseline.net_worth ?? 0) },
+    ],
+  });
+  KpiInfo.set('delta_runway', {
+    name: t('kpi.info.delta_runway.name'),
+    def: t('kpi.info.delta_runway.def'),
+    formula: t('kpi.info.delta_runway.formula'),
+    vars: [
+      { label: t('proj.health.scenario_end_runway'), value: _fmtProjMonths(scenario.runway_months) },
+      { label: t('proj.health.baseline_end_runway'), value: _fmtProjMonths(baseline.runway_months) },
+    ],
+  });
+
   container.innerHTML = `
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-      ${_healthCard(t('proj.health.current_net_worth'), fmt(current.net_worth), current.month || '', 'text-activo')}
-      ${_healthCard(t('stats.kpi.current_ratio'), _fmtProjRatio(current.current_ratio), `${t('stats.kpi.current_liabilities')}: ${fmt(current.current_liabilities)}`)}
-      ${_healthCard(t('stats.kpi.quick_ratio'), _fmtProjRatio(current.quick_ratio), `${t('stats.kpi.quick_assets')}: ${fmt(current.quick_assets)}`)}
-      ${_healthCard(t('stats.kpi.runway_months'), _fmtProjMonths(current.runway_months), `${t('stats.kpi.essential_expense')}: ${fmt(current.monthly_essential_expense)}`)}
-      ${_healthCard(t('proj.health.baseline_end_net_worth'), fmt(baseline.net_worth), baseline.month || '', 'text-activo')}
-      ${_healthCard(t('proj.health.baseline_end_runway'), _fmtProjMonths(baseline.runway_months), `${t('stats.kpi.current_ratio')}: ${_fmtProjRatio(baseline.current_ratio)}`)}
-      ${_healthCard(t('proj.health.scenario_end_net_worth'), fmt(scenario.net_worth), scenario.month || '', 'text-activo')}
-      ${_healthCard(t('proj.health.scenario_end_runway'), _fmtProjMonths(scenario.runway_months), `${t('stats.kpi.current_ratio')}: ${_fmtProjRatio(scenario.current_ratio)}`)}
-      ${_healthCard(t('proj.health.delta_net_worth'), fmtSigned(delta.net_worth), delta.month || '', deltaNetWorth >= 0 ? 'text-ingreso' : 'text-pasivo')}
+      ${_healthCard(t('proj.health.current_net_worth'), fmt(current.net_worth), current.month || '', 'text-activo', 'net_worth')}
+      ${_healthCard(t('stats.kpi.current_ratio'), _fmtProjRatio(current.current_ratio), `${t('stats.kpi.current_liabilities')}: ${fmt(current.current_liabilities)}`, 'text-dark-100', 'current_ratio')}
+      ${_healthCard(t('stats.kpi.quick_ratio'), _fmtProjRatio(current.quick_ratio), `${t('stats.kpi.quick_assets')}: ${fmt(current.quick_assets)}`, 'text-dark-100', 'quick_ratio')}
+      ${_healthCard(t('stats.kpi.runway_months'), _fmtProjMonths(current.runway_months), `${t('stats.kpi.essential_expense')}: ${fmt(current.monthly_essential_expense)}`, 'text-dark-100', 'runway_months')}
+      ${_healthCard(t('proj.health.baseline_end_net_worth'), fmt(baseline.net_worth), baseline.month || '', 'text-activo', 'net_worth')}
+      ${_healthCard(t('proj.health.baseline_end_runway'), _fmtProjMonths(baseline.runway_months), `${t('stats.kpi.current_ratio')}: ${_fmtProjRatio(baseline.current_ratio)}`, 'text-dark-100', 'runway_months')}
+      ${_healthCard(t('proj.health.scenario_end_net_worth'), fmt(scenario.net_worth), scenario.month || '', 'text-activo', 'net_worth')}
+      ${_healthCard(t('proj.health.scenario_end_runway'), _fmtProjMonths(scenario.runway_months), `${t('stats.kpi.current_ratio')}: ${_fmtProjRatio(scenario.current_ratio)}`, 'text-dark-100', 'runway_months')}
+      ${_healthCard(t('proj.health.delta_net_worth'), fmtSigned(delta.net_worth), delta.month || '', deltaNetWorth >= 0 ? 'text-ingreso' : 'text-pasivo', 'delta_net_worth')}
       ${_healthCard(
         t('proj.health.delta_runway'),
         deltaRunway == null ? '—' : `${deltaRunway >= 0 ? '+' : ''}${_fmtProjMonths(deltaRunway)}`,
         '',
-        deltaRunway == null || deltaRunway >= 0 ? 'text-ingreso' : 'text-pasivo'
+        deltaRunway == null || deltaRunway >= 0 ? 'text-ingreso' : 'text-pasivo',
+        'delta_runway'
       )}
     </div>`;
 }
@@ -583,12 +646,6 @@ function _buildPageShell() {
              onclick="Projections._onHistoryChange(${b.months})">${b.label}</button>`
   ).join('');
 
-  const chartSection = (id, labelKey) => `
-    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 lg:col-span-2">
-      <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t(labelKey)}</h3>
-      <canvas id="${id}" height="200"></canvas>
-    </div>`;
-
   return `
     <div class="overflow-y-auto flex-1">
     <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-5 xl:px-4 py-6 space-y-5">
@@ -619,11 +676,10 @@ function _buildPageShell() {
 
       <!-- Charts grid -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-5" id="proj-charts-grid">
-        ${chartSection('ch-proj-income',      'proj.chart.income')}
-        ${chartSection('ch-proj-expenses',    'proj.chart.expenses')}
-        ${chartSection('ch-proj-savings',     'proj.chart.savings')}
-        ${chartSection('ch-proj-assets',      'proj.chart.assets')}
-        ${chartSection('ch-proj-liabilities', 'proj.chart.liabilities')}
+        <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 lg:col-span-2">
+          <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('proj.chart.combined')}</h3>
+          <canvas id="ch-proj-combined" height="220"></canvas>
+        </div>
       </div>
 
     </div></div>`;
@@ -693,23 +749,17 @@ function _renderCharts() {
   const incomeResult   = _buildProjectionDatasets('income',   histMonths, projMonths, projData, PROJ_COLORS.income,   true, _projState.trendSettings.income);
   const expensesResult = _buildProjectionDatasets('expenses', histMonths, projMonths, projData, PROJ_COLORS.expenses, true, _projState.trendSettings.expenses);
 
-  for (const [id, result] of [['ch-proj-income', incomeResult], ['ch-proj-expenses', expensesResult]]) {
-    const canvas = document.getElementById(id);
-    if (!canvas) continue;
-    _projCharts[id] = new Chart(canvas, { type: 'line', data: { labels: result.labels, datasets: result.datasets }, options: _makeChartOptions() });
-  }
-
-  // ── Shared savings arrays (used by both Savings and Assets charts) ──────────
-  const incTrend = incomeResult._raw.trendData;
-  const expTrend = expensesResult._raw.trendData;
   const incProj  = incomeResult._raw.projFull;
   const expProj  = expensesResult._raw.projFull;
+  const incTrend = incomeResult._raw.trendData;
+  const expTrend = expensesResult._raw.trendData;
 
-  const incHistMap = {}, expHistMap = {};
-  (projData.historical.income   || []).forEach(p => { incHistMap[p.month] = p.value; });
-  (projData.historical.expenses || []).forEach(p => { expHistMap[p.month] = p.value; });
+  const incHistMap = {}, expHistMap = {}, assetsHistMap = {};
+  (projData.historical.income   || []).forEach(p => { incHistMap[p.month]    = p.value; });
+  (projData.historical.expenses || []).forEach(p => { expHistMap[p.month]    = p.value; });
+  (projData.historical.assets   || []).forEach(p => { assetsHistMap[p.month] = p.value; });
 
-  // Trend line for savings: income_trend[i] − expenses_trend[i]
+  // Savings (monthly)
   const savingsTrendData = (incTrend && expTrend)
     ? allLabels.map((_, i) => {
         const inc = incTrend[i], exp = expTrend[i];
@@ -717,136 +767,146 @@ function _renderCharts() {
       })
     : null;
 
-  // Monthly savings projection (null for historical months — those are scatter only)
   const savingsProjFull = allLabels.map((_, i) => {
     const inc = incProj[i], exp = expProj[i];
     return (inc != null && exp != null) ? Math.round((inc - exp) * 100) / 100 : null;
   });
 
-  // ── Savings chart ─────────────────────────────────────────────────────────
-  const savingsCanvas = document.getElementById('ch-proj-savings');
-  if (savingsCanvas) {
-    const savingsScatter = histMonths
-      .filter(m => incHistMap[m] != null && expHistMap[m] != null)
-      .map(m => ({ x: m, y: Math.round((incHistMap[m] - expHistMap[m]) * 100) / 100 }));
+  // Assets = current balance + cumulative projected savings
+  const currentAssets = projData.current_balances?.total_assets ?? 0;
+  let cumSavings = 0;
+  const assetsProjFull = allLabels.map((_, i) => {
+    const s = savingsProjFull[i];
+    if (s == null) return null;
+    cumSavings += s;
+    return Math.round((currentAssets + cumSavings) * 100) / 100;
+  });
 
-    const color = PROJ_COLORS.savings;
-    _projCharts['ch-proj-savings'] = new Chart(savingsCanvas, {
+  // ── Combined chart: income/expenses/savings (left) + assets (right) ───────
+  const combinedCanvas = document.getElementById('ch-proj-combined');
+  if (combinedCanvas) {
+    // _h: true marks a dataset as hidden from the legend
+    const scatter = (color, data, yId) => ({
+      _h: true,
+      type: 'scatter',
+      data,
+      parsing: false,
+      pointRadius: 3,
+      pointBackgroundColor: color,
+      pointBorderColor: color,
+      showLine: false,
+      order: 4,
+      yAxisID: yId,
+    });
+
+    const trendLine = (color, data, yId) => ({
+      _h: true,
       type: 'line',
-      data: {
-        labels: allLabels,
-        datasets: [
-          {
-            label: t('proj.chart.historical'),
-            type: 'scatter',
-            data: savingsScatter,
-            parsing: false,
-            pointRadius: 5,
-            pointBackgroundColor: color,
-            pointBorderColor: color,
-            showLine: false,
-            order: 1,
-          },
-          ...(savingsTrendData ? [{
-            label: t('proj.chart.trend'),
-            type: 'line',
-            data: savingsTrendData,
-            borderColor: color + '88',
-            backgroundColor: 'transparent',
-            borderWidth: 1.5,
-            borderDash: [6, 3],
-            pointRadius: 0,
-            fill: false,
-            tension: 0,
-            order: 2,
-            spanGaps: false,
-          }] : []),
-          {
-            label: t('proj.chart.projection'),
-            type: 'line',
-            data: savingsProjFull,
-            borderColor: color,
-            backgroundColor: color + '18',
-            borderWidth: 2,
-            pointRadius: 2,
-            fill: 'origin',
-            tension: 0.3,
-            order: 0,
-            spanGaps: false,
-          },
-        ],
-      },
-      options: _makeChartOptions(),
-    });
-  }
-
-  // ── Assets = current balance + cumulative projected savings ───────────────
-  const assetsCanvas = document.getElementById('ch-proj-assets');
-  if (assetsCanvas) {
-    const currentAssets = projData.current_balances?.total_assets ?? 0;
-
-    // Cumulate monthly savings over projected months only
-    let cumSavings = 0;
-    const assetsProjFull = allLabels.map((_, i) => {
-      const s = savingsProjFull[i];
-      if (s == null) return null;   // historical months
-      cumSavings += s;
-      return Math.round((currentAssets + cumSavings) * 100) / 100;
+      data,
+      borderColor: color + '55',
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      borderDash: [6, 4],
+      pointRadius: 0,
+      fill: false,
+      tension: 0,
+      order: 3,
+      spanGaps: false,
+      yAxisID: yId,
     });
 
-    const assetsHistMap = {};
-    (projData.historical.assets || []).forEach(p => { assetsHistMap[p.month] = p.value; });
-    const assetsScatter = histMonths
-      .filter(m => assetsHistMap[m] != null)
-      .map(m => ({ x: m, y: assetsHistMap[m] }));
-
-    const color = PROJ_COLORS.assets;
-    _projCharts['ch-proj-assets'] = new Chart(assetsCanvas, {
+    const projLine = (label, color, data, yId) => ({
+      label,
       type: 'line',
-      data: {
-        labels: allLabels,
-        datasets: [
-          {
-            label: t('proj.chart.historical'),
-            type: 'scatter',
-            data: assetsScatter,
-            parsing: false,
-            pointRadius: 5,
-            pointBackgroundColor: color,
-            pointBorderColor: color,
-            showLine: false,
-            order: 1,
+      data,
+      borderColor: color,
+      backgroundColor: color + '14',
+      borderWidth: 2,
+      pointRadius: 2,
+      fill: 'origin',
+      tension: 0.3,
+      order: yId === 'y2' ? 0 : 1,
+      spanGaps: false,
+      yAxisID: yId,
+    });
+
+    const incScatter  = histMonths.filter(m => incHistMap[m]  != null).map(m => ({ x: m, y: incHistMap[m] }));
+    const expScatter  = histMonths.filter(m => expHistMap[m]  != null).map(m => ({ x: m, y: expHistMap[m] }));
+    const savScatter  = histMonths.filter(m => incHistMap[m]  != null && expHistMap[m] != null)
+                                  .map(m => ({ x: m, y: Math.round((incHistMap[m] - expHistMap[m]) * 100) / 100 }));
+    const assetScatter = histMonths.filter(m => assetsHistMap[m] != null).map(m => ({ x: m, y: assetsHistMap[m] }));
+
+    const datasets = [
+      scatter(PROJ_COLORS.income,   incScatter,   'y'),
+      ...(incTrend ? [trendLine(PROJ_COLORS.income,   incTrend,         'y')] : []),
+      projLine(t('proj.chart.income'),   PROJ_COLORS.income,   incProj,         'y'),
+
+      scatter(PROJ_COLORS.expenses, expScatter,   'y'),
+      ...(expTrend ? [trendLine(PROJ_COLORS.expenses, expTrend,         'y')] : []),
+      projLine(t('proj.chart.expenses'), PROJ_COLORS.expenses, expProj,         'y'),
+
+      scatter(PROJ_COLORS.savings,  savScatter,   'y'),
+      ...(savingsTrendData ? [trendLine(PROJ_COLORS.savings, savingsTrendData, 'y')] : []),
+      projLine(t('proj.chart.savings'),  PROJ_COLORS.savings,  savingsProjFull, 'y'),
+
+      scatter(PROJ_COLORS.assets,   assetScatter, 'y2'),
+      projLine(t('proj.chart.assets'),   PROJ_COLORS.assets,   assetsProjFull,  'y2'),
+    ];
+
+    _projCharts['ch-proj-combined'] = new Chart(combinedCanvas, {
+      type: 'line',
+      data: { labels: allLabels, datasets },
+      options: {
+        ..._projDefaults,
+        responsive: true,
+        plugins: {
+          ..._projDefaults.plugins,
+          legend: {
+            display: true,
+            labels: {
+              color: '#8b949e',
+              font: { size: 11 },
+              filter: (item, data) => !data.datasets[item.datasetIndex]._h,
+            },
           },
-          {
-            label: t('proj.chart.projection'),
-            type: 'line',
-            data: assetsProjFull,
-            borderColor: color,
-            backgroundColor: color + '18',
-            borderWidth: 2,
-            pointRadius: 2,
-            fill: 'origin',
-            tension: 0.3,
-            order: 0,
-            spanGaps: false,
+        },
+        scales: {
+          x: {
+            ..._projDefaults.scales.x,
+            ticks: { ..._projDefaults.scales.x.ticks, maxTicksLimit: 24, maxRotation: 45 },
           },
-        ],
+          y: {
+            ..._projDefaults.scales.y,
+            type: 'linear',
+            position: 'left',
+            title: {
+              display: true,
+              text: t('proj.chart.y_monthly'),
+              color: '#8b949e',
+              font: { size: 10 },
+            },
+          },
+          y2: {
+            type: 'linear',
+            position: 'right',
+            grid: { drawOnChartArea: false },
+            ticks: {
+              color: PROJ_COLORS.assets,
+              font: { size: 9 },
+              callback: v => '$ ' + (Math.abs(v) >= 1000 ? (v / 1000).toFixed(0) + 'k' : v.toFixed(0)),
+            },
+            title: {
+              display: true,
+              text: t('proj.chart.y_cumulative'),
+              color: PROJ_COLORS.assets,
+              font: { size: 10 },
+            },
+          },
+        },
       },
-      options: _makeChartOptions(),
     });
   }
 
-  // ── Liabilities (no trend line — stock variable, backend projection) ──────
-  const liabCanvas = document.getElementById('ch-proj-liabilities');
-  if (liabCanvas) {
-    const hasHist = (projData.historical.liabilities || []).length > 0;
-    if (!hasHist && projMonths.length === 0) {
-      liabCanvas.parentElement.innerHTML += `<div class="empty text-xs py-2">${t('proj.no_history')}</div>`;
-    } else {
-      const { labels, datasets } = _buildProjectionDatasets('liabilities', histMonths, projMonths, projData, PROJ_COLORS.liabilities, false, null);
-      _projCharts['ch-proj-liabilities'] = new Chart(liabCanvas, { type: 'line', data: { labels, datasets }, options: _makeChartOptions() });
-    }
-  }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────

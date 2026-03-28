@@ -63,10 +63,60 @@ function _topBreakdown(items, labelKey, valueKey, limit = 6) {
   return head;
 }
 
-function _kpiCard({ label, value, note = '', valueClass = 'text-dark-100' }) {
+const KpiInfo = {
+  _registry: {},
+
+  set(key, data) {
+    this._registry[key] = data;
+  },
+
+  show(key) {
+    const info = this._registry[key];
+    if (!info) return;
+
+    const formulaHtml = info.formula ? `
+      <div class="mt-3 rounded-lg bg-dark-700/60 border border-dark-600 px-3 py-2">
+        <div class="text-[10px] uppercase tracking-wide text-dark-500 mb-1">${t('kpi.info.formula')}</div>
+        <div class="font-mono text-xs text-blue-300">${escapeHtml(info.formula)}</div>
+      </div>` : '';
+
+    const varsHtml = info.vars && info.vars.length ? `
+      <div class="mt-3">
+        <div class="text-[10px] uppercase tracking-wide text-dark-500 mb-2">${t('kpi.info.variables')}</div>
+        <div class="space-y-1.5">
+          ${info.vars.map(v => `
+            <div class="flex justify-between items-baseline gap-4 text-sm">
+              <span class="text-dark-400">${escapeHtml(v.label)}</span>
+              <span class="font-mono text-dark-200 shrink-0">${escapeHtml(String(v.value))}</span>
+            </div>`).join('')}
+        </div>
+      </div>` : '';
+
+    const body = `
+      <div class="p-5 space-y-1">
+        <p class="text-sm text-dark-300 leading-relaxed">${escapeHtml(info.def)}</p>
+        ${formulaHtml}
+        ${varsHtml}
+        <div class="flex justify-end pt-4 border-t border-dark-600 !mt-5">
+          <button type="button" data-modal-close class="tbtn px-4 py-2 text-sm">${t('btn.close')}</button>
+        </div>
+      </div>`;
+
+    Modal.open(body, { title: escapeHtml(info.name) });
+  },
+};
+
+function _kpiCard({ label, value, note = '', valueClass = 'text-dark-100', infoKey = null }) {
+  const infoBtn = infoKey
+    ? `<button class="kpi-info-btn" onclick="KpiInfo.show('${infoKey}')"
+               title="${escapeHtml(t('kpi.info.btn'))}" aria-label="${escapeHtml(t('kpi.info.btn'))}">ⓘ</button>`
+    : '';
   return `
     <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
-      <div class="text-[11px] text-dark-400 uppercase tracking-wide mb-2">${escapeHtml(label)}</div>
+      <div class="flex items-start justify-between gap-1 mb-2">
+        <div class="text-[11px] text-dark-400 uppercase tracking-wide">${escapeHtml(label)}</div>
+        ${infoBtn}
+      </div>
       <div class="text-2xl font-semibold ${valueClass}">${escapeHtml(value)}</div>
       <div class="text-xs text-dark-400 mt-2 min-h-[18px]">${escapeHtml(note)}</div>
     </div>`;
@@ -145,6 +195,79 @@ const Charts = {
 
     destroyCharts();
 
+    KpiInfo.set('savings_rate', {
+      name: t('kpi.info.savings_rate.name'),
+      def: t('kpi.info.savings_rate.def'),
+      formula: t('kpi.info.savings_rate.formula'),
+      vars: [
+        { label: t('report.total_income'),  value: fmt(summary.total_income) },
+        { label: t('report.total_expense'), value: fmt(summary.total_expense) },
+      ],
+    });
+    KpiInfo.set('net_worth', {
+      name: t('kpi.info.net_worth.name'),
+      def: t('kpi.info.net_worth.def'),
+      formula: t('kpi.info.net_worth.formula'),
+      vars: [
+        { label: t('report.total_assets'), value: fmt(summary.total_assets) },
+        { label: t('report.total_liab'),   value: fmt(summary.total_liabilities) },
+      ],
+    });
+    KpiInfo.set('debt_ratio', {
+      name: t('kpi.info.debt_ratio.name'),
+      def: t('kpi.info.debt_ratio.def'),
+      formula: t('kpi.info.debt_ratio.formula'),
+      vars: [
+        { label: t('report.total_liab'),   value: fmt(summary.total_liabilities) },
+        { label: t('report.total_assets'), value: fmt(summary.total_assets) },
+      ],
+    });
+    KpiInfo.set('current_ratio', {
+      name: t('kpi.info.current_ratio.name'),
+      def: t('kpi.info.current_ratio.def'),
+      formula: t('kpi.info.current_ratio.formula'),
+      vars: [
+        { label: t('stats.kpi.current_assets'),      value: fmt(summary.current_assets) },
+        { label: t('stats.kpi.current_liabilities'), value: fmt(summary.current_liabilities) },
+      ],
+    });
+    KpiInfo.set('quick_ratio', {
+      name: t('kpi.info.quick_ratio.name'),
+      def: t('kpi.info.quick_ratio.def'),
+      formula: t('kpi.info.quick_ratio.formula'),
+      vars: [
+        { label: t('stats.kpi.quick_assets'),        value: fmt(summary.quick_assets) },
+        { label: t('stats.kpi.current_liabilities'), value: fmt(summary.current_liabilities) },
+      ],
+    });
+    KpiInfo.set('runway_months', {
+      name: t('kpi.info.runway_months.name'),
+      def: t('kpi.info.runway_months.def'),
+      formula: t('kpi.info.runway_months.formula'),
+      vars: [
+        { label: t('stats.kpi.quick_assets'),      value: fmt(summary.quick_assets) },
+        { label: t('stats.kpi.essential_expense'), value: fmt(summary.monthly_essential_expense) },
+      ],
+    });
+    KpiInfo.set('top_asset', {
+      name: t('kpi.info.top_asset.name'),
+      def: t('kpi.info.top_asset.def'),
+      formula: t('kpi.info.top_asset.formula'),
+      vars: [
+        { label: t('report.total_assets'), value: fmt(summary.total_assets) },
+        { label: summary.top_asset_name || '—', value: _fmtPct(summary.top_asset_share) },
+      ],
+    });
+    KpiInfo.set('top_expense', {
+      name: t('kpi.info.top_expense.name'),
+      def: t('kpi.info.top_expense.def'),
+      formula: t('kpi.info.top_expense.formula'),
+      vars: [
+        { label: t('report.total_expense'), value: fmt(summary.total_expense) },
+        { label: summary.top_expense_name || '—', value: _fmtPct(summary.top_expense_share) },
+      ],
+    });
+
     main.innerHTML = `
       <div class="overflow-y-auto flex-1">
       <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-5 xl:px-4 py-6">
@@ -171,47 +294,55 @@ const Charts = {
           value: _fmtPct(summary.savings_rate),
           valueClass: savingsRateClass,
           note: `${t('stats.kpi.monthly_volatility')}: ${fmt(summary.monthly_volatility)}`,
+          infoKey: 'savings_rate',
         })}
         ${_kpiCard({
           label: t('stats.kpi.net_worth'),
           value: fmt(summary.net_worth),
           valueClass: 'text-activo',
           note: `${t('report.total_assets')}: ${fmt(summary.total_assets)} · ${t('report.total_liab')}: ${fmt(summary.total_liabilities)}`,
+          infoKey: 'net_worth',
         })}
         ${_kpiCard({
           label: t('stats.kpi.debt_ratio'),
           value: _fmtPct(summary.debt_ratio),
           valueClass: _num(summary.debt_ratio) > 0.5 ? 'text-pasivo' : 'text-dark-100',
+          infoKey: 'debt_ratio',
         })}
         ${_kpiCard({
           label: t('stats.kpi.current_ratio'),
           value: _fmtRatio(summary.current_ratio),
           valueClass: _num(summary.current_ratio) < 1 ? 'text-pasivo' : 'text-dark-100',
           note: `${t('stats.kpi.current_assets')}: ${fmt(summary.current_assets)} · ${t('stats.kpi.current_liabilities')}: ${fmt(summary.current_liabilities)}`,
+          infoKey: 'current_ratio',
         })}
         ${_kpiCard({
           label: t('stats.kpi.quick_ratio'),
           value: _fmtRatio(summary.quick_ratio),
           valueClass: _num(summary.quick_ratio) < 1 ? 'text-pasivo' : 'text-dark-100',
           note: `${t('stats.kpi.quick_assets')}: ${fmt(summary.quick_assets)}`,
+          infoKey: 'quick_ratio',
         })}
         ${_kpiCard({
           label: t('stats.kpi.runway_months'),
           value: _fmtMonths(summary.runway_months),
           valueClass: _num(summary.runway_months) < 3 ? 'text-pasivo' : 'text-dark-100',
           note: `${t('stats.kpi.essential_expense')}: ${fmt(summary.monthly_essential_expense)} · ${t(`stats.runway_basis.${summary.runway_basis || 'essential'}`)}`,
+          infoKey: 'runway_months',
         })}
         ${_kpiCard({
           label: t('stats.kpi.top_asset_concentration'),
           value: _fmtPct(summary.top_asset_share),
           valueClass: 'text-activo',
           note: summary.top_asset_name || t('report.no_data'),
+          infoKey: 'top_asset',
         })}
         ${_kpiCard({
           label: t('stats.kpi.top_expense_concentration'),
           value: _fmtPct(summary.top_expense_share),
           valueClass: 'text-pasivo',
           note: summary.top_expense_name || t('report.no_data'),
+          infoKey: 'top_expense',
         })}
       </div>
       <div class="grid grid-cols-1 xl:grid-cols-2 gap-5" id="stats-grid">

@@ -496,6 +496,12 @@ Marcelo Valdez es Ingeniero Electrónico y Desarrollador de Software, enfocado e
 - LinkedIn: https://www.linkedin.com/in/marcelovaldez/
 - Email: zedlavolecram@gmail.com
 
+```
+systemctl --user status accountant.service   # ver estado
+systemctl --user stop accountant.service     # detener
+systemctl --user restart accountant.service  # reiniciar
+```
+
 
 [Read this in English](README.md)
 

@@ -79,7 +79,7 @@ let drag = { active: false, sourceId: null, sourceEl: null, pointerId: null };
 const LONG_PRESS_MS = 450;
 const POINTER_MOVE_TOLERANCE = 8;
 const COMMON_TX_STORAGE_KEY = 'acct_common_tx_pins_v1';
-const COMMON_TX_MAX_VISIBLE = 20;
+const COMMON_TX_MAX_VISIBLE = 6;
 
 const CommonTx = {
   _cache: new Map(),
@@ -617,9 +617,6 @@ const Board = {
     const shell = document.createElement('div');
     shell.className = 'flex flex-col h-full min-h-0';
 
-    const shortcutsPanel = await CommonTx.renderPanel();
-    shell.appendChild(shortcutsPanel);
-
     const pendingHint = document.createElement('div');
     pendingHint.id = 'board-pending-credit-hint';
     pendingHint.className = 'hidden px-2 pb-2 sm:px-3 lg:px-8 xl:px-64';
@@ -627,6 +624,9 @@ const Board = {
 
     const boardHost = document.createElement('div');
     boardHost.className = 'flex-1 min-h-0 px-2 sm:px-3 lg:px-8 xl:px-64 pb-2';
+
+    const shortcutsPanel = await CommonTx.renderPanel();
+    boardHost.appendChild(shortcutsPanel);
 
     const board = document.createElement('div');
     board.className = 'board';

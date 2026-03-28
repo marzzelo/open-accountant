@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(systemctl --user list-units --type=service)",
+      "Bash(crontab -l)",
+      "Read(//etc/systemd/system/**)"
+    ]
+  }
+}
