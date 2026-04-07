@@ -57,6 +57,7 @@ const R = {
   })}>${label}</button>`,
 
   amt: v => `<span class="font-mono">${fmt(v)}</span>`,
+  tags: tags => (tags || []).map(tag => renderTagBadge(tag)).join(''),
 };
 
 const TYPE_COLORS = {
@@ -74,10 +75,15 @@ const Reports = {
     return buildApiUrl(path);
   },
 
+  _reportQuery(extra = {}) {
+    return State.buildReportQuery(extra);
+  },
+
   _balanceQueryParams(fromDate = null, toDate = null) {
     const params = new URLSearchParams();
     if (fromDate) params.set('from', fromDate);
     if (toDate) params.set('to', toDate);
+    if (State.hasTagFilter) params.set('tag_ids', State.tagFilterIds.join(','));
     params.set('hide_accounts', String(State.hideBalanceAccounts));
     params.set('show_zero_balance', String(State.showZeroBalanceItems));
     params.set('type_ids', this._selectedBalanceTypeIds().join(','));
@@ -211,6 +217,10 @@ const Reports = {
             <div class="text-[11px] uppercase tracking-wide text-dark-500 mb-1">${t('report.col.description')}</div>
             <div class="text-sm text-dark-300">${escapeHtml(tx.description || '—')}</div>
           </div>
+          <div>
+            <div class="text-[11px] uppercase tracking-wide text-dark-500 mb-1">${t('report.col.tags')}</div>
+            <div class="flex flex-wrap gap-2">${tx.tags?.length ? R.tags(tx.tags) : '<span class="text-sm text-dark-500">—</span>'}</div>
+          </div>
         </div>
 
         <div class="flex justify-end pt-1 border-t border-dark-600">
@@ -283,6 +293,70 @@ const Reports = {
     });
   },
 
+  _selectedTagNames() {
+    const selected = new Set((State.tagFilterIds || []).map(Number));
+    return (State.tags || []).filter(tag => selected.has(Number(tag.id))).map(tag => tag.name);
+  },
+
+  _tagFilterBar() {
+    if (!State.tags?.length) return '';
+
+    const selectedNames = this._selectedTagNames();
+    return `
+      <div class="rounded-xl border border-dark-600 bg-dark-800/70 px-3 py-3 mb-4">
+        <div class="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <div>
+            <div class="text-[11px] font-semibold uppercase tracking-wide text-dark-400">${escapeHtml(t('report.filter_tags'))}</div>
+            <div class="text-[11px] text-dark-500 mt-1">${escapeHtml(selectedNames.length ? t('report.filter_tags_active', { count: selectedNames.length, tags: selectedNames.join(', ') }) : t('report.filter_tags_none'))}</div>
+          </div>
+          ${State.hasTagFilter ? `<button ${htmlAttrs({ type: 'button', 'data-report-action': 'clear-tag-filters', class: 'text-xs px-3 py-1.5 rounded-lg border border-dark-600 text-dark-300 hover:bg-dark-700 cursor-pointer' })}>${t('filter.clear')}</button>` : ''}
+        </div>
+        <div class="flex flex-wrap gap-2">
+          ${(State.tags || []).map(tag => {
+            const active = (State.tagFilterIds || []).includes(Number(tag.id));
+            const color = normalizeTagColor(tag.color);
+            return `<button ${htmlAttrs({
+              type: 'button',
+              'data-report-action': 'toggle-tag-filter',
+              'data-tag-id': tag.id,
+              'aria-pressed': String(active),
+              class: `inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${active ? 'text-dark-950 shadow-sm' : 'text-dark-300 hover:bg-dark-700'}`,
+              style: active ? `background:${color};border-color:${color};` : `border-color:${color}55;color:${color};background:${color}12;`,
+            })}><span class="h-2 w-2 rounded-full" style="background:${color}"></span>${escapeHtml(tag.name)}</button>`;
+          }).join('')}
+        </div>
+      </div>`;
+  },
+
+  async toggleTagFilter(tagId) {
+    const next = new Set((State.tagFilterIds || []).map(Number));
+    if (next.has(tagId)) next.delete(tagId);
+    else next.add(tagId);
+    State.tagFilterIds = [...next];
+
+    if (View.current === 'stats' && typeof Charts !== 'undefined') {
+      await Charts.stats();
+      return;
+    }
+
+    if (typeof this[View.current] === 'function') {
+      await this[View.current]();
+    }
+  },
+
+  async clearTagFilters() {
+    State.tagFilterIds = [];
+
+    if (View.current === 'stats' && typeof Charts !== 'undefined') {
+      await Charts.stats();
+      return;
+    }
+
+    if (typeof this[View.current] === 'function') {
+      await this[View.current]();
+    }
+  },
+
   async toggleDateSort(view) {
     const previous = this.dateSort[view] || 'desc';
     const next = previous === 'asc' ? 'desc' : 'asc';
@@ -347,6 +421,7 @@ const Reports = {
 
     main.innerHTML = R.view(`⚖️ ${t('report.balance')}`,
       t('report.period_range', { from: bs.period_from, to: bs.period_to }), `
+      ${this._tagFilterBar()}
       <div class="flex flex-col gap-4 mb-5">
         <div class="flex flex-wrap gap-2">
           ${this._balanceTypeFilterButtons()}
@@ -429,7 +504,7 @@ const Reports = {
 
   /* ── Libro Diario ─────────────────────────────────────────────── */
   async journal() {
-    const data = await API.get('/reports/journal' + State.apiDateParams);
+    const data = await API.get('/reports/journal' + this._reportQuery());
     const main = document.getElementById('main');
     const expFrom = State.filterFrom || `${new Date().getFullYear()}-01-01`;
     const expTo   = State.filterTo   || `${new Date().getFullYear()}-12-31`;
@@ -440,7 +515,7 @@ const Reports = {
       { v: escapeHtml(r.debit_name) },
       { v: `<span class="text-dark-400">${escapeHtml(r.credit_name)}</span>` },
       { v: R.amt(r.amount), cls: 'text-right' },
-      { v: `<span class="text-dark-400">${escapeHtml(r.description || '')}</span>` },
+      { v: `<div class="flex flex-col gap-2"><span class="text-dark-400">${escapeHtml(r.description || '')}</span>${r.tags?.length ? `<div class="flex flex-wrap gap-1.5">${R.tags(r.tags)}</div>` : ''}</div>` },
       { v: `<div class="flex items-center justify-end gap-1.5 whitespace-nowrap">
         ${this._isForeignCurrencyTx(r) ? `<span class="inline-flex items-center justify-center text-sm text-gasto" title="${escapeHtml(t('report.tx_foreign_currency'))}" aria-label="${escapeHtml(t('report.tx_foreign_currency'))}">💱</span>` : ''}
         ${R.actionBtn('👁', 'text-xs px-2 py-1 border border-dark-600 rounded text-dark-300 hover:text-dark-100 bg-transparent cursor-pointer font-sans', {
@@ -465,10 +540,10 @@ const Reports = {
 
     main.innerHTML = R.view(`📒 ${t('report.journal')}`,
       t('report.journal_summary', { count: sorted.length, from: expFrom, to: expTo }),
-      `<div class="flex gap-2 flex-wrap mb-4">
+      `${this._tagFilterBar()}<div class="flex gap-2 flex-wrap mb-4">
          ${this._sortToggleButton('journal')}
-         ${R.btn('⬇ CSV', this._downloadUrl(`/reports/export/csv?report=journal&from=${expFrom}&to=${expTo}`), true)}
-         ${R.btn('⬇ PDF', this._downloadUrl(`/reports/export/pdf?report=journal&from=${expFrom}&to=${expTo}`), true)}
+         ${R.btn('⬇ CSV', this._downloadUrl(`/reports/export/csv${this._reportQuery({ report: 'journal' })}`), true)}
+         ${R.btn('⬇ PDF', this._downloadUrl(`/reports/export/pdf${this._reportQuery({ report: 'journal' })}`), true)}
        </div>` +
       R.table(
         [{label:t('report.col.date')},{label:t('report.col.debit')},{label:t('report.col.credit')},
@@ -487,14 +562,14 @@ const Reports = {
     const opts    = State.accounts.map(a =>
       `<option value="${a.id}" ${a.id === accId ? 'selected' : ''}>${escapeHtml(a.name)} (${escapeHtml(a.type_name)})</option>`
     ).join('');
-    const data    = await API.get(`/reports/ledger/${accId}` + State.apiDateParams);
+    const data    = await API.get(`/reports/ledger/${accId}` + this._reportQuery());
     const expFrom = State.filterFrom || `${new Date().getFullYear()}-01-01`;
     const expTo   = State.filterTo   || `${new Date().getFullYear()}-12-31`;
     const entries = this._sortByDate(data.entries, 'ledger');
 
     const rows = entries.map(e => R.row([
       { v: `<span class="font-mono text-xs">${e.date.slice(0,16)}</span>` },
-      { v: escapeHtml(e.description || '') },
+      { v: `<div class="flex flex-col gap-2"><span>${escapeHtml(e.description || '')}</span>${e.tags?.length ? `<div class="flex flex-wrap gap-1.5">${R.tags(e.tags)}</div>` : ''}</div>` },
       { v: `<span class="text-dark-400">${escapeHtml(e.counterpart || '')}</span>` },
       { v: e.debit  ? R.amt(e.debit)  : '', cls: 'text-right' },
       { v: e.credit ? R.amt(e.credit) : '', cls: 'text-right' },
@@ -522,6 +597,7 @@ const Reports = {
     ])).join('');
 
     main.innerHTML = R.view(`📖 ${t('report.ledger')}`, t('report.ledger_summary', { count: entries.length }), `
+      ${this._tagFilterBar()}
       <div class="flex flex-wrap items-center gap-3 mb-4">
         <select ${htmlAttrs({
           'data-report-change': 'ledger-account',
@@ -531,8 +607,8 @@ const Reports = {
         </select>
         ${this._sortToggleButton('ledger')}
         <span class="text-base font-bold text-activo">${t('report.closing')}: <strong class="text-lg">${fmt(data.closing_balance)}</strong></span>
-        ${R.btn('⬇ CSV', this._downloadUrl(`/reports/export/csv?report=ledger&account_id=${accId}&from=${expFrom}&to=${expTo}`), true)}
-        ${R.btn('⬇ PDF', this._downloadUrl(`/reports/export/pdf?report=ledger&account_id=${accId}&from=${expFrom}&to=${expTo}`), true)}
+        ${R.btn('⬇ CSV', this._downloadUrl(`/reports/export/csv${this._reportQuery({ report: 'ledger', account_id: accId })}`), true)}
+        ${R.btn('⬇ PDF', this._downloadUrl(`/reports/export/pdf${this._reportQuery({ report: 'ledger', account_id: accId })}`), true)}
       </div>` +
       R.table(
         [{label:t('report.col.date')},{label:t('report.col.description')},{label:t('report.col.account')},
@@ -598,6 +674,12 @@ document.addEventListener('click', event => {
       break;
     case 'toggle-balance-type':
       Reports.toggleBalanceType(Number(action.dataset.typeId));
+      break;
+    case 'toggle-tag-filter':
+      Reports.toggleTagFilter(Number(action.dataset.tagId));
+      break;
+    case 'clear-tag-filters':
+      Reports.clearTagFilters();
       break;
     case 'open-ledger':
       Reports.openLedger(Number(action.dataset.accountId));

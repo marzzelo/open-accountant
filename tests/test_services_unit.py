@@ -3,7 +3,7 @@ import app_config
 import pytest
 
 from database import get_db, init_db
-from models import AccountIn, SubtypeIn, SubtypeUpdate, TransactionIn
+from models import AccountIn, SubtypeIn, SubtypeUpdate, TagIn, TagUpdate, TransactionIn
 from routers import reports as reports_router
 from services import (
     about_service,
@@ -13,6 +13,7 @@ from services import (
     reports_service,
     settings_service,
     subtypes_service,
+    tags_service,
     transactions_service,
     types_service,
 )
@@ -198,6 +199,8 @@ def test_accounts_transactions_and_reports_services_work_directly(
                 debit_account=reserve.id,
                 credit_account=accounts["Salary"].id,
                 amount=200.0,
+                original_amount=None,
+                fx_rate=None,
                 description="Bonus",
             ),
         )
@@ -229,6 +232,8 @@ def test_reports_service_balance_filters_hide_accounts_and_zero_balances(
                 debit_account=accounts["Bank"].id,
                 credit_account=accounts["Salary"].id,
                 amount=200.0,
+                original_amount=None,
+                fx_rate=None,
                 description="Bonus",
             ),
         )
@@ -258,6 +263,8 @@ def test_reports_service_balance_filters_type_ids(initialized_environment):
                 debit_account=accounts["Bank"].id,
                 credit_account=accounts["Salary"].id,
                 amount=175.0,
+                original_amount=None,
+                fx_rate=None,
                 description="Bonus",
             ),
         )
@@ -307,6 +314,8 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
                 debit_account=bank.id,
                 credit_account=income_account.id,
                 amount=1000.0,
+                original_amount=None,
+                fx_rate=None,
                 description="Salary inflow",
             ),
         )
@@ -316,6 +325,8 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
                 debit_account=expense_account.id,
                 credit_account=bank.id,
                 amount=250.0,
+                original_amount=None,
+                fx_rate=None,
                 description="Groceries",
             ),
         )
@@ -325,6 +336,8 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
                 debit_account=bank.id,
                 credit_account=liability_account.id,
                 amount=300.0,
+                original_amount=None,
+                fx_rate=None,
                 description="Card spending moved to debt",
             ),
         )
@@ -334,6 +347,8 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
                 debit_account=non_current_asset.id,
                 credit_account=income_account.id,
                 amount=200.0,
+                original_amount=None,
+                fx_rate=None,
                 description="Bond contribution",
             ),
         )
@@ -343,6 +358,8 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
                 debit_account=bank.id,
                 credit_account=long_term_debt.id,
                 amount=500.0,
+                original_amount=None,
+                fx_rate=None,
                 description="Mortgage drawdown",
             ),
         )
@@ -389,6 +406,77 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
         1550.0 / 300.0, rel=1e-4
     )
     assert projections["health"]["delta_end"]["net_worth"] == 0.0
+
+
+def test_tags_service_crud_assignment_and_report_filters(initialized_environment):
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+
+        groceries = tags_service.create_tag(
+            conn,
+            TagIn(name="Groceries", color="#16A34A", user_id=None),
+        )
+        travel = tags_service.create_tag(
+            conn,
+            TagIn(name="Travel", color="#2563EB", user_id=None),
+        )
+
+        salary_tx = transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=accounts["Bank"].id,
+                credit_account=accounts["Salary"].id,
+                amount=1200.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Tagged salary",
+                tag_ids=[travel.id],
+            ),
+        )
+        grocery_tx = transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=accounts["Groceries"].id,
+                credit_account=accounts["Bank"].id,
+                amount=180.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Tagged groceries",
+                tag_ids=[groceries.id],
+            ),
+        )
+
+        listed_tags = tags_service.list_tags(conn)
+        assert {tag.name for tag in listed_tags} == {"Groceries", "Travel"}
+        assert next(tag for tag in listed_tags if tag.name == "Groceries").transaction_count == 1
+
+        tx_list = transactions_service.list_transactions(conn, tag_ids=[groceries.id])
+        assert len(tx_list) == 1
+        assert tx_list[0].id == grocery_tx.id
+        assert tx_list[0].tags[0].name == "Groceries"
+
+        journal = reports_service.journal_data(conn, tag_ids=[groceries.id])
+        assert len(journal) == 1
+        assert journal[0]["tags_label"] == "Groceries"
+
+        ledger = reports_service.get_ledger(conn, accounts["Bank"].id, tag_ids=[travel.id])
+        assert len(ledger["entries"]) == 1
+        assert ledger["entries"][0]["id"] == salary_tx.id
+
+        stats = reports_service.get_stats(conn, tag_ids=[groceries.id])
+        assert stats.summary["total_expense"] == 180.0
+        assert stats.summary["total_income"] == 0.0
+
+        updated = tags_service.update_tag(
+            conn,
+            groceries.id,
+            TagUpdate(name="Food", color="#15803D", user_id=None),
+        )
+        assert updated.name == "Food"
+
+        tags_service.delete_tag(conn, travel.id)
+        remaining = tags_service.list_tags(conn)
+        assert [tag.name for tag in remaining] == ["Food"]
 
 
 def test_account_properties_auto_infer_without_subtypes(initialized_environment):
@@ -443,8 +531,10 @@ def test_transactions_service_computes_fx_traceability_fields(initialized_enviro
             TransactionIn(
                 debit_account=accounts["Bank"].id,
                 credit_account=accounts["Salary"].id,
+                amount=None,
                 original_amount=12.5,
                 original_currency="USD",
+                fx_rate=None,
                 fx_source="USD_BUY",
                 description="USD salary",
             ),

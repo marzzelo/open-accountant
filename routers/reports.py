@@ -33,6 +33,20 @@ def _parse_type_ids(type_ids: Optional[str]) -> Optional[set[int]]:
         raise HTTPException(400, "Invalid type_ids filter") from exc
 
 
+def _parse_tag_ids(tag_ids: Optional[str]) -> Optional[list[int]]:
+    if tag_ids is None:
+        return None
+
+    raw_values = [value.strip() for value in tag_ids.split(",") if value.strip()]
+    if not raw_values:
+        return []
+
+    try:
+        return [int(value) for value in raw_values]
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid tag_ids filter") from exc
+
+
 def _build_balance_pdf_table(balance_sheet: BalanceSheet):
     table_data = [["Tipo", "Subtipo", "Cuenta", "Saldo"]]
     spans: list[tuple[int, int, int, int]] = []
@@ -97,6 +111,7 @@ def get_balance(
     hide_accounts: bool = Query(False),
     show_zero_balance: bool = Query(True),
     type_ids: Optional[str] = Query(None),
+    tag_ids: Optional[str] = Query(None),
 ):
     with get_db() as conn:
         return reports_service.get_balance(
@@ -106,6 +121,7 @@ def get_balance(
             hide_accounts=hide_accounts,
             show_zero_balance=show_zero_balance,
             type_ids=_parse_type_ids(type_ids),
+            tag_ids=_parse_tag_ids(tag_ids),
         )
 
 
@@ -114,10 +130,13 @@ def get_journal(
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
     account_id: Optional[int] = None,
+    tag_ids: Optional[str] = Query(None),
     limit: int = Query(1000, ge=1, le=10000),
 ):
     with get_db() as conn:
-        return reports_service.journal_data(conn, from_date, to_date, account_id, limit)
+        return reports_service.journal_data(
+            conn, from_date, to_date, account_id, limit, _parse_tag_ids(tag_ids)
+        )
 
 
 @router.get("/reports/ledger/{account_id}")
@@ -125,10 +144,13 @@ def get_ledger(
     account_id: int,
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
+    tag_ids: Optional[str] = Query(None),
 ):
     with get_db() as conn:
         try:
-            return reports_service.get_ledger(conn, account_id, from_date, to_date)
+            return reports_service.get_ledger(
+                conn, account_id, from_date, to_date, _parse_tag_ids(tag_ids)
+            )
         except NotFoundError as exc:
             raise HTTPException(404, str(exc)) from exc
 
@@ -137,9 +159,10 @@ def get_ledger(
 def get_stats(
     from_date: Optional[str] = Query(None, alias="from"),
     to_date: Optional[str] = Query(None, alias="to"),
+    tag_ids: Optional[str] = Query(None),
 ):
     with get_db() as conn:
-        return reports_service.get_stats(conn, from_date, to_date)
+        return reports_service.get_stats(conn, from_date, to_date, _parse_tag_ids(tag_ids))
 
 
 @router.get("/reports/export/csv")
@@ -151,12 +174,16 @@ def export_csv(
     hide_accounts: bool = Query(False),
     show_zero_balance: bool = Query(True),
     type_ids: Optional[str] = Query(None),
+    tag_ids: Optional[str] = Query(None),
 ):
     buf = io.StringIO()
+    parsed_tag_ids = _parse_tag_ids(tag_ids)
 
     if report == "journal":
         with get_db() as conn:
-            data = reports_service.journal_data(conn, from_date, to_date, account_id)
+            data = reports_service.journal_data(
+                conn, from_date, to_date, account_id, tag_ids=parsed_tag_ids
+            )
         writer = csv.DictWriter(
             buf,
             fieldnames=[
@@ -170,7 +197,9 @@ def export_csv(
                 "fx_rate",
                 "fx_source",
                 "description",
+                "tags_label",
             ],
+            extrasaction="ignore",
         )
         writer.writeheader()
         writer.writerows(data)
@@ -185,6 +214,7 @@ def export_csv(
                 hide_accounts=hide_accounts,
                 show_zero_balance=show_zero_balance,
                 type_ids=_parse_type_ids(type_ids),
+                tag_ids=parsed_tag_ids,
             )
         writer = csv.writer(buf)
         writer.writerow(["Tipo", "Subtipo", "Cuenta", "Saldo"])
@@ -210,9 +240,13 @@ def export_csv(
         filename = "balance_general.csv"
 
     else:
+        if account_id is None:
+            raise HTTPException(400, "account_id is required for ledger export")
         with get_db() as conn:
             try:
-                data = reports_service.get_ledger(conn, account_id, from_date, to_date)
+                data = reports_service.get_ledger(
+                    conn, account_id, from_date, to_date, parsed_tag_ids
+                )
             except NotFoundError as exc:
                 raise HTTPException(404, str(exc)) from exc
         writer = csv.DictWriter(
@@ -230,7 +264,9 @@ def export_csv(
                 "fx_rate",
                 "fx_source",
                 "balance",
+                "tags_label",
             ],
+            extrasaction="ignore",
         )
         writer.writeheader()
         writer.writerows(data["entries"])
@@ -252,6 +288,7 @@ def export_pdf(
     hide_accounts: bool = Query(False),
     show_zero_balance: bool = Query(True),
     type_ids: Optional[str] = Query(None),
+    tag_ids: Optional[str] = Query(None),
 ):
     try:
         from reportlab.lib import colors
@@ -273,6 +310,7 @@ def export_pdf(
         )
 
     from_dt, to_dt = reports_service.date_params(from_date, to_date)
+    parsed_tag_ids = _parse_tag_ids(tag_ids)
     buf = io.BytesIO()
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
@@ -287,7 +325,9 @@ def export_pdf(
 
     if report == "journal":
         with get_db() as conn:
-            data = reports_service.journal_data(conn, from_date, to_date, account_id)
+            data = reports_service.journal_data(
+                conn, from_date, to_date, account_id, tag_ids=parsed_tag_ids
+            )
         elements.append(Paragraph("Libro Diario", title_style))
         elements.append(Paragraph(period_str, sub_style))
         elements.append(Spacer(1, 0.4 * cm))
@@ -300,7 +340,8 @@ def export_pdf(
                     row["debit_name"],
                     row["credit_name"],
                     _fmt(row["amount"]),
-                    row["description"] or "",
+                    (row["description"] or "")
+                    + (f" [{row['tags_label']}]" if row.get("tags_label") else ""),
                 ]
             )
 
@@ -324,6 +365,7 @@ def export_pdf(
                 hide_accounts=hide_accounts,
                 show_zero_balance=show_zero_balance,
                 type_ids=_parse_type_ids(type_ids),
+                tag_ids=parsed_tag_ids,
             )
         elements.append(Paragraph("Balance General", title_style))
         elements.append(Paragraph(period_str, sub_style))
@@ -345,9 +387,13 @@ def export_pdf(
         filename = "balance_general.pdf"
 
     else:
+        if account_id is None:
+            raise HTTPException(400, "account_id is required for ledger export")
         with get_db() as conn:
             try:
-                data = reports_service.get_ledger(conn, account_id, from_date, to_date)
+                data = reports_service.get_ledger(
+                    conn, account_id, from_date, to_date, parsed_tag_ids
+                )
             except NotFoundError as exc:
                 raise HTTPException(404, str(exc)) from exc
         elements.append(Paragraph(f"Libro Mayor - {data['account_name']}", title_style))
@@ -361,7 +407,7 @@ def export_pdf(
             table_data.append(
                 [
                     entry["date"][:16],
-                    entry["description"][:40],
+                    ((entry["description"] or "") + (f" [{entry['tags_label']}]" if entry.get("tags_label") else ""))[:40],
                     entry["counterpart"],
                     _fmt(entry["debit"]) if entry["debit"] else "",
                     _fmt(entry["credit"]) if entry["credit"] else "",

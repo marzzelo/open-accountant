@@ -8,7 +8,8 @@ import app_config
 from models import TransactionIn, TransactionOut, TransactionUpdate
 
 from services.errors import NotFoundError, ValidationError
-from services.helpers import model_from_row, require_row
+from services.helpers import require_row
+from services import tags_service
 
 TX_SELECT = """
     SELECT t.*,
@@ -20,8 +21,15 @@ TX_SELECT = """
 """
 
 
-def row_to_out(row) -> TransactionOut:
-    return model_from_row(TransactionOut, row)
+def row_to_out(row, tags=None) -> TransactionOut:
+    payload = dict(row)
+    payload["tags"] = tags or []
+    return TransactionOut(**payload)
+
+
+def _rows_to_out(conn, rows) -> list[TransactionOut]:
+    tag_map = tags_service.get_transaction_tags_map(conn, [row["id"] for row in rows])
+    return [row_to_out(row, tag_map.get(row["id"], [])) for row in rows]
 
 
 FX_SOURCE_CONFIG = {
@@ -60,6 +68,8 @@ def _normalize_currency(currency: Optional[str]) -> str:
 
 def _monetary_from_create(data: TransactionIn) -> dict:
     if data.original_amount is None and data.original_currency is None and data.fx_rate is None and data.fx_source is None:
+        if data.amount is None:
+            raise ValidationError("amount is required")
         amount = _round_amount(data.amount)
         return {
             "amount": amount,
@@ -69,7 +79,12 @@ def _monetary_from_create(data: TransactionIn) -> dict:
             "fx_source": None,
         }
 
-    original_amount = _round_amount(data.original_amount or data.amount)
+    raw_original_amount = (
+        data.original_amount if data.original_amount is not None else data.amount
+    )
+    if raw_original_amount is None:
+        raise ValidationError("Either amount or original_amount is required")
+    original_amount = _round_amount(raw_original_amount)
     original_currency = _normalize_currency(data.original_currency)
     if original_currency not in SUPPORTED_ORIGINAL_CURRENCIES:
         raise ValidationError(f"Unsupported original_currency: {original_currency}")
@@ -113,6 +128,8 @@ def _monetary_from_update(data: TransactionUpdate, old) -> dict:
         }
 
     if data.original_amount is None and data.original_currency is None and data.fx_rate is None and data.fx_source is None:
+        if data.amount is None:
+            raise ValidationError("amount is required")
         amount = _round_amount(data.amount)
         return {
             "amount": amount,
@@ -158,6 +175,7 @@ def list_transactions(
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
     account_id: Optional[int] = None,
+    tag_ids: Optional[list[int]] = None,
     limit: int = 500,
     offset: int = 0,
 ) -> list[TransactionOut]:
@@ -173,6 +191,10 @@ def list_transactions(
     if account_id:
         conditions.append("(t.debit_account = ? OR t.credit_account = ?)")
         params += [account_id, account_id]
+    tag_condition, tag_params = tags_service.build_transaction_tag_filter("t", tag_ids)
+    if tag_condition:
+        conditions.append(tag_condition)
+        params += tag_params
 
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     params += [limit, offset]
@@ -180,7 +202,7 @@ def list_transactions(
         f"{TX_SELECT} {where} ORDER BY t.date DESC, t.id DESC LIMIT ? OFFSET ?",
         params,
     ).fetchall()
-    return [row_to_out(row) for row in rows]
+    return _rows_to_out(conn, rows)
 
 
 def get_transaction(conn, tx_id: int) -> TransactionOut:
@@ -191,7 +213,7 @@ def get_transaction(conn, tx_id: int) -> TransactionOut:
         "Transaction not found",
         NotFoundError,
     )
-    return row_to_out(row)
+    return _rows_to_out(conn, [row])[0]
 
 
 def create_transaction(conn, data: TransactionIn) -> TransactionOut:
@@ -233,6 +255,7 @@ def create_transaction(conn, data: TransactionIn) -> TransactionOut:
             tx_date,
         ),
     )
+    tags_service.replace_transaction_tags(conn, cur.lastrowid, data.tag_ids)
     return get_transaction(conn, cur.lastrowid)
 
 
@@ -265,6 +288,8 @@ def update_transaction(conn, tx_id: int, data: TransactionUpdate) -> Transaction
             tx_id,
         ),
     )
+    if data.tag_ids is not None:
+        tags_service.replace_transaction_tags(conn, tx_id, data.tag_ids)
     return get_transaction(conn, tx_id)
 
 
