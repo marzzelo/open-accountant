@@ -19,6 +19,7 @@ from services.helpers import (
     require_row,
     resolve_date_range,
 )
+from services import tags_service
 
 
 def current_year_range() -> tuple[str, str]:
@@ -50,6 +51,17 @@ def _std_dev(values: list[float]) -> float:
 
 def _round_or_none(value: Optional[float], digits: int = 4) -> Optional[float]:
     return round(value, digits) if value is not None else None
+
+
+def _tag_clause(tx_alias: str, tag_ids: Optional[list[int]]) -> tuple[str, list[int]]:
+    clause, params = tags_service.build_transaction_tag_filter(tx_alias, tag_ids)
+    if not clause:
+        return "", []
+    return f" AND {clause}", params
+
+
+def _tag_csv(tags) -> str:
+    return ", ".join(tag.name for tag in tags)
 
 
 def _financial_rows(conn, type_id: int):
@@ -116,6 +128,7 @@ def get_balance(
     hide_accounts: bool = False,
     show_zero_balance: bool = True,
     type_ids: Optional[set[int]] = None,
+    tag_ids: Optional[list[int]] = None,
 ) -> BalanceSheet:
     from_dt, to_dt, filtered = resolve_date_range(from_date, to_date)
     type_map: dict = {}
@@ -137,11 +150,17 @@ def get_balance(
 
         balance = (
             compute_filtered_balance(
-                conn, row["id"], row["type_id"], row["initial_balance"], from_dt, to_dt
+                conn,
+                row["id"],
+                row["type_id"],
+                row["initial_balance"],
+                from_dt,
+                to_dt,
+                tag_ids,
             )
             if filtered
             else compute_balance(
-                conn, row["id"], row["type_id"], row["initial_balance"]
+                conn, row["id"], row["type_id"], row["initial_balance"], tag_ids=tag_ids
             )
         )
         type_id = row["type_id"]
@@ -198,13 +217,24 @@ def get_balance(
     )
 
 
-def journal_data(conn, from_date=None, to_date=None, account_id=None, limit=1000):
+def journal_data(
+    conn,
+    from_date=None,
+    to_date=None,
+    account_id=None,
+    limit=1000,
+    tag_ids: Optional[list[int]] = None,
+):
     from_dt, to_dt, _ = resolve_date_range(from_date, to_date)
     conditions = ["t.date BETWEEN ? AND ?"]
     params: list = [from_dt, to_dt]
     if account_id:
         conditions.append("(t.debit_account = ? OR t.credit_account = ?)")
         params += [account_id, account_id]
+    tag_filter, tag_params = tags_service.build_transaction_tag_filter("t", tag_ids)
+    if tag_filter:
+        conditions.append(tag_filter)
+        params += tag_params
     where = "WHERE " + " AND ".join(conditions)
     rows = conn.execute(
         f"""SELECT t.id, t.date, t.description, t.amount,
@@ -218,6 +248,7 @@ def journal_data(conn, from_date=None, to_date=None, account_id=None, limit=1000
             LIMIT ?""",
         params + [limit],
     ).fetchall()
+    tag_map = tags_service.get_transaction_tags_map(conn, [row["id"] for row in rows])
     return [
         {
             "id": row["id"],
@@ -230,6 +261,8 @@ def journal_data(conn, from_date=None, to_date=None, account_id=None, limit=1000
             "fx_rate": row["fx_rate"],
             "fx_source": row["fx_source"],
             "description": row["description"],
+            "tags": [tag.model_dump() for tag in tag_map.get(row["id"], [])],
+            "tags_label": _tag_csv(tag_map.get(row["id"], [])),
         }
         for row in rows
     ]
@@ -240,6 +273,7 @@ def get_ledger(
     account_id: int,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
+    tag_ids: Optional[list[int]] = None,
 ):
     from_dt, to_dt, _ = resolve_date_range(from_date, to_date)
     account = require_row(
@@ -250,8 +284,9 @@ def get_ledger(
         NotFoundError,
     )
 
+    tag_clause, tag_params = _tag_clause("t", tag_ids)
     rows = conn.execute(
-        """SELECT t.id, t.date, t.description, t.amount,
+        f"""SELECT t.id, t.date, t.description, t.amount,
                   t.original_amount, t.original_currency, t.fx_rate, t.fx_source,
                   t.debit_account, t.credit_account,
                   da.name AS debit_name, ca.name AS credit_name
@@ -260,12 +295,14 @@ def get_ledger(
            JOIN accounts ca ON t.credit_account = ca.id
            WHERE (t.debit_account = ? OR t.credit_account = ?)
              AND t.date BETWEEN ? AND ?
+             {tag_clause}
            ORDER BY t.date ASC, t.id ASC""",
-        (account_id, account_id, from_dt, to_dt),
+        (account_id, account_id, from_dt, to_dt, *tag_params),
     ).fetchall()
 
     running = account["initial_balance"]
     entries = []
+    tag_map = tags_service.get_transaction_tags_map(conn, [row["id"] for row in rows])
     for row in rows:
         if row["debit_account"] == account_id:
             role, counterpart, delta = (
@@ -294,6 +331,8 @@ def get_ledger(
                 "fx_rate": row["fx_rate"],
                 "fx_source": row["fx_source"],
                 "balance": round(running, 4),
+                "tags": [tag.model_dump() for tag in tag_map.get(row["id"], [])],
+                "tags_label": _tag_csv(tag_map.get(row["id"], [])),
             }
         )
 
@@ -309,19 +348,23 @@ def get_ledger(
 
 
 def get_stats(
-    conn, from_date: Optional[str] = None, to_date: Optional[str] = None
+    conn,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    tag_ids: Optional[list[int]] = None,
 ) -> StatsData:
     from_dt, to_dt, _ = resolve_date_range(from_date, to_date)
+    tag_filter, tag_params = _tag_clause("t", tag_ids)
 
     cashflow_rows = conn.execute(
-        """WITH tx_legs AS (
+        f"""WITH tx_legs AS (
              SELECT strftime('%Y-%m', t.date) AS month,
                  da.type_id AS type_id,
                  t.amount AS debit_amount,
                  0 AS credit_amount
              FROM transactions t
              JOIN accounts da ON t.debit_account = da.id
-             WHERE t.date BETWEEN ? AND ?
+             WHERE t.date BETWEEN ? AND ?{tag_filter}
 
              UNION ALL
 
@@ -331,7 +374,7 @@ def get_stats(
                  t.amount AS credit_amount
              FROM transactions t
              JOIN accounts ca ON t.credit_account = ca.id
-             WHERE t.date BETWEEN ? AND ?
+             WHERE t.date BETWEEN ? AND ?{tag_filter}
          )
          SELECT month,
              SUM(CASE WHEN type_id = 3 THEN credit_amount - debit_amount ELSE 0 END) AS ingresos,
@@ -339,7 +382,7 @@ def get_stats(
          FROM tx_legs
          GROUP BY month
          ORDER BY month""",
-        (from_dt, to_dt, from_dt, to_dt),
+        (from_dt, to_dt, *tag_params, from_dt, to_dt, *tag_params),
     ).fetchall()
     monthly_cashflow = [
         {
@@ -352,13 +395,13 @@ def get_stats(
     ]
 
     exp_rows = conn.execute(
-        """WITH subtype_legs AS (
+        f"""WITH subtype_legs AS (
          SELECT COALESCE(s.name, 'Sin subtipo') AS subtype,
              t.amount AS signed_amount
          FROM transactions t
          JOIN accounts a ON t.debit_account = a.id
          LEFT JOIN subtypes s ON a.subtype_id = s.id
-         WHERE a.type_id = 4 AND t.date BETWEEN ? AND ?
+         WHERE a.type_id = 4 AND t.date BETWEEN ? AND ?{tag_filter}
 
          UNION ALL
 
@@ -367,7 +410,7 @@ def get_stats(
          FROM transactions t
          JOIN accounts a ON t.credit_account = a.id
          LEFT JOIN subtypes s ON a.subtype_id = s.id
-         WHERE a.type_id = 4 AND t.date BETWEEN ? AND ?
+         WHERE a.type_id = 4 AND t.date BETWEEN ? AND ?{tag_filter}
      )
      SELECT subtype,
          SUM(signed_amount) AS amount
@@ -375,20 +418,20 @@ def get_stats(
      GROUP BY subtype
      HAVING SUM(signed_amount) > 0
      ORDER BY amount DESC""",
-        (from_dt, to_dt, from_dt, to_dt),
+        (from_dt, to_dt, *tag_params, from_dt, to_dt, *tag_params),
     ).fetchall()
     expenses_by_subtype = [
         {"subtype": row["subtype"], "amount": row["amount"]} for row in exp_rows
     ]
 
     inc_rows = conn.execute(
-        """WITH subtype_legs AS (
+        f"""WITH subtype_legs AS (
          SELECT COALESCE(s.name, 'Sin subtipo') AS subtype,
              t.amount AS signed_amount
          FROM transactions t
          JOIN accounts a ON t.credit_account = a.id
          LEFT JOIN subtypes s ON a.subtype_id = s.id
-         WHERE a.type_id = 3 AND t.date BETWEEN ? AND ?
+         WHERE a.type_id = 3 AND t.date BETWEEN ? AND ?{tag_filter}
 
          UNION ALL
 
@@ -397,7 +440,7 @@ def get_stats(
          FROM transactions t
          JOIN accounts a ON t.debit_account = a.id
          LEFT JOIN subtypes s ON a.subtype_id = s.id
-         WHERE a.type_id = 3 AND t.date BETWEEN ? AND ?
+         WHERE a.type_id = 3 AND t.date BETWEEN ? AND ?{tag_filter}
      )
      SELECT subtype,
          SUM(signed_amount) AS amount
@@ -405,7 +448,7 @@ def get_stats(
      GROUP BY subtype
      HAVING SUM(signed_amount) > 0
      ORDER BY amount DESC""",
-        (from_dt, to_dt, from_dt, to_dt),
+        (from_dt, to_dt, *tag_params, from_dt, to_dt, *tag_params),
     ).fetchall()
     income_by_subtype = [
         {"subtype": row["subtype"], "amount": row["amount"]} for row in inc_rows
@@ -426,6 +469,7 @@ def get_stats(
             account["initial_balance"],
             from_dt,
             to_dt,
+            tag_ids,
         )
         total_assets += balance
         asset_properties = normalize_account_properties(
@@ -458,6 +502,7 @@ def get_stats(
             account["initial_balance"],
             from_dt,
             to_dt,
+            tag_ids,
         )
         total_liabilities += balance
         liability_properties = normalize_account_properties(
@@ -478,6 +523,7 @@ def get_stats(
             account["initial_balance"],
             from_dt,
             to_dt,
+            tag_ids,
         )
         expense_properties = normalize_account_properties(
             account["properties"],
@@ -492,14 +538,14 @@ def get_stats(
             essential_expense_total += expense_total
 
     top_rows = conn.execute(
-        """SELECT a.name AS account,
+        f"""SELECT a.name AS account,
                   SUM(t.amount) AS volume,
                   COUNT(*) AS tx_count
            FROM transactions t
            JOIN accounts a ON t.debit_account = a.id OR t.credit_account = a.id
-           WHERE t.date BETWEEN ? AND ?
+           WHERE t.date BETWEEN ? AND ?{tag_filter}
            GROUP BY a.id ORDER BY volume DESC LIMIT 10""",
-        (from_dt, to_dt),
+        (from_dt, to_dt, *tag_params),
     ).fetchall()
     top_accounts = [
         {
@@ -511,9 +557,9 @@ def get_stats(
     ]
 
     months_rows = conn.execute(
-        """SELECT DISTINCT strftime('%Y-%m', date) AS month FROM transactions
-           WHERE date BETWEEN ? AND ? ORDER BY month""",
-        (from_dt, to_dt),
+        f"""SELECT DISTINCT strftime('%Y-%m', date) AS month FROM transactions t
+           WHERE date BETWEEN ? AND ?{tag_filter} ORDER BY month""",
+        (from_dt, to_dt, *tag_params),
     ).fetchall()
     months = [row["month"] for row in months_rows]
 
@@ -532,6 +578,7 @@ def get_stats(
                 account["initial_balance"],
                 from_dt,
                 month_end,
+                tag_ids,
             )
             month_assets += balance
             balance_evolution.append(
@@ -551,6 +598,7 @@ def get_stats(
                 account["initial_balance"],
                 from_dt,
                 month_end,
+                tag_ids,
             )
 
         net_worth_evolution.append(

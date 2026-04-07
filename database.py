@@ -54,6 +54,22 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS tags (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    TEXT,
+    name       TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    color      TEXT NOT NULL DEFAULT '#3B82F6',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS transaction_tags (
+    transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+    tag_id         INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (transaction_id, tag_id)
+);
+
 CREATE TABLE IF NOT EXISTS user_preferences (
     key        TEXT PRIMARY KEY,
     value      TEXT NOT NULL,
@@ -74,6 +90,8 @@ CREATE INDEX IF NOT EXISTS idx_tx_debit  ON transactions(debit_account);
 CREATE INDEX IF NOT EXISTS idx_tx_credit ON transactions(credit_account);
 CREATE INDEX IF NOT EXISTS idx_tx_date   ON transactions(date);
 CREATE INDEX IF NOT EXISTS idx_acc_type  ON accounts(type_id);
+CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
+CREATE INDEX IF NOT EXISTS idx_transaction_tags_tag ON transaction_tags(tag_id);
 """
 
 SEED_TYPES = [
@@ -158,6 +176,7 @@ def compute_balance(
     initial_balance: float,
     from_date: str | None = None,
     to_date: str | None = None,
+    tag_ids: list[int] | None = None,
 ) -> float:
     """Recalculate account balance either for all time or for a date range."""
     params: tuple = (account_id, account_id, account_id, account_id)
@@ -166,13 +185,19 @@ def compute_balance(
         date_filter = "\n          AND date BETWEEN ? AND ?"
         params += (from_date, to_date)
 
+    tag_filter = ""
+    if tag_ids:
+        placeholders = ",".join("?" for _ in tag_ids)
+        tag_filter = f"\n          AND EXISTS (\n              SELECT 1 FROM transaction_tags tt\n              WHERE tt.transaction_id = transactions.id\n                AND tt.tag_id IN ({placeholders})\n          )"
+        params += tuple(tag_ids)
+
     row = conn.execute(
         f"""
         SELECT
             COALESCE(SUM(CASE WHEN debit_account  = ? THEN amount ELSE 0 END), 0) AS total_debit,
             COALESCE(SUM(CASE WHEN credit_account = ? THEN amount ELSE 0 END), 0) AS total_credit
         FROM transactions
-        WHERE (debit_account = ? OR credit_account = ?){date_filter}
+        WHERE (debit_account = ? OR credit_account = ?){date_filter}{tag_filter}
         """,
         params,
     ).fetchone()
@@ -191,10 +216,11 @@ def compute_filtered_balance(
     initial_balance: float,
     from_date: str,
     to_date: str,
+    tag_ids: list[int] | None = None,
 ) -> float:
     """Backward-compatible helper for date-range balance calculation."""
     return compute_balance(
-        conn, account_id, type_id, initial_balance, from_date, to_date
+        conn, account_id, type_id, initial_balance, from_date, to_date, tag_ids
     )
 
 

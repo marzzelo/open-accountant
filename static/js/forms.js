@@ -53,6 +53,172 @@ const T = {
 };
 
 const Forms = {
+  _sortedTags() {
+    return [...(State.tags || [])].sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')));
+  },
+
+  _selectedTagIds() {
+    return [...document.querySelectorAll('input[name="f-tag-ids"]:checked')].map(input => Number(input.value));
+  },
+
+  _tagSelectionField(selectedIds = []) {
+    const selected = new Set((selectedIds || []).map(Number));
+    const tags = this._sortedTags();
+
+    if (!tags.length) {
+      return `
+        <div class="mb-4 rounded-xl border border-dashed border-dark-600 bg-dark-800/50 px-3 py-3 text-xs text-dark-400">
+          ${escapeHtml(t('form.tags_empty'))}
+        </div>`;
+    }
+
+    return `
+      <div class="mb-4 rounded-xl border border-dark-600 bg-dark-800/60 px-3 py-3">
+        <div class="mb-3">
+          <div>
+            <div class="text-[11px] font-semibold uppercase tracking-wide text-dark-400">${escapeHtml(t('form.label.tags'))}</div>
+            <div class="text-[11px] text-dark-500 mt-1">${escapeHtml(t('form.tags_help'))}</div>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto pr-1">
+          ${tags.map(tag => `
+            <label class="flex items-center gap-2 rounded-lg border border-dark-600 bg-dark-700/50 px-3 py-2 cursor-pointer">
+              <input type="checkbox" name="f-tag-ids" value="${tag.id}" ${selected.has(Number(tag.id)) ? 'checked' : ''}
+                class="h-4 w-4 rounded border-dark-500 bg-dark-800 text-blue-500 focus:ring-blue-500/40 cursor-pointer">
+              <span class="h-2.5 w-2.5 rounded-full shrink-0" style="background:${normalizeTagColor(tag.color)}"></span>
+              <span class="text-sm text-dark-200 truncate">${escapeHtml(tag.name)}</span>
+            </label>`).join('')}
+        </div>
+      </div>`;
+  },
+
+  tagModal() {
+    const rows = this._sortedTags().map(tag => `
+      <tr class="border-b border-dark-600/60 hover:bg-dark-700/50">
+        <td class="px-4 py-3">
+          <div class="flex items-center gap-2">${renderTagBadge(tag)}</div>
+        </td>
+        <td class="px-4 py-3 text-sm text-dark-400">${tag.transaction_count || 0}</td>
+        <td class="px-4 py-3 text-right whitespace-nowrap w-[120px]">
+          <button ${htmlAttrs({
+            type: 'button',
+            'data-form-action': 'edit-tag',
+            'data-tag-id': tag.id,
+            class: 'inline-flex items-center justify-center text-base w-9 h-9 border border-dark-600 rounded-md text-dark-400 hover:text-dark-100 hover:bg-dark-600 bg-transparent cursor-pointer font-sans mr-2',
+            title: t('btn.edit'),
+            'aria-label': t('btn.edit'),
+          })}>✏️</button>
+          <button ${htmlAttrs({
+            type: 'button',
+            'data-form-action': 'delete-tag',
+            'data-tag-id': tag.id,
+            class: 'inline-flex items-center justify-center text-base w-9 h-9 border border-red-900/40 rounded-md text-red-400/70 hover:text-red-400 hover:bg-red-900/20 bg-transparent cursor-pointer font-sans',
+            title: t('btn.delete'),
+            'aria-label': t('btn.delete'),
+          })}>🗑️</button>
+        </td>
+      </tr>`).join('');
+
+    Modal.open(T.modalShell(`🎯 ${t('tag.title')}`, `
+      <div class="overflow-x-auto rounded-xl border border-dark-600 mb-6">
+        <table class="w-full text-sm" style="min-width:540px">
+          <thead class="bg-dark-700">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs text-blue-400 font-semibold uppercase tracking-wide">${t('form.label.tags')}</th>
+              <th class="px-4 py-3 text-left text-xs text-blue-400 font-semibold uppercase tracking-wide">${t('tag.transactions')}</th>
+              <th class="px-4 py-3 w-[120px]"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || `<tr><td colspan='3' class='text-center py-8 text-dark-500 text-xs'>${t('tag.empty')}</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="bg-dark-700/50 rounded-xl p-4 border border-dark-600/60">
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <p class="text-xs text-dark-400 font-semibold uppercase tracking-wide">${t('tag.add_title')}</p>
+          <button type="button" data-form-action="show-add-tag" class="text-xs px-3 py-1.5 rounded-lg border border-dark-600 text-dark-300 hover:bg-dark-700 cursor-pointer">${t('btn.add')}</button>
+        </div>
+        <p class="text-xs text-dark-500">${escapeHtml(t('tag.help'))}</p>
+      </div>
+    `, T.btnGhost(t('btn.close'), { 'data-modal-close': true })), { wide: true });
+  },
+
+  _tagEditor(tag = null) {
+    const isEdit = !!tag;
+    const title = isEdit ? t('tag.edit_title') : t('tag.create_title');
+    const submitAction = isEdit ? 'update-tag' : 'create-tag';
+
+    Modal.open(T.modalShell(`🎯 ${title}`, `
+      ${T.group(t('form.label.name'), T.input('f-tag-name', { val: tag?.name || '', ph: t('tag.name_placeholder'), auto: true }))}
+      <div class="mb-4">
+        ${T.label(t('tag.color'))}
+        <div class="flex items-center gap-3">
+          <input id="f-tag-color" type="color" value="${escapeHtml(normalizeTagColor(tag?.color))}" class="h-11 w-16 bg-transparent border border-dark-600 rounded-lg cursor-pointer">
+          <div class="text-xs text-dark-400">${escapeHtml(t('tag.color_help'))}</div>
+        </div>
+      </div>
+    `, T.btnGhost(t('btn.cancel'), { 'data-form-action': 'back-to-tags' })
+      + T.btnSuccess(isEdit ? t('btn.save') : t('btn.create'), {
+        'data-form-action': submitAction,
+        'data-tag-id': tag?.id,
+      })));
+  },
+
+  async _createTag() {
+    const name = document.getElementById('f-tag-name')?.value.trim();
+    const color = document.getElementById('f-tag-color')?.value || '#3B82F6';
+    if (!name) return Toast.show(t('msg.enter_name'), 'err');
+
+    try {
+      await API.post('/tags', { name, color });
+      await API.reloadTags();
+      Toast.show(t('msg.tag_created', { name }));
+      this.tagModal();
+    } catch (e) {
+      Toast.show(e.message, 'err');
+    }
+  },
+
+  async _updateTag(tagId) {
+    const name = document.getElementById('f-tag-name')?.value.trim();
+    const color = document.getElementById('f-tag-color')?.value || '#3B82F6';
+    if (!name) return Toast.show(t('msg.enter_name'), 'err');
+
+    try {
+      await API.put(`/tags/${tagId}`, { name, color });
+      await API.reloadTags();
+      Toast.show(t('msg.tag_updated'));
+      this.tagModal();
+    } catch (e) {
+      Toast.show(e.message, 'err');
+    }
+  },
+
+  async _deleteTag(tagId) {
+    const tag = State.tags.find(item => Number(item.id) === Number(tagId));
+    if (!tag) return;
+
+    const confirmed = await Dialog.confirm({
+      title: t('btn.delete'),
+      message: t('msg.confirm_delete', { name: tag.name }),
+      confirmLabel: t('btn.delete'),
+      cancelLabel: t('btn.cancel'),
+      submitTone: 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      await API.del(`/tags/${tagId}`);
+      await API.reloadTags();
+      Toast.show(t('msg.tag_deleted'));
+      this.tagModal();
+    } catch (e) {
+      Toast.show(e.message, 'err');
+    }
+  },
+
   _transactionCurrencies() {
     return [
       { code: 'ARS', label: 'AR$', rateKey: null, originalCurrency: 'ARS', fxSource: null },
@@ -885,6 +1051,7 @@ const Forms = {
       </div>
       ${T.group(`${t('form.label.amount')} *`, this._transactionAmountField({ hideSpin: true, min: '0' }))}
       ${T.group(t('form.label.description'), T.input('f-desc', { ph: t('form.placeholder.desc_tx'), val: description }))}
+      ${this._tagSelectionField(preset.tag_ids || [])}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: now }))}
       ${this._forcedBalanceField({ creditAccount: credit, debitAccount: debit })}
       ${this._effectiveAmountPreviewField({ creditId, debitId })}
@@ -909,6 +1076,7 @@ const Forms = {
       ${T.group(t('form.label.credit'), T.select('f-credit', opts, { 'data-form-change': 'refresh-force-balance' }))}
       ${T.group(t('form.label.debit'),  T.select('f-debit',  opts, { 'data-form-change': 'refresh-force-balance' }))}
       ${T.group(t('form.label.description'), T.input('f-desc', { ph: t('form.placeholder.desc_tx') }))}
+      ${this._tagSelectionField()}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: now }))}
       ${this._forcedBalanceField({ creditAccount: firstAccount || null, debitAccount: firstAccount || null })}
       ${this._effectiveAmountPreviewField()}
@@ -984,6 +1152,7 @@ const Forms = {
   editTransaction(tx) {
     const dtLocal = tx.date.replace(' ', 'T').slice(0, 16);
     const selectedCurrency = this._transactionSelectionFromTx(tx);
+    const selectedTagIds = (tx.tags || []).map(tag => Number(tag.id));
     Modal.open(T.modalShell(`${t('form.edit_transaction')} #${tx.id}`, `
       <div class="flex items-center gap-3 bg-dark-700 rounded-xl p-3 mb-5">
         <div class="flex-1 text-center"><div class="text-xs text-dark-400 mb-1">${t('report.col.credited')}</div>
@@ -999,6 +1168,7 @@ const Forms = {
       }))}
       ${this._transactionFxEditor({ currency: selectedCurrency, rate: tx.fx_rate })}
       ${T.group(t('form.label.description'), T.input('f-desc', { val: tx.description || '' }))}
+      ${this._tagSelectionField(selectedTagIds)}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: dtLocal }))}
     `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
       + T.btnPrimary(t('btn.save'), { 'data-form-action': 'update-transaction', 'data-tx-id': tx.id })));
@@ -1066,6 +1236,7 @@ const Forms = {
     const rawAmount = this._transactionInputAmount();
     const desc   = document.getElementById('f-desc')?.value || '';
     const date   = document.getElementById('f-date')?.value?.replace('T', ' ');
+    const tagIds = this._selectedTagIds();
 
     const entryAmount = await this._resolveTransactionEntryAmount(rawAmount, { creditId, debitId });
     if (entryAmount == null) return;
@@ -1077,6 +1248,7 @@ const Forms = {
       const created = await API.post('/transactions', {
         debit_account: debitId,
         credit_account: creditId,
+        tag_ids: tagIds,
         description: desc,
         date,
         ...txPayload,
@@ -1092,6 +1264,7 @@ const Forms = {
     const debitId  = parseInt(document.getElementById('f-debit')?.value);
     const desc     = document.getElementById('f-desc')?.value || '';
     const date     = document.getElementById('f-date')?.value?.replace('T', ' ');
+    const tagIds   = this._selectedTagIds();
     if (creditId === debitId)    return Toast.show(t('msg.same_account'), 'err');
 
     const entryAmount = await this._resolveTransactionEntryAmount(rawAmount, { creditId, debitId });
@@ -1104,6 +1277,7 @@ const Forms = {
       const created = await API.post('/transactions', {
         debit_account: debitId,
         credit_account: creditId,
+        tag_ids: tagIds,
         description: desc,
         date,
         ...txPayload,
@@ -1118,13 +1292,14 @@ const Forms = {
     const rawAmount = amountState.value;
     const desc   = document.getElementById('f-desc')?.value;
     const date   = document.getElementById('f-date')?.value?.replace('T', ' ');
+    const tagIds = this._selectedTagIds();
     if (!amountState.isValid || rawAmount <= 0) return Toast.show(t('msg.invalid_amount'), 'err');
 
     const txPayload = await this._buildTransactionPayload(rawAmount);
     if (!txPayload) return;
 
     try {
-      await API.put(`/transactions/${txId}`, { description: desc, date, ...txPayload });
+      await API.put(`/transactions/${txId}`, { description: desc, date, tag_ids: tagIds, ...txPayload });
       Modal.close(); Toast.show(t('msg.tx_updated')); await View.refresh();
     } catch (e) { Toast.show(e.message, 'err'); }
   },
@@ -1221,6 +1396,29 @@ document.addEventListener('click', event => {
       break;
     case 'delete-subtype':
       Forms._deleteSubtype(Number(action.dataset.subtypeId));
+      break;
+    case 'open-tags-modal':
+      Forms.tagModal();
+      break;
+    case 'show-add-tag':
+      Forms._tagEditor();
+      break;
+    case 'back-to-tags':
+      Forms.tagModal();
+      break;
+    case 'create-tag':
+      Forms._createTag();
+      break;
+    case 'edit-tag': {
+      const tag = State.tags.find(item => Number(item.id) === Number(action.dataset.tagId));
+      if (tag) Forms._tagEditor(tag);
+      break;
+    }
+    case 'update-tag':
+      Forms._updateTag(Number(action.dataset.tagId));
+      break;
+    case 'delete-tag':
+      Forms._deleteTag(Number(action.dataset.tagId));
       break;
     case 'update-transaction':
       Forms._updateTransaction(Number(action.dataset.txId));

@@ -319,6 +319,83 @@ def test_create_transaction_persists_fx_traceability_fields(client):
     assert journal_row["fx_source"] == "USD_BUY"
 
 
+def test_tags_crud_and_tag_filtered_reports(client):
+    accounts = _accounts_by_name(client)
+
+    groceries_tag = client.post(
+        "/api/tags",
+        json={"name": "Groceries", "color": "#16A34A"},
+    )
+    assert groceries_tag.status_code == 201
+    groceries = groceries_tag.json()
+
+    travel_tag = client.post(
+        "/api/tags",
+        json={"name": "Travel", "color": "#2563EB"},
+    )
+    assert travel_tag.status_code == 201
+    travel = travel_tag.json()
+
+    salary_tx = client.post(
+        "/api/transactions",
+        json={
+            "debit_account": accounts["Bank"]["id"],
+            "credit_account": accounts["Salary"]["id"],
+            "amount": 1000.0,
+            "description": "Salary tagged",
+            "tag_ids": [travel["id"]],
+        },
+    )
+    assert salary_tx.status_code == 201
+    assert salary_tx.json()["tags"][0]["name"] == "Travel"
+
+    grocery_tx = client.post(
+        "/api/transactions",
+        json={
+            "debit_account": accounts["Groceries"]["id"],
+            "credit_account": accounts["Bank"]["id"],
+            "amount": 250.0,
+            "description": "Weekly groceries",
+            "tag_ids": [groceries["id"]],
+        },
+    )
+    assert grocery_tx.status_code == 201
+
+    tags_response = client.get("/api/tags")
+    assert tags_response.status_code == 200
+    tags_by_name = {item["name"]: item for item in tags_response.json()}
+    assert tags_by_name["Groceries"]["transaction_count"] == 1
+    assert tags_by_name["Travel"]["transaction_count"] == 1
+
+    filtered_transactions = client.get(f"/api/transactions?tag_ids={groceries['id']}")
+    assert filtered_transactions.status_code == 200
+    filtered_payload = filtered_transactions.json()
+    assert len(filtered_payload) == 1
+    assert filtered_payload[0]["description"] == "Weekly groceries"
+
+    filtered_journal = client.get(f"/api/reports/journal?tag_ids={groceries['id']}")
+    assert filtered_journal.status_code == 200
+    journal_payload = filtered_journal.json()
+    assert len(journal_payload) == 1
+    assert journal_payload[0]["tags_label"] == "Groceries"
+
+    filtered_stats = client.get(f"/api/reports/stats?tag_ids={groceries['id']}")
+    assert filtered_stats.status_code == 200
+    stats_payload = filtered_stats.json()
+    assert stats_payload["summary"]["total_expense"] == 250.0
+    assert stats_payload["summary"]["total_income"] == 0.0
+
+    update_tag = client.put(
+        f"/api/tags/{groceries['id']}",
+        json={"name": "Food", "color": "#15803D"},
+    )
+    assert update_tag.status_code == 200
+    assert update_tag.json()["name"] == "Food"
+
+    delete_tag = client.delete(f"/api/tags/{travel['id']}")
+    assert delete_tag.status_code == 204
+
+
 def test_update_transaction_recalculates_amount_from_edited_fx_fields(client):
     app_config.set_value("finance", "usd_official_buy_ars", "1100.00")
     accounts = _accounts_by_name(client)

@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from database import init_db
-from routers import types, subtypes, accounts, transactions, reports
+from routers import types, subtypes, accounts, transactions, reports, tags
 from routers import books, settings as settings_router, about as about_router
 from routers import projections as projections_router
 
@@ -54,6 +54,7 @@ app.include_router(types.router, prefix="/api", tags=["Types"])
 app.include_router(subtypes.router, prefix="/api", tags=["Subtypes"])
 app.include_router(accounts.router, prefix="/api", tags=["Accounts"])
 app.include_router(transactions.router, prefix="/api", tags=["Transactions"])
+app.include_router(tags.router, prefix="/api", tags=["Tags"])
 app.include_router(reports.router, prefix="/api", tags=["Reports"])
 app.include_router(books.router, prefix="/api", tags=["Books"])
 app.include_router(settings_router.router, prefix="/api", tags=["Settings"])

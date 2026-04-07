@@ -52,15 +52,30 @@ function htmlAttrs(attrs = {}) {
     .join(' ');
 }
 
+function normalizeTagColor(color) {
+  return /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color) : '#3B82F6';
+}
+
+function renderTagBadge(tag, extraClass = '') {
+  const color = normalizeTagColor(tag?.color);
+  return `
+    <span class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${extraClass}" style="border-color:${color}55;background:${color}1A;color:${color}">
+      <span class="h-1.5 w-1.5 rounded-full" style="background:${color}"></span>
+      <span>${escapeHtml(tag?.name || '')}</span>
+    </span>`;
+}
+
 /* ─── STATE ──────────────────────────────────────────────────────── */
 const State = {
   accounts:   [],
   types:      [],
   subtypes:   [],
+  tags:       [],
   appConfig:  {},
   appVersion: null,
   filterFrom: null,
   filterTo:   null,
+  tagFilterIds: [],
   userPreferences: {},
   hideBalanceAccounts: false,
   showZeroBalanceItems: false,
@@ -71,9 +86,31 @@ const State = {
 
   get currentYear() { return new Date().getFullYear(); },
 
+  get hasTagFilter() { return Array.isArray(this.tagFilterIds) && this.tagFilterIds.length > 0; },
+
   get apiDateParams() {
     if (this.filtered) return `?from=${this.filterFrom}&to=${this.filterTo}`;
     return '';
+  },
+
+  syncTagFilters() {
+    const validIds = new Set((this.tags || []).map(tag => Number(tag.id)));
+    this.tagFilterIds = (this.tagFilterIds || []).map(Number).filter(tagId => validIds.has(tagId));
+  },
+
+  buildReportQuery(extra = {}) {
+    const params = new URLSearchParams();
+    if (this.filtered) {
+      params.set('from', this.filterFrom);
+      params.set('to', this.filterTo);
+    }
+    if (this.hasTagFilter) params.set('tag_ids', this.tagFilterIds.join(','));
+    Object.entries(extra).forEach(([key, value]) => {
+      if (value == null || value === '') return;
+      params.set(key, String(value));
+    });
+    const query = params.toString();
+    return query ? `?${query}` : '';
   },
 
   recordUsage(accountId) {
@@ -109,10 +146,11 @@ const API = {
   del(path)         { return this._fetch(path, { method: 'DELETE' }); },
 
   async loadAll() {
-    const [accounts, types, subtypes, version, config, preferences] = await Promise.all([
+    const [accounts, types, subtypes, tags, version, config, preferences] = await Promise.all([
       this.get('/accounts' + State.apiDateParams),
       this.get('/types'),
       this.get('/subtypes'),
+      this.get('/tags'),
       this.get('/version'),
       this.get('/settings/config'),
       this.get('/settings/preferences'),
@@ -120,15 +158,22 @@ const API = {
     State.accounts = accounts;
     State.types    = types;
     State.subtypes = subtypes;
+    State.tags     = tags;
     State.appVersion = version;
     State.appConfig = config || {};
     State.userPreferences = preferences || {};
+    State.syncTagFilters();
     StatusBar.refresh();
   },
 
   async reloadAccounts() {
     State.accounts = await this.get('/accounts' + State.apiDateParams);
     StatusBar.refresh();
+  },
+
+  async reloadTags() {
+    State.tags = await this.get('/tags');
+    State.syncTagFilters();
   },
 
   async reloadPreferences() {
@@ -304,6 +349,7 @@ const View = {
 
   async refresh() {
     await API.reloadAccounts();
+    await API.reloadTags();
     await API.reloadPreferences();
     await Preferences.applyLoaded();
     await this.show(this.current);
@@ -731,6 +777,7 @@ const Nav = {
   async go(action) {
     this.close();
     if (action === 'new-account') { Forms.newAccount(); return; }
+    if (action === 'tags') { Forms.tagModal(); return; }
     await View.show(action);
   },
 };

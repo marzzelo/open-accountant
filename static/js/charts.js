@@ -180,7 +180,7 @@ function _buildHorizontalBar(canvasId, items, labelKey, valueKey, color, tooltip
 const Charts = {
 
   async stats() {
-    const q = State.apiDateParams;
+    const q = State.buildReportQuery();
     const data = await API.get('/reports/stats' + q);
     const main = document.getElementById('main');
     const summary = data.summary || {};
@@ -271,6 +271,7 @@ const Charts = {
     main.innerHTML = `
       <div class="overflow-y-auto flex-1">
       <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-5 xl:px-4 py-6">
+      ${typeof Reports !== 'undefined' ? Reports._tagFilterBar() : ''}
       <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
         ${_kpiCard({
           label: t('report.total_income'),

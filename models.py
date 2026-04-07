@@ -84,12 +84,41 @@ class AccountOut(BaseModel):
     monthly_history: list[MonthlyBar] = []
 
 
+# ── Tags ─────────────────────────────────────────────────────────────────────
+
+
+class TagSummary(BaseModel):
+    id: int
+    name: str
+    color: str
+
+
+class TagIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    color: str = Field("#3B82F6", pattern=r"^#[0-9A-Fa-f]{6}$")
+    user_id: Optional[str] = Field(None, max_length=100)
+
+
+class TagUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=60)
+    color: Optional[str] = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
+    user_id: Optional[str] = Field(None, max_length=100)
+
+
+class TagOut(TagSummary):
+    user_id: Optional[str] = None
+    created_at: str
+    updated_at: str
+    transaction_count: int = 0
+
+
 # ── Transactions ──────────────────────────────────────────────────────────────
 
 
 class TransactionIn(BaseModel):
     debit_account: int
     credit_account: int
+    tag_ids: list[int] = Field(default_factory=list)
     amount: Optional[float] = Field(None, gt=0)
     original_amount: Optional[float] = Field(None, gt=0)
     original_currency: Optional[str] = None
@@ -106,6 +135,7 @@ class TransactionIn(BaseModel):
 
 
 class TransactionUpdate(BaseModel):
+    tag_ids: Optional[list[int]] = None
     amount: Optional[float] = Field(None, gt=0)
     original_amount: Optional[float] = Field(None, gt=0)
     original_currency: Optional[str] = None
@@ -131,6 +161,7 @@ class TransactionOut(BaseModel):
     description: str
     date: str
     created_at: str
+    tags: list[TagSummary] = Field(default_factory=list)
 
 
 # ── Reports ───────────────────────────────────────────────────────────────────
