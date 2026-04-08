@@ -27,6 +27,21 @@ def initialized_environment(isolated_paths):
     return isolated_paths
 
 
+def test_server_host_and_port_env_override_settings(initialized_environment, monkeypatch):
+    assert app_config.server_host() == "127.0.0.1"
+    assert app_config.server_port() == 5999
+
+    monkeypatch.setenv("HOST", "0.0.0.0")
+    monkeypatch.setenv("PORT", "5010")
+
+    assert app_config.server_host() == "0.0.0.0"
+    assert app_config.server_port() == 5010
+
+    monkeypatch.setenv("PORT", "not-a-number")
+
+    assert app_config.server_port() == 5999
+
+
 def test_types_and_about_services_work_directly(initialized_environment):
     with get_db() as conn:
         types = types_service.list_types(conn)

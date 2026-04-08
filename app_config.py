@@ -95,6 +95,10 @@ def database_url() -> str:
     return os.environ.get(DATABASE_URL_ENV, "").strip() or _default_sqlite_url()
 
 
+def _env_value(name: str) -> str:
+    return os.environ.get(name, "").strip()
+
+
 def current_language() -> str:
     return get("app", "language", _DEFAULTS["app"]["language"])
 
@@ -250,10 +254,16 @@ def get_all() -> dict:
 
 
 def server_host() -> str:
-    return get("general", "host", _DEFAULTS["general"]["host"])
+    return _env_value("HOST") or get("general", "host", _DEFAULTS["general"]["host"])
 
 
 def server_port() -> int:
+    port_override = _env_value("PORT")
+    if port_override:
+        try:
+            return int(port_override)
+        except ValueError:
+            pass
     return get_int("general", "port", int(_DEFAULTS["general"]["port"]))
 
 
