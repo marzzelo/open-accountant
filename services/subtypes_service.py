@@ -55,13 +55,13 @@ def _validate_type_exists(conn, type_id: int):
 def create_subtype(conn, data: SubtypeIn) -> SubtypeOut:
     _validate_type_exists(conn, data.type_id)
     try:
-        cur = conn.execute(
-            "INSERT INTO subtypes (name, type_id) VALUES (?, ?)",
+        row = conn.execute(
+            "INSERT INTO subtypes (name, type_id) VALUES (?, ?) RETURNING id",
             (data.name.strip(), data.type_id),
         )
     except Exception as exc:
         raise ConflictError(f"Subtype already exists: {exc}") from exc
-    return get_subtype(conn, cur.lastrowid)
+    return get_subtype(conn, row.fetchone()["id"])
 
 
 def update_subtype(conn, subtype_id: int, data: SubtypeUpdate) -> SubtypeOut:
@@ -96,8 +96,8 @@ def delete_subtype(conn, subtype_id: int):
         NotFoundError,
     )
     in_use = conn.execute(
-        "SELECT COUNT(*) FROM accounts WHERE subtype_id = ?", (subtype_id,)
-    ).fetchone()[0]
+        "SELECT COUNT(*) AS in_use FROM accounts WHERE subtype_id = ?", (subtype_id,)
+    ).fetchone()["in_use"]
     if in_use:
         raise ConflictError(f"Subtype is used by {in_use} account(s)")
     conn.execute("DELETE FROM subtypes WHERE id = ?", (subtype_id,))

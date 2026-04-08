@@ -8,7 +8,7 @@ import app_config
 from models import TransactionIn, TransactionOut, TransactionUpdate
 
 from services.errors import NotFoundError, ValidationError
-from services.helpers import require_row
+from services.helpers import require_row, serialize_temporal_value
 from services import tags_service
 
 TX_SELECT = """
@@ -23,6 +23,8 @@ TX_SELECT = """
 
 def row_to_out(row, tags=None) -> TransactionOut:
     payload = dict(row)
+    payload["date"] = serialize_temporal_value(payload.get("date"))
+    payload["created_at"] = serialize_temporal_value(payload.get("created_at"))
     payload["tags"] = tags or []
     return TransactionOut(**payload)
 
@@ -67,7 +69,12 @@ def _normalize_currency(currency: Optional[str]) -> str:
 
 
 def _monetary_from_create(data: TransactionIn) -> dict:
-    if data.original_amount is None and data.original_currency is None and data.fx_rate is None and data.fx_source is None:
+    if (
+        data.original_amount is None
+        and data.original_currency is None
+        and data.fx_rate is None
+        and data.fx_source is None
+    ):
         if data.amount is None:
             raise ValidationError("amount is required")
         amount = _round_amount(data.amount)
@@ -101,7 +108,11 @@ def _monetary_from_create(data: TransactionIn) -> dict:
     fx_source = (data.fx_source or "").strip().upper()
     if not fx_source:
         raise ValidationError("fx_source is required for non-ARS transactions")
-    fx_rate = _round_amount(data.fx_rate) if data.fx_rate is not None else _resolve_fx_rate(fx_source)
+    fx_rate = (
+        _round_amount(data.fx_rate)
+        if data.fx_rate is not None
+        else _resolve_fx_rate(fx_source)
+    )
     return {
         "amount": _round_amount(original_amount * fx_rate),
         "original_amount": original_amount,
@@ -127,7 +138,12 @@ def _monetary_from_update(data: TransactionUpdate, old) -> dict:
             "fx_source": old["fx_source"],
         }
 
-    if data.original_amount is None and data.original_currency is None and data.fx_rate is None and data.fx_source is None:
+    if (
+        data.original_amount is None
+        and data.original_currency is None
+        and data.fx_rate is None
+        and data.fx_source is None
+    ):
         if data.amount is None:
             raise ValidationError("amount is required")
         amount = _round_amount(data.amount)
@@ -140,10 +156,14 @@ def _monetary_from_update(data: TransactionUpdate, old) -> dict:
         }
 
     original_amount = _round_amount(
-        data.original_amount if data.original_amount is not None else old["original_amount"]
+        data.original_amount
+        if data.original_amount is not None
+        else old["original_amount"]
     )
     original_currency = _normalize_currency(
-        data.original_currency if data.original_currency is not None else old["original_currency"]
+        data.original_currency
+        if data.original_currency is not None
+        else old["original_currency"]
     )
     if original_currency not in SUPPORTED_ORIGINAL_CURRENCIES:
         raise ValidationError(f"Unsupported original_currency: {original_currency}")
@@ -157,10 +177,18 @@ def _monetary_from_update(data: TransactionUpdate, old) -> dict:
             "fx_source": None,
         }
 
-    next_fx_source = (data.fx_source if data.fx_source is not None else old["fx_source"] or "").strip().upper()
+    next_fx_source = (
+        (data.fx_source if data.fx_source is not None else old["fx_source"] or "")
+        .strip()
+        .upper()
+    )
     if not next_fx_source:
         raise ValidationError("fx_source is required for non-ARS transactions")
-    fx_rate = _round_amount(data.fx_rate) if data.fx_rate is not None else _resolve_fx_rate(next_fx_source)
+    fx_rate = (
+        _round_amount(data.fx_rate)
+        if data.fx_rate is not None
+        else _resolve_fx_rate(next_fx_source)
+    )
     return {
         "amount": _round_amount(original_amount * fx_rate),
         "original_amount": original_amount,
@@ -238,11 +266,12 @@ def create_transaction(conn, data: TransactionIn) -> TransactionOut:
 
     monetary = _monetary_from_create(data)
 
-    cur = conn.execute(
+    row = conn.execute(
         """INSERT INTO transactions
            (debit_account, credit_account, amount, original_amount, original_currency,
             fx_rate, fx_source, description, date)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           RETURNING id""",
         (
             data.debit_account,
             data.credit_account,
@@ -255,8 +284,9 @@ def create_transaction(conn, data: TransactionIn) -> TransactionOut:
             tx_date,
         ),
     )
-    tags_service.replace_transaction_tags(conn, cur.lastrowid, data.tag_ids)
-    return get_transaction(conn, cur.lastrowid)
+    tx_id = row.fetchone()["id"]
+    tags_service.replace_transaction_tags(conn, tx_id, data.tag_ids)
+    return get_transaction(conn, tx_id)
 
 
 def update_transaction(conn, tx_id: int, data: TransactionUpdate) -> TransactionOut:

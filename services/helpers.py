@@ -1,7 +1,8 @@
 """Shared helper utilities for the backend service layer."""
 
+from calendar import monthrange
 import json
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -84,7 +85,7 @@ def require_row(
     query: str,
     params: tuple[Any, ...],
     error_message: str,
-    error_cls=NotFoundError,
+    error_cls: type[Exception] = NotFoundError,
 ):
     row = conn.execute(query, params).fetchone()
     if not row:
@@ -94,6 +95,21 @@ def require_row(
 
 def model_from_row(model_cls, row):
     return model_cls(**dict(row))
+
+
+def serialize_temporal_value(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+def end_of_month_datetime(month_str: str) -> str:
+    year = int(month_str[:4])
+    month = int(month_str[5:7])
+    last_day = monthrange(year, month)[1]
+    return f"{year:04d}-{month:02d}-{last_day:02d} 23:59:59"
 
 
 def parse_json_object(value: Any) -> dict[str, Any]:

@@ -2,8 +2,7 @@
 'use strict';
 
 const Settings = {
-  _tab:    'books',
-  _books:  [],
+  _tab:    'config',
   _config: {},
   _env:    [],
   _preferences: {},
@@ -19,19 +18,16 @@ const Settings = {
   /* ── Load all settings data ───────────────────────────────────────────────── */
   async load() {
     try {
-      const [books, config, env, preferences] = await Promise.all([
-        this._get('/books'),
+      const [config, env, preferences] = await Promise.all([
         this._get('/settings/config'),
         this._get('/settings/env'),
         this._get('/settings/preferences'),
       ]);
-      this._books  = books  || [];
       this._config = config || {};
       this._env    = env    || [];
       this._preferences = preferences || {};
     } catch (e) {
       console.error('Settings.load error:', e);
-      this._books  = [];
       this._config = {};
       this._env    = [];
       this._preferences = {};
@@ -55,8 +51,8 @@ const Settings = {
 
           <!-- Tab strip -->
           <div class="sticky top-0 z-10 flex gap-1 mb-0 border-b border-dark-600 bg-dark-900/95 backdrop-blur supports-[backdrop-filter]:bg-dark-900/80">
-            ${['books','config','env'].map(tab => {
-              const tabLabels = { books: t('settings.tab.books'), config: t('settings.tab.config'), env: t('settings.tab.env') };
+            ${['config','env'].map(tab => {
+              const tabLabels = { config: t('settings.tab.config'), env: t('settings.tab.env') };
               return `<button id="stab-${tab}" onclick="Settings._switchTab('${tab}')"
                       class="stab-btn px-4 py-2 text-sm rounded-t-lg border border-dark-600 border-b-0
                              cursor-pointer transition-colors
@@ -70,7 +66,6 @@ const Settings = {
 
           <!-- Panels -->
           <div class="bg-dark-800 border border-dark-600 border-t-0 rounded-b-xl rounded-tr-xl p-5">
-            <div id="spanel-books"  class="${this._tab !== 'books'  ? 'hidden' : ''}">${this._booksHTML()}</div>
             <div id="spanel-config" class="${this._tab !== 'config' ? 'hidden' : ''}">${this._configHTML()}</div>
             <div id="spanel-env"    class="${this._tab !== 'env'    ? 'hidden' : ''}">${this._envHTML()}</div>
           </div>
@@ -103,7 +98,7 @@ const Settings = {
 
   _switchTab(tab) {
     this._tab = tab;
-    ['books','config','env'].forEach(t => {
+    ['config','env'].forEach(t => {
       const btn = document.getElementById(`stab-${t}`);
       const panel = document.getElementById(`spanel-${t}`);
       if (btn) btn.className =
@@ -114,232 +109,6 @@ const Settings = {
           : 'bg-dark-800 text-dark-400 hover:text-dark-300');
       if (panel) panel.className = t === tab ? '' : 'hidden';
     });
-  },
-
-  /* ── BOOKS panel ──────────────────────────────────────────────────────────── */
-  _booksHTML() {
-    if (!this._books.length) {
-      return `<p class="text-dark-400 text-sm">${t('settings.books.no_books')}</p>`;
-    }
-
-    const rows = this._books.map(b => `
-      <tr class="border-t border-dark-700 hover:bg-dark-750 transition-colors">
-        <td class="px-4 py-3 text-sm font-medium ${b.current ? 'text-blue-400' : 'text-dark-200'}">
-          ${b.current ? '📌 ' : ''}${b.name}
-        </td>
-        <td class="px-4 py-3 text-xs text-dark-500">${b.current ? t('settings.books.active') : ''}</td>
-        <td class="px-4 py-3">
-          <div class="flex gap-1.5 flex-wrap justify-end">
-            ${!b.current ? `
-              <button onclick="Settings.selectBook('${b.name}')"
-                      class="tbtn text-[11px] px-2.5 py-1">${t('btn.activate')}</button>` : ''}
-            <button onclick="Settings.showRenameBook('${b.name}')"
-                    class="tbtn text-[11px] px-2.5 py-1">${t('btn.rename')}</button>
-            <button onclick="Settings.backupBook('${b.name}')"
-                    class="tbtn text-[11px] px-2.5 py-1">${t('btn.backup')}</button>
-            ${!b.current ? `
-              <button onclick="Settings.deleteBook('${b.name}')"
-                      class="tbtn text-[11px] px-2.5 py-1 hover:!text-red-400 hover:!border-red-500/40">
-                🗑️
-              </button>` : ''}
-          </div>
-        </td>
-      </tr>`).join('');
-
-    return `
-      <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
-        <p class="text-sm text-dark-400">${t('settings.books.subtitle')}</p>
-        <div class="flex gap-2">
-          <button onclick="Settings.showImportBook()" class="tbtn px-3 py-2 text-sm">
-            ${t('btn.import_book')}
-          </button>
-          <button onclick="Settings.showCreateBook()" class="tbtn px-3 py-2 text-sm">
-            ${t('btn.new_book')}
-          </button>
-        </div>
-      </div>
-      <div class="overflow-hidden rounded-lg border border-dark-700">
-        <table class="w-full text-left">
-          <thead class="bg-dark-750">
-            <tr class="text-dark-400 text-xs uppercase tracking-wide">
-              <th class="px-4 py-3">${t('settings.books.col.name')}</th>
-              <th class="px-4 py-3">${t('settings.books.col.status')}</th>
-              <th class="px-4 py-3 text-right">${t('settings.books.col.actions')}</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>`;
-  },
-
-  async selectBook(name) {
-    try {
-      await this._post('/books/select', { name });
-      this._updateBadge(name);
-      Toast.show(t('msg.book_activated', {name}));
-      await this.render();
-      await View.refresh();
-    } catch (e) { Toast.show(t('msg.book_activate_error'), 'error'); }
-  },
-
-  showCreateBook() {
-    Modal.open(`
-      <div class="flex flex-col gap-4 p-4">
-        <div>
-          <label class="block text-xs text-dark-400 mb-1">${t('modal.new_book.name')}</label>
-          <input id="new-book-name" type="text" placeholder="${escapeHtml(t('modal.new_book.placeholder'))}"
-                 data-modal-autofocus
-                 class="w-full bg-dark-700 border border-dark-600 rounded-lg
-                        text-dark-200 text-sm px-3 py-2 font-sans
-                        focus:outline-none focus:border-blue-500/60"/>
-        </div>
-        <label class="flex items-center gap-2 text-sm text-dark-300 cursor-pointer select-none">
-          <input type="checkbox" id="new-book-seed" checked class="w-4 h-4 accent-blue-500"/>
-          ${t('modal.new_book.seed')}
-        </label>
-      </div>`,
-      {
-        title: t('modal.new_book.title'),
-        submitLabel: t('btn.create'),
-        onSubmit: () => this._doCreateBook(),
-      }
-    );
-    setTimeout(() => document.getElementById('new-book-name')?.focus(), 80);
-  },
-
-  async _doCreateBook() {
-    const name  = document.getElementById('new-book-name')?.value.trim();
-    const basic = document.getElementById('new-book-seed')?.checked ?? true;
-    if (!name) { Toast.show(t('msg.enter_name'), 'error'); return false; }
-    try {
-      const r = await this._post('/books', { name, basic_seed: basic });
-      Toast.show(t('msg.book_created', {name: r.name}));
-      await this.render();
-      return true;
-    } catch (e) {
-      Toast.show(t('msg.error_generic', {msg: e.message}), 'error');
-      return false;
-    }
-  },
-
-  showImportBook() {
-    Modal.open(`
-      <div class="flex flex-col gap-4 p-4">
-        <div>
-       <label class="block text-xs text-dark-400 mb-1">${t('modal.import_book.name')}</label>
-       <input id="import-book-name" type="text" placeholder="${escapeHtml(t('modal.import_book.placeholder'))}"
-         data-modal-autofocus
-                 class="w-full bg-dark-700 border border-dark-600 rounded-lg
-                        text-dark-200 text-sm px-3 py-2 font-sans
-                        focus:outline-none focus:border-blue-500/60"/>
-        </div>
-        <div>
-       <label class="block text-xs text-dark-400 mb-1">${t('modal.import_book.file')}</label>
-          <input id="import-book-file" type="file" accept=".sql,.txt"
-                 class="w-full text-dark-300 text-sm file:mr-3 file:py-1.5 file:px-3
-                        file:rounded-lg file:border file:border-dark-500
-                        file:bg-dark-700 file:text-dark-300 file:cursor-pointer
-                        file:text-xs hover:file:bg-dark-600 cursor-pointer"/>
-        </div>
-        <p class="text-xs text-dark-500">
-          ${t('modal.import_book.hint')}
-        </p>
-      </div>`,
-      {
-        title: t('modal.import_book.title'),
-        submitLabel: t('btn.import'),
-        onSubmit: () => this._doImportBook(),
-      }
-    );
-    setTimeout(() => document.getElementById('import-book-name')?.focus(), 80);
-  },
-
-  async _doImportBook() {
-    const nameEl = document.getElementById('import-book-name');
-    const fileEl = document.getElementById('import-book-file');
-    const name   = nameEl?.value.trim();
-    const file   = fileEl?.files?.[0];
-
-    if (!name)  { Toast.show(t('msg.enter_name'), 'error'); return false; }
-    if (!file)  { Toast.show(t('msg.select_file'), 'error'); return false; }
-
-    const form = new FormData();
-    form.append('name', name);
-    form.append('file', file);
-
-    try {
-      const r = await fetch(buildApiUrl('/books/import'), { method: 'POST', body: form });
-      if (!r.ok) {
-        const msg = await r.text().catch(() => t('msg.unknown_error'));
-        Toast.show(t('msg.import_error', {msg}), 'error');
-        return false;
-      }
-      const data = await r.json();
-      Toast.show(t('msg.book_imported', {name: data.name}));
-      await this.render();
-      return true;
-    } catch (e) {
-      Toast.show(t('msg.import_error', {msg: e.message}), 'error');
-      return false;
-    }
-  },
-
-  showRenameBook(name) {
-    Modal.open(`
-      <div class="p-4">
-        <label class="block text-xs text-dark-400 mb-1">${t('modal.rename_book.label', {name})}</label>
-        <input id="rename-book-val" type="text" value="${name}"
-               data-modal-autofocus
-               class="w-full bg-dark-700 border border-dark-600 rounded-lg
-                      text-dark-200 text-sm px-3 py-2 font-sans
-                      focus:outline-none focus:border-blue-500/60"/>
-      </div>`,
-      {
-        title: `${t('modal.rename_book.title')} '${name}'`,
-        submitLabel: t('btn.rename'),
-        onSubmit: async () => {
-          const newName = document.getElementById('rename-book-val')?.value.trim();
-          if (!newName || newName === name) return true;
-          try {
-            const r = await this._put(`/books/${name}/rename`, { new_name: newName });
-            Toast.show(t('msg.book_renamed', {name: r.name}));
-            const cur = this._books.find(b => b.current);
-            if (cur?.name === name) this._updateBadge(r.name);
-            await this.render();
-            return true;
-          } catch (e) { Toast.show(t('msg.error_generic', {msg: e.message}), 'error'); return false; }
-        },
-      }
-    );
-    setTimeout(() => {
-      const el = document.getElementById('rename-book-val');
-      el?.focus(); el?.select();
-    }, 80);
-  },
-
-  async deleteBook(name) {
-    const confirmed = await Dialog.confirm({
-      title: t('btn.delete'),
-      message: t('msg.confirm_delete', {name}),
-      confirmLabel: t('btn.delete'),
-      cancelLabel: t('btn.cancel'),
-      submitTone: 'danger',
-    });
-    if (!confirmed) return;
-
-    try {
-      await this._del(`/books/${name}`);
-      Toast.show(t('msg.book_deleted', {name}));
-      await this.render();
-    } catch (e) { Toast.show(t('msg.error_generic', {msg: e.message}), 'error'); }
-  },
-
-  backupBook(name) {
-    const a = document.createElement('a');
-    a.href = buildApiUrl(`/books/${name}/backup`);
-    a.download = `${name}.sql`;
-    a.click();
-    Toast.show(t('msg.backup_start', {name}));
   },
 
   /* ── CONFIG panel ─────────────────────────────────────────────────────────── */
@@ -390,7 +159,7 @@ const Settings = {
         <label class="flex items-center gap-3 cursor-pointer select-none text-sm text-dark-300">
           <input type="checkbox" id="pref-fx-sounds"
                  class="w-4 h-4 accent-blue-500"
-                 ${this._preferences.fx_sounds_enabled ? 'checked' : ''}
+                 ${this._preferences.fx_sounds_enabled !== false ? 'checked' : ''}
                  onchange="Settings._onFxSoundsChange(event)"/>
           Sonidos de arrastre (buzz + crash)
         </label>
@@ -437,7 +206,6 @@ const Settings = {
   _configFieldLabel(section, key) {
     const labels = {
       general: {
-        current_book: t('settings.config.field.general.current_book'),
         host: t('settings.config.field.general.host'),
         port: t('settings.config.field.general.port'),
       },
@@ -764,13 +532,5 @@ const Settings = {
       await this._put('/settings/env', pairs);
       Toast.show(t('msg.env_saved'));
     } catch (e) { Toast.show(t('msg.env_save_error'), 'error'); }
-  },
-
-  /* ── Badge helpers ────────────────────────────────────────────────────────── */
-  _updateBadge(name) {
-    ['current-book-badge', 'current-book-badge-m'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.textContent = name;
-    });
   },
 };

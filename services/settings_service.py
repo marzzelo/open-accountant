@@ -40,6 +40,8 @@ def get_config() -> dict:
 def update_config(data: dict[str, dict[str, str]]) -> dict:
     for section, values in data.items():
         for key, value in values.items():
+            if app_config.is_legacy_setting(section, key):
+                continue
             app_config.set_value(section, key, value)
     return {"ok": True, "config": app_config.get_all()}
 

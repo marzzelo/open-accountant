@@ -619,11 +619,11 @@ const Board = {
 
     const pendingHint = document.createElement('div');
     pendingHint.id = 'board-pending-credit-hint';
-    pendingHint.className = 'hidden px-2 pb-2 sm:px-3 lg:px-8 xl:px-64';
+    pendingHint.className = 'hidden px-0 pb-2 2xl:px-8';
     shell.appendChild(pendingHint);
 
     const boardHost = document.createElement('div');
-    boardHost.className = 'flex-1 min-h-0 px-2 sm:px-3 lg:px-8 xl:px-64 pb-2';
+    boardHost.className = 'flex-1 min-h-0 px-0 pb-2 2xl:px-8';
 
     const shortcutsPanel = await CommonTx.renderPanel();
     boardHost.appendChild(shortcutsPanel);

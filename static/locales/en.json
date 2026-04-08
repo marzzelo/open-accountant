@@ -222,7 +222,6 @@
   "settings.books.no_books": "No books found.",
   "settings.config.no_config": "No configuration found.",
   "settings.config.restart": "Host/port changes require a server restart.",
-  "settings.config.field.general.current_book": "Active book",
   "settings.config.field.general.host": "Host",
   "settings.config.field.general.port": "Port",
   "settings.config.field.app.name": "Application name",

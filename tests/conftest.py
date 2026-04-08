@@ -8,13 +8,13 @@ from main import app
 @pytest.fixture()
 def isolated_paths(tmp_path, monkeypatch):
     data_dir = tmp_path / "data"
+    db_path = data_dir / "open_accountant.db"
     config_path = tmp_path / "config.ini"
     env_path = tmp_path / ".env"
     env_example_path = tmp_path / ".env.example"
 
     config_path.write_text(
         "[general]\n"
-        "current_book = home\n"
         "host = 127.0.0.1\n"
         "port = 5999\n\n"
         "[app]\n"
@@ -32,6 +32,7 @@ def isolated_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(app_config, "CONFIG_PATH", config_path)
     monkeypatch.setattr(app_config, "ENV_PATH", env_path)
     monkeypatch.setattr(app_config, "ENV_EXAMPLE_PATH", env_example_path)
+    monkeypatch.setenv(app_config.DATABASE_URL_ENV, f"sqlite:///{db_path.as_posix()}")
 
     return tmp_path
 

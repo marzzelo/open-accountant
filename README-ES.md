@@ -258,14 +258,14 @@ Abre la vista Projections para estimar estados futuros a partir del comportamien
 
 ### Configuración, preferencias y automatización
 
-Settings se divide en pestañas de Books, Configuration y Env.
+Settings se divide en pestañas de Configuration y Env.
 
 - Configura host, puerto, nombre de la app e idioma en tiempo real
 - Gestiona las cotizaciones financieras manualmente desde la UI
 - Trae la última cotización oficial y blue desde Bluelytics y deriva automáticamente la cotización tarjeta
-- Guarda la configuración financiera global en `data/app_meta.sqlite3`
+- Guarda la configuración de runtime en la base principal (`oacc_settings` en PostgreSQL, `settings` en el fallback SQLite)
 - Migra automáticamente preferencias financieras legacy hacia la configuración global al iniciar
-- Guarda por libro preferencias como ocultar cuentas o mostrar saldos cero
+- Guarda de forma global preferencias como ocultar cuentas o mostrar saldos cero
 - Persiste direcciones de orden en reportes y otras preferencias visuales
 - Edita el archivo raíz `.env` desde la UI
 - Enmascara variables sensibles y conserva secretos ocultos salvo que se modifiquen explícitamente
@@ -274,13 +274,14 @@ Settings se divide en pestañas de Books, Configuration y Env.
 <p align="center">
   <img src="docs/images/config.png" alt="Configuración y finanzas en Open Accountant" width="70%">
 </p>
-<p align="center"><em>La configuración centraliza libro activo, dirección de enlace, cotizaciones, idioma y efectos FX opcionales en un solo panel.</em></p>
+<p align="center"><em>La configuración centraliza dirección de enlace, cotizaciones, idioma y efectos FX opcionales en un solo panel.</em></p>
 
-### Backup y restauración
+### Migración a PostgreSQL
 
-- Exporta cualquier libro como volcado SQL desde Settings -> Books
-- Importa un volcado SQL existente en un libro nuevo
-- Mantiene tus datos portables sin depender de cuentas de usuario o servicios del proveedor
+- Configura `DATABASE_URL` para usar PostgreSQL en despliegues compartidos
+- La app crea todas sus tablas con prefijo `oacc_` para convivir con otras aplicaciones
+- Usa `scripts/migrate_sqlite_to_postgres.py` como migración independiente y de una sola vez desde SQLite legacy
+- Si `DATABASE_URL` no existe, la app usa un único SQLite local en `data/open_accountant.db`
 
 ### About e integridad
 
@@ -329,11 +330,10 @@ También puedes construir una skill de OpenClaw para consultar saldos, registrar
 
 ## Referencia de configuración
 
-La configuración global de la aplicación se almacena en `data/app_meta.sqlite3`.
+La configuración de runtime se almacena en la base principal. En PostgreSQL vive en `oacc_settings`; en el fallback SQLite vive en `data/open_accountant.db` dentro de `settings`.
 
 | Key | Default | Descripción |
 | --- | --- | --- |
-| `[general] current_book` | `home` | Nombre del libro activo mapeado a `data/<name>.db` |
 | `[general] host` | `0.0.0.0` | Dirección de enlace del servidor |
 | `[general] port` | `5001` | Puerto HTTP |
 | `[app] name` | `Open Accountant` | Nombre visible de la aplicación |
@@ -345,7 +345,7 @@ La configuración global de la aplicación se almacena en `data/app_meta.sqlite3
 | `[finance] usd_card_ars` | `0.00` | Cotización tarjeta, derivada de oficial venta x 1.30 |
 | `[finance] usd_official_last_update` | `` | Marca temporal de la última actualización financiera manual o automática |
 
-Los archivos legacy `config.ini` se tratan solo como fuentes de migración. Las instalaciones nuevas usan configuración respaldada por SQLite.
+Los archivos legacy `config.ini` y `data/app_meta.sqlite3` se tratan solo como fuentes de migración. Las instalaciones nuevas usan la base principal para la configuración.
 
 Las variables de entorno opcionales se leen desde el archivo raíz `.env`, que puede editarse desde Settings -> Env. Las claves sensibles se muestran enmascaradas en la UI.
 
@@ -372,11 +372,11 @@ python3 i18n_tools.py stats
 
 ## Datos y privacidad
 
-- Toda la información de negocio se guarda localmente en archivos SQLite dentro de `data/`
+- La información de negocio puede correr sobre PostgreSQL vía `DATABASE_URL` o sobre el fallback SQLite local en `data/open_accountant.db`
 - Por defecto no se envía nada a servicios cloud externos
 - Los archivos `data/*.db` están ignorados por git
-- `data/app_meta.sqlite3` guarda la configuración global
-- Cada libro guarda sus propias transacciones, cuentas, series de proyección y preferencias de usuario
+- En PostgreSQL, las tablas de Open Accountant usan el prefijo `oacc_`
+- El esquema legacy multi-libro fue reemplazado por un único dataset compartido
 
 ---
 

@@ -14,15 +14,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from database import init_db
 from routers import types, subtypes, accounts, transactions, reports, tags
-from routers import books, settings as settings_router, about as about_router
+from routers import settings as settings_router, about as about_router
 from routers import projections as projections_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 1. Load configuration (creates config.ini with defaults if missing)
+    # 1. Load configuration and initialize the active database.
     app_config.load()
 
     # 2. Bootstrap .env from .env.example if .env doesn't exist yet
@@ -30,8 +29,6 @@ async def lifespan(app: FastAPI):
         shutil.copy(app_config.ENV_EXAMPLE_PATH, app_config.ENV_PATH)
         print("[open-accountant] Created .env from .env.example")
 
-    # 3. Initialise current book DB (creates schema + seeds if new)
-    init_db()
     yield
 
 
@@ -56,7 +53,6 @@ app.include_router(accounts.router, prefix="/api", tags=["Accounts"])
 app.include_router(transactions.router, prefix="/api", tags=["Transactions"])
 app.include_router(tags.router, prefix="/api", tags=["Tags"])
 app.include_router(reports.router, prefix="/api", tags=["Reports"])
-app.include_router(books.router, prefix="/api", tags=["Books"])
 app.include_router(settings_router.router, prefix="/api", tags=["Settings"])
 app.include_router(about_router.router, prefix="/api", tags=["About"])
 app.include_router(projections_router.router, prefix="/api", tags=["Projections"])

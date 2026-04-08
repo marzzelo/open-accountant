@@ -8,7 +8,7 @@ from routers import reports as reports_router
 from services import (
     about_service,
     accounts_service,
-    books_service,
+    helpers,
     projections_service,
     reports_service,
     settings_service,
@@ -117,6 +117,7 @@ def test_settings_service_updates_config_preferences_env_and_language(
 
     config = settings_service.get_config()
     assert config["general"]["port"] == "6001"
+    assert "current_book" not in config["general"]
     assert config["finance"]["usd_official_buy_ars"] == "1234.00"
     assert config["finance"]["usd_blue_sell_ars"] == "1500.00"
 
@@ -152,28 +153,10 @@ def test_settings_service_fetch_rates_uses_injected_fetcher():
     assert payload["card"] == 1430.0
 
 
-def test_books_service_create_backup_import_select_rename_and_delete(
-    initialized_environment,
-):
-    created = books_service.create_book("biz 2026", basic_seed=False)
-    assert created == {"ok": True, "name": "biz2026"}
-
-    backup = books_service.backup_book("home")
-    assert "CREATE TABLE accounts" in backup
-
-    imported = books_service.import_book_from_sql("clone", backup.encode("utf-8"))
-    assert imported == {"ok": True, "name": "clone"}
-
-    selected = books_service.select_book("biz2026")
-    assert selected == {"ok": True, "current": "biz2026"}
-
-    renamed = books_service.rename_book("clone", "archive")
-    assert renamed == {"ok": True, "name": "archive"}
-
-    assert books_service.delete_book("archive") == {"ok": True}
-    books = books_service.list_books()
-    assert any(item["name"] == "biz2026" and item["current"] for item in books)
-    assert all(item["name"] != "archive" for item in books)
+def test_end_of_month_datetime_handles_short_months():
+    assert helpers.end_of_month_datetime("2026-04") == "2026-04-30 23:59:59"
+    assert helpers.end_of_month_datetime("2026-02") == "2026-02-28 23:59:59"
+    assert helpers.end_of_month_datetime("2024-02") == "2024-02-29 23:59:59"
 
 
 def test_accounts_transactions_and_reports_services_work_directly(
@@ -448,7 +431,12 @@ def test_tags_service_crud_assignment_and_report_filters(initialized_environment
 
         listed_tags = tags_service.list_tags(conn)
         assert {tag.name for tag in listed_tags} == {"Groceries", "Travel"}
-        assert next(tag for tag in listed_tags if tag.name == "Groceries").transaction_count == 1
+        assert (
+            next(
+                tag for tag in listed_tags if tag.name == "Groceries"
+            ).transaction_count
+            == 1
+        )
 
         tx_list = transactions_service.list_transactions(conn, tag_ids=[groceries.id])
         assert len(tx_list) == 1
@@ -459,7 +447,9 @@ def test_tags_service_crud_assignment_and_report_filters(initialized_environment
         assert len(journal) == 1
         assert journal[0]["tags_label"] == "Groceries"
 
-        ledger = reports_service.get_ledger(conn, accounts["Bank"].id, tag_ids=[travel.id])
+        ledger = reports_service.get_ledger(
+            conn, accounts["Bank"].id, tag_ids=[travel.id]
+        )
         assert len(ledger["entries"]) == 1
         assert ledger["entries"][0]["id"] == salary_tx.id
 

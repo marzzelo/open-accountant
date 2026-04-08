@@ -3,7 +3,13 @@
 from math import sqrt
 from typing import Optional
 
-from database import balance_delta, compute_balance, compute_filtered_balance
+from database import (
+    balance_delta,
+    ci_order_sql,
+    compute_balance,
+    compute_filtered_balance,
+    month_bucket_sql,
+)
 from models import (
     BalanceGroup,
     BalanceLineItem,
@@ -15,6 +21,7 @@ from models import (
 from services.errors import NotFoundError
 from services.helpers import (
     current_year_range as shared_current_year_range,
+    end_of_month_datetime,
     normalize_account_properties,
     require_row,
     resolve_date_range,
@@ -65,13 +72,14 @@ def _tag_csv(tags) -> str:
 
 
 def _financial_rows(conn, type_id: int):
+    order_sql = ci_order_sql(conn, "a.name")
     return conn.execute(
-        """SELECT a.id, a.name, a.type_id, a.initial_balance, a.properties,
+        f"""SELECT a.id, a.name, a.type_id, a.initial_balance, a.properties,
                   COALESCE(s.name, '') AS subtype_name
            FROM accounts a
            LEFT JOIN subtypes s ON a.subtype_id = s.id
            WHERE a.type_id = ?
-           ORDER BY a.name COLLATE NOCASE""",
+           ORDER BY {order_sql}""",
         (type_id,),
     ).fetchall()
 
@@ -355,10 +363,11 @@ def get_stats(
 ) -> StatsData:
     from_dt, to_dt, _ = resolve_date_range(from_date, to_date)
     tag_filter, tag_params = _tag_clause("t", tag_ids)
+    month_expr = month_bucket_sql(conn, "t.date")
 
     cashflow_rows = conn.execute(
         f"""WITH tx_legs AS (
-             SELECT strftime('%Y-%m', t.date) AS month,
+             SELECT {month_expr} AS month,
                  da.type_id AS type_id,
                  t.amount AS debit_amount,
                  0 AS credit_amount
@@ -368,7 +377,7 @@ def get_stats(
 
              UNION ALL
 
-             SELECT strftime('%Y-%m', t.date) AS month,
+             SELECT {month_expr} AS month,
                  ca.type_id AS type_id,
                  0 AS debit_amount,
                  t.amount AS credit_amount
@@ -557,7 +566,7 @@ def get_stats(
     ]
 
     months_rows = conn.execute(
-        f"""SELECT DISTINCT strftime('%Y-%m', date) AS month FROM transactions t
+        f"""SELECT DISTINCT {month_expr} AS month FROM transactions t
            WHERE date BETWEEN ? AND ?{tag_filter} ORDER BY month""",
         (from_dt, to_dt, *tag_params),
     ).fetchall()
@@ -566,7 +575,7 @@ def get_stats(
     balance_evolution = []
     net_worth_evolution = []
     for month in months:
-        month_end = month + "-31 23:59:59"
+        month_end = end_of_month_datetime(month)
         month_assets = 0.0
         month_liabilities = 0.0
 

@@ -822,37 +822,23 @@ View.show = async function (name) {
   return _ViewShow(name);
 };
 
-/* ─── INIT ───────────────────────────────────────────────────────── */
-async function _initBookBadge() {
-  try {
-    const books = await API.get('/books');
-    const cur = (books || []).find(b => b.current);
-    if (cur) {
-      ['current-book-badge', 'current-book-badge-m'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.textContent = cur.name;
-      });
-    }
-  } catch (_) { /* non-critical */ }
-}
-
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     await API.loadAll();
     await Preferences.applyLoaded();
     applyAppVersion();
     await I18n.init();         // load translations + apply static labels
-    await _initBookBadge();
     StatusBar.startClock();
     StatusBar.refresh();
     Filter._syncUi();
     await View.show('board');
     if (typeof FX !== 'undefined') FX.init();
   } catch (e) {
+    const backendOrigin = window.location.origin;
     document.getElementById('main').innerHTML =
       `<div class="empty" style="color:#ef5350">
         ⚠️ No se puede conectar al backend.<br>
-        <small>Asegúrese de que el servidor corre en localhost:5001</small>
+        <small>Asegúrese de que el servidor corre en ${backendOrigin}</small>
       </div>`;
   }
 });

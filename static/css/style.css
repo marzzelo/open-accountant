@@ -55,6 +55,15 @@
   border: 0;
 }
 
+.toolbar-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.toolbar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 /* ── Drawer nav buttons ── */
 .drawer-btn {
   display: block; width: 100%;
@@ -227,7 +236,7 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(280px, 1fr));
   gap: 14px;
-  padding: 14px;
+  padding: 0;
   height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
@@ -245,13 +254,21 @@
 .column::-webkit-scrollbar { width: 4px; }
 .column::-webkit-scrollbar-thumb { background: #30363d; border-radius: 2px; }
 
+.board > .column:first-child {
+  padding-left: 0;
+}
+
+.board > .column:last-child {
+  padding-right: 0;
+}
+
 /* Board columns: el tablero de fichas */
 @media (max-width: 1023px) {
-  .board { grid-template-columns: repeat(4, minmax(240px, 1fr)); gap: 10px; padding: 10px; }
+  .board { grid-template-columns: repeat(4, minmax(240px, 1fr)); gap: 10px; }
 }
 @media (max-width: 767px) {
   .board {
-    display: block; padding: 10px;
+    display: block; padding: 0;
     height: 100%; overflow-y: auto; overflow-x: hidden;
     touch-action: pan-y;
   }
@@ -260,6 +277,20 @@
   .column.mobile-active,
   .card {
     touch-action: pan-y;
+  }
+}
+
+@media (min-width: 1536px) {
+  .board {
+    padding: 14px;
+  }
+
+  .board > .column:first-child {
+    padding-left: 14px;
+  }
+
+  .board > .column:last-child {
+    padding-right: 14px;
   }
 }
 /* Tabs y FAB: controlados 100% via JS (inline style) — sin conflicto de cascada */

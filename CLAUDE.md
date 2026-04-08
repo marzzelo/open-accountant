@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 **Open Accountant** is a browser-based personal double-entry accounting application.
-- **Backend**: FastAPI (Python 3.10+) with SQLite (WAL mode)
+- **Backend**: FastAPI (Python 3.10+) with PostgreSQL support and a single-file SQLite fallback for local development/tests
 - **Frontend**: Vanilla JavaScript + Tailwind CSS (SPA, no framework)
 - **Default port**: 5001
 
@@ -44,19 +44,19 @@ docker run --rm -p 5001:5001 -v open-accountant-data:/app/data open-accountant:l
 ```
 HTTP Request → routers/ (FastAPI handlers)
                   → services/ (business logic, validation)
-                      → database.py (SQLite queries)
-                          → data/<book>.db (per-book SQLite files)
+                      → database.py (backend-aware SQL helpers and connections)
+                          → PostgreSQL `oacc_*` tables or `data/open_accountant.db`
 ```
 
 ### Key Files
 - [main.py](main.py) — App entry point, router registration, lifespan hooks
-- [database.py](database.py) — SQLite schema, migrations, balance helpers, `get_db()` context manager
+- [database.py](database.py) — Backend-aware schema/bootstrap, `oacc_*` prefix translation, balance helpers, `get_db()` context manager
 - [models.py](models.py) — Pydantic v2 request/response schemas
-- [app_config.py](app_config.py) — Config hierarchy: env vars → `app_meta.sqlite3` → legacy `config.ini` → hardcoded defaults
+- [app_config.py](app_config.py) — Config hierarchy: env vars → main DB settings table → legacy `app_meta.sqlite3` / `config.ini` → hardcoded defaults
 - [services/errors.py](services/errors.py) — Custom exceptions (`ValidationError`, `NotFoundError`, `ConflictError`)
 
-### Multi-Book System
-Each accounting book is a separate SQLite file in `data/` (e.g., `data/home.db`). Global settings are in `data/app_meta.sqlite3`. The active book is tracked in app config.
+### Single-Dataset System
+The legacy multi-book model has been removed. Runtime data now lives in a single dataset: PostgreSQL tables prefixed with `oacc_`, or `data/open_accountant.db` when using the SQLite fallback.
 
 ### Double-Entry Accounting Logic
 Every transaction debits one account and credits another. Balance calculation uses account type:
@@ -66,7 +66,8 @@ Every transaction debits one account and credits another. Balance calculation us
 ### Database Schema
 ```
 types → subtypes → accounts → transactions
-                 → user_preferences (key-value JSON store, per-book)
+                 → user_preferences (key-value JSON store)
+settings → runtime app config in the main database
 ```
 
 ### Frontend SPA
@@ -77,7 +78,7 @@ Key JS files:
 - [static/js/forms.js](static/js/forms.js) — Account/transaction modals, FX conversion
 - [static/js/board.js](static/js/board.js) — Kanban board with drag-drop transfers
 - [static/js/reports.js](static/js/reports.js) — Balance sheet, journal, ledger, stats
-- [static/js/settings.js](static/js/settings.js) — Settings panel, book management
+- [static/js/settings.js](static/js/settings.js) — Settings panel for configuration, FX rates, env vars, and preferences
 
 ### Currency Support
 Transactions store `original_amount`, `original_currency`, `fx_rate`, `fx_source` for USD/ARS dual-currency support. Rates are configurable in Settings → Finance.
