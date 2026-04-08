@@ -27,7 +27,9 @@ def initialized_environment(isolated_paths):
     return isolated_paths
 
 
-def test_server_host_and_port_env_override_settings(initialized_environment, monkeypatch):
+def test_server_host_and_port_env_override_settings(
+    initialized_environment, monkeypatch
+):
     assert app_config.server_host() == "127.0.0.1"
     assert app_config.server_port() == 5999
 
