@@ -3,11 +3,20 @@
 from datetime import date
 from typing import Optional
 
-from database import compute_balance, compute_filtered_balance
+from database import (
+    ci_order_sql,
+    compute_balance,
+    compute_filtered_balance,
+    month_bucket_sql,
+)
 from models import ProjectionSeriesIn, ProjectionSeriesUpdate
 
 from services.errors import NotFoundError
-from services.helpers import normalize_account_properties, require_row
+from services.helpers import (
+    end_of_month_datetime,
+    normalize_account_properties,
+    require_row,
+)
 
 
 # ── Month helpers ──────────────────────────────────────────────────────────────
@@ -140,8 +149,9 @@ def _get_monthly_cashflow(
     appear in each map, so that months with no income/expense activity are
     correctly treated as missing data (None) by the caller.
     """
+    month_expr = month_bucket_sql(conn, "t.date")
     legs_cte = """WITH tx_legs AS (
-        SELECT strftime('%Y-%m', t.date) AS month,
+        SELECT {month_expr} AS month,
                da.type_id AS type_id,
                t.amount    AS debit_amount,
                0           AS credit_amount
@@ -151,14 +161,16 @@ def _get_monthly_cashflow(
 
         UNION ALL
 
-        SELECT strftime('%Y-%m', t.date) AS month,
+        SELECT {month_expr} AS month,
                ca.type_id AS type_id,
                0           AS debit_amount,
                t.amount    AS credit_amount
         FROM transactions t
         JOIN accounts ca ON t.credit_account = ca.id
         WHERE t.date BETWEEN ? AND ?
-    )"""
+    )""".format(
+        month_expr=month_expr
+    )
 
     income_rows = conn.execute(
         legs_cte
@@ -195,8 +207,9 @@ def _get_monthly_balances(
         (type_id,),
     ).fetchall()
 
+    month_expr = month_bucket_sql(conn, "date")
     months_rows = conn.execute(
-        """SELECT DISTINCT strftime('%Y-%m', date) AS month FROM transactions
+        f"""SELECT DISTINCT {month_expr} AS month FROM transactions
            WHERE date BETWEEN ? AND ? ORDER BY month""",
         (from_date, to_date),
     ).fetchall()
@@ -204,7 +217,7 @@ def _get_monthly_balances(
 
     result: dict[str, float] = {}
     for month in months:
-        month_end = month + "-31 23:59:59"
+        month_end = end_of_month_datetime(month)
         total = 0.0
         for acc in asset_accounts:
             bal = compute_filtered_balance(
@@ -221,13 +234,14 @@ def _get_monthly_balances(
 
 
 def _financial_rows(conn, type_id: int):
+    order_sql = ci_order_sql(conn, "a.name")
     return conn.execute(
-        """SELECT a.id, a.name, a.type_id, a.initial_balance, a.properties,
+        f"""SELECT a.id, a.name, a.type_id, a.initial_balance, a.properties,
                   COALESCE(s.name, '') AS subtype_name
            FROM accounts a
            LEFT JOIN subtypes s ON a.subtype_id = s.id
            WHERE a.type_id = ?
-           ORDER BY a.name COLLATE NOCASE""",
+           ORDER BY {order_sql}""",
         (type_id,),
     ).fetchall()
 
@@ -329,13 +343,14 @@ def get_series(conn, series_id: int) -> dict:
 
 
 def create_series(conn, data: ProjectionSeriesIn) -> dict:
-    cur = conn.execute(
+    row = conn.execute(
         """INSERT INTO projection_series (name, type, start_date, months, monthly_amount)
-           VALUES (?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?)
+           RETURNING id""",
         (data.name, data.type, data.start_date, data.months, data.monthly_amount),
     )
     conn.commit()
-    return get_series(conn, cur.lastrowid)
+    return get_series(conn, row.fetchone()["id"])
 
 
 def update_series(conn, series_id: int, data: ProjectionSeriesUpdate) -> dict:
@@ -385,7 +400,7 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
     # History window: from (today - history_months) to today
     hist_y, hist_m = _add_months(today.year, today.month, -history_months)
     history_start = _month_str(hist_y, hist_m) + "-01 00:00:00"
-    history_end = today_ym + "-31 23:59:59"
+    history_end = end_of_month_datetime(today_ym)
 
     # ── Historical cashflow ──
     income_map, expense_map = _get_monthly_cashflow(conn, history_start, history_end)

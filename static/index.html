@@ -53,17 +53,13 @@
     <span id="app-title-mobile" class="font-bold text-dark-100 text-[15px] truncate">Open Accountant v1.3.1</span>
   </div>
 
-  <div class="hidden lg:flex items-center gap-3 flex-1 min-w-0">
-    <div class="flex items-center gap-2 min-w-0 flex-1">
+  <div class="hidden lg:grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 flex-1 min-w-0 overflow-hidden">
+    <div class="flex items-center gap-2 min-w-0 justify-self-start max-w-[220px] xl:max-w-none">
       <span class="text-2xl shrink-0">💰</span>
       <span id="app-title" class="font-bold text-dark-100 text-[15px] truncate">Open Accountant v1.3.1</span>
-      <span class="text-dark-600 shrink-0">|</span>
-      <span id="current-book-badge"
-            class="min-w-0 truncate text-[12px] text-blue-400 font-medium cursor-pointer hover:underline"
-            onclick="View.show('settings')" title="Contabilidad activa"></span>
     </div>
 
-    <nav id="tl-nav" class="flex items-center justify-center gap-1 shrink-0 px-2">
+    <nav id="tl-nav" class="toolbar-scroll flex min-w-0 items-center justify-center gap-1 px-2 overflow-x-auto justify-self-center">
       <button class="tbtn nav-icon-btn" data-view="board" data-i18n-title="nav.board" title="Board" aria-label="Board" onclick="View.show('board')">
         <span class="nav-icon" aria-hidden="true">📊</span>
         <span class="nav-label" data-i18n="nav.board">Board</span>
@@ -114,33 +110,7 @@
       </button>
     </nav>
 
-    <div class="flex items-center justify-end flex-1 min-w-0">
-      <div id="tl-filter" class="filter-controls hidden xl:flex items-center gap-1.5 shrink-0 rounded-lg px-2 py-1 transition-colors">
-        <span class="text-[10px] text-dark-500 shrink-0">📅</span>
-
-        <button onclick="Filter.setToday()"
-              class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.today" data-i18n="filter.today">Today</button>
-        <button onclick="Filter.setCurrentYear()"
-              class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.current_year" data-i18n="filter.current_year">Current year</button>
-        <button onclick="Filter.setCurrentMonth()"
-              class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.current_month" data-i18n="filter.current_month">Current month</button>
-        <button onclick="Filter.setPrevMonth()"
-              class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.prev_month" data-i18n="filter.prev_month">Prev. month</button>
-
-        <div class="w-px h-4 bg-dark-600 mx-1 shrink-0"></div>
-
-        <input type="date" id="filter-from" onchange="Filter.apply()"
-               class="bg-dark-700 border border-dark-600 rounded-md text-dark-300
-                      text-[11px] px-2 py-1 cursor-pointer font-sans">
-        <span class="text-dark-500 text-[11px]">→</span>
-        <input type="date" id="filter-to" onchange="Filter.apply()"
-               class="bg-dark-700 border border-dark-600 rounded-md text-dark-300
-                      text-[11px] px-2 py-1 cursor-pointer font-sans">
-        <button onclick="Filter.clear()" title="${t('filter.clear_title')}"
-                class="text-dark-400 hover:text-dark-300 text-[13px] px-1 shrink-0">✕</button>
-        <span id="filter-text" class="hidden"></span>
-      </div>
-    </div>
+    <div aria-hidden="true" class="min-w-0"></div>
   </div>
 
   <!-- Hamburger (mobile/tablet) -->
@@ -151,6 +121,38 @@
     <span class="block w-[22px] h-[2px] bg-dark-400 rounded"></span>
   </button>
 </header>
+
+<div class="hidden xl:block shrink-0 border-b border-dark-700 bg-dark-900/95 backdrop-blur">
+  <div class="toolbar-scroll overflow-x-auto px-3 py-2">
+    <div class="flex min-w-max justify-center">
+      <div id="tl-filter" class="filter-controls flex min-w-max items-center justify-center gap-1.5 rounded-lg px-2 py-1 transition-colors">
+  <span class="text-[10px] text-dark-500 shrink-0">📅</span>
+
+  <button onclick="Filter.setToday()"
+    class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.today" data-i18n="filter.today">Today</button>
+  <button onclick="Filter.setCurrentYear()"
+    class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.current_year" data-i18n="filter.current_year">Current year</button>
+  <button onclick="Filter.setCurrentMonth()"
+    class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.current_month" data-i18n="filter.current_month">Current month</button>
+  <button onclick="Filter.setPrevMonth()"
+    class="qfilter-btn tbtn text-[11px] px-2.5 py-1" data-filter-key="filter.prev_month" data-i18n="filter.prev_month">Prev. month</button>
+
+  <div class="w-px h-4 bg-dark-600 mx-1 shrink-0"></div>
+
+  <input type="date" id="filter-from" onchange="Filter.apply()"
+     class="bg-dark-700 border border-dark-600 rounded-md text-dark-300
+        text-[11px] px-2 py-1 cursor-pointer font-sans">
+  <span class="text-dark-500 text-[11px]">→</span>
+  <input type="date" id="filter-to" onchange="Filter.apply()"
+     class="bg-dark-700 border border-dark-600 rounded-md text-dark-300
+        text-[11px] px-2 py-1 cursor-pointer font-sans">
+  <button onclick="Filter.clear()" data-i18n-title="filter.clear_title" title="Clear filter" aria-label="Clear filter"
+      class="text-dark-400 hover:text-dark-300 text-[13px] px-1 shrink-0">✕</button>
+  <span id="filter-text" class="hidden"></span>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ── MOBILE NAV DRAWER ─────────────────────────────────────────────────── -->
 <div id="nav-drawer" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden"
@@ -179,14 +181,6 @@
       <button class="drawer-btn" onclick="Nav.go('settings')"><span>⚙️</span> <span data-i18n='nav.settings'>Settings</span></button>
       <button class="drawer-btn" onclick="Nav.go('about')"><span>ℹ️</span> <span data-i18n='nav.about'>About</span></button>
     </nav>
-
-    <!-- Current book badge (mobile) -->
-    <div class="px-4 py-2 border-b border-dark-600 flex items-center gap-2">
-      <span class="text-[10px] text-dark-500">📚</span>
-      <span class="text-xs text-dark-400">Contabilidad activa:</span>
-      <span id="current-book-badge-m" class="text-xs text-blue-400 font-medium"></span>
-    </div>
-
     <!-- Mobile date filter -->
     <div id="mobile-filter-panel" class="filter-controls mt-auto border-t border-dark-600 p-4 transition-colors">
       <p class="text-[11px] text-dark-400 mb-3">📅 Filtro de fechas</p>

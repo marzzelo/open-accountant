@@ -3,7 +3,13 @@
 from json import JSONDecodeError
 from typing import Optional
 
-from database import DEBIT_NORMAL, compute_balance, compute_filtered_balance
+from database import (
+    DEBIT_NORMAL,
+    compute_balance,
+    compute_filtered_balance,
+    month_bucket_sql,
+    recent_months_filter_sql,
+)
 from models import AccountIn, AccountOut, AccountUpdate, MonthlyBar, MovementOut
 
 from services.errors import ConflictError, NotFoundError, ValidationError
@@ -12,6 +18,7 @@ from services.helpers import (
     require_row,
     resolve_date_range,
     serialize_account_properties,
+    serialize_temporal_value,
 )
 
 ACCOUNT_SELECT = """
@@ -51,7 +58,7 @@ def last_3_movements(
         out.append(
             MovementOut(
                 id=row["id"],
-                date=row["date"],
+                date=serialize_temporal_value(row["date"]),
                 description=row["description"],
                 amount=row["amount"],
                 role=role,
@@ -62,14 +69,16 @@ def last_3_movements(
 
 
 def monthly_history(conn, account_id: int, type_id: int) -> list[MonthlyBar]:
+    month_expr = month_bucket_sql(conn, "date")
+    recent_filter = recent_months_filter_sql(conn, "date", 11)
     rows = conn.execute(
-        """
-        SELECT strftime('%Y-%m', date) AS month,
+        f"""
+        SELECT {month_expr} AS month,
                COALESCE(SUM(CASE WHEN debit_account  = ? THEN amount ELSE 0 END), 0) AS deb,
                COALESCE(SUM(CASE WHEN credit_account = ? THEN amount ELSE 0 END), 0) AS cred
         FROM transactions
         WHERE (debit_account = ? OR credit_account = ?)
-          AND date >= date('now', '-11 months', 'start of month')
+          AND {recent_filter}
         GROUP BY month
         ORDER BY month
         """,
@@ -183,7 +192,7 @@ def batch_last_movements(
         movement_map.setdefault(row["account_id"], []).append(
             MovementOut(
                 id=row["id"],
-                date=row["date"],
+                date=serialize_temporal_value(row["date"]),
                 description=row["description"],
                 amount=row["amount"],
                 role=row["role"],
@@ -194,24 +203,26 @@ def batch_last_movements(
 
 
 def batch_monthly_history(conn, rows) -> dict[int, list[MonthlyBar]]:
+    month_expr = month_bucket_sql(conn, "date")
+    recent_filter = recent_months_filter_sql(conn, "date", 11)
     totals = conn.execute(
-        """
+        f"""
         WITH month_legs AS (
             SELECT debit_account AS account_id,
-                   strftime('%Y-%m', date) AS month,
+             {month_expr} AS month,
                    amount AS debit_amount,
                    0 AS credit_amount
             FROM transactions
-            WHERE date >= date('now', '-11 months', 'start of month')
+         WHERE {recent_filter}
 
             UNION ALL
 
             SELECT credit_account AS account_id,
-                   strftime('%Y-%m', date) AS month,
+             {month_expr} AS month,
                    0 AS debit_amount,
                    amount AS credit_amount
             FROM transactions
-            WHERE date >= date('now', '-11 months', 'start of month')
+         WHERE {recent_filter}
         )
         SELECT account_id,
                month,
@@ -357,10 +368,11 @@ def create_account(conn, data: AccountIn) -> AccountOut:
         raise ValidationError("Invalid properties payload") from exc
 
     try:
-        cur = conn.execute(
+        row = conn.execute(
             """INSERT INTO accounts
                      (name, type_id, subtype_id, description, initial_balance, properties)
-                     VALUES (?, ?, ?, ?, ?, ?)""",
+                     VALUES (?, ?, ?, ?, ?, ?)
+                     RETURNING id""",
             (
                 data.name.strip(),
                 data.type_id,
@@ -373,7 +385,7 @@ def create_account(conn, data: AccountIn) -> AccountOut:
     except Exception as exc:
         raise ConflictError(f"Account name already exists: {exc}") from exc
 
-    return get_account(conn, cur.lastrowid)
+    return get_account(conn, row.fetchone()["id"])
 
 
 def update_account(conn, account_id: int, data: AccountUpdate) -> AccountOut:
@@ -426,7 +438,7 @@ def update_account(conn, account_id: int, data: AccountUpdate) -> AccountOut:
         """UPDATE accounts
            SET name=?, subtype_id=?, description=?, properties=?,
                initial_balance=?,
-               updated_at=datetime('now')
+               updated_at=CURRENT_TIMESTAMP
            WHERE id=?""",
         (name, subtype_id, description, properties, initial_balance, account_id),
     )
@@ -443,10 +455,10 @@ def delete_account(conn, account_id: int):
     )
 
     tx_count = conn.execute(
-        """SELECT COUNT(*) FROM transactions
+        """SELECT COUNT(*) AS tx_count FROM transactions
            WHERE debit_account = ? OR credit_account = ?""",
         (account_id, account_id),
-    ).fetchone()[0]
+    ).fetchone()["tx_count"]
     if tx_count:
         raise ConflictError(
             f"Cannot delete: account has {tx_count} transaction(s). Delete transactions first."

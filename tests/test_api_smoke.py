@@ -79,96 +79,33 @@ def test_create_account_and_transaction_updates_balances(client):
     assert "balance" not in columns
 
 
-def test_init_db_migrates_legacy_accounts_table_without_balance_column(isolated_paths):
-    home_db = isolated_paths / "data" / "home.db"
-    home_db.parent.mkdir(parents=True, exist_ok=True)
-
-    with sqlite3.connect(home_db) as conn:
-        conn.executescript(
-            """
-            PRAGMA foreign_keys=ON;
-
-            CREATE TABLE types (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE
-            );
-
-            CREATE TABLE subtypes (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                type_id INTEGER NOT NULL REFERENCES types(id) ON DELETE RESTRICT,
-                UNIQUE(name, type_id)
-            );
-
-            CREATE TABLE accounts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                type_id INTEGER NOT NULL REFERENCES types(id) ON DELETE RESTRICT,
-                subtype_id INTEGER REFERENCES subtypes(id) ON DELETE SET NULL,
-                description TEXT NOT NULL DEFAULT '',
-                initial_balance REAL NOT NULL DEFAULT 0.0,
-                balance REAL NOT NULL DEFAULT 0.0,
-                properties TEXT NOT NULL DEFAULT '{}',
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );
-
-            CREATE TABLE transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                debit_account INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
-                credit_account INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
-                amount REAL NOT NULL CHECK(amount > 0),
-                description TEXT NOT NULL DEFAULT '',
-                date TEXT NOT NULL DEFAULT (datetime('now')),
-                created_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );
-
-            INSERT INTO types (id, name) VALUES (1, 'Asset');
-            INSERT INTO types (id, name) VALUES (3, 'Income');
-            INSERT INTO accounts (id, name, type_id, description, initial_balance, balance, properties)
-            VALUES (1, 'Legacy Cash', 1, 'legacy', 50.0, 999.0, '{}');
-            INSERT INTO accounts (id, name, type_id, description, initial_balance, balance, properties)
-            VALUES (2, 'Legacy Income', 3, 'legacy', 0.0, 999.0, '{}');
-            INSERT INTO transactions (debit_account, credit_account, amount, description, date)
-            VALUES (1, 2, 75.0, 'Legacy tx', '2026-03-17 09:00:00');
-            """
-        )
-
+def test_init_db_bootstraps_single_database_schema(isolated_paths):
     app_config.load()
     init_db()
 
-    with sqlite3.connect(home_db) as conn:
-        columns = {
+    db_path = app_config.get_db_path()
+    with sqlite3.connect(db_path) as conn:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        account_columns = {
             row[1] for row in conn.execute("PRAGMA table_info(accounts)").fetchall()
         }
         tx_columns = {
             row[1] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()
         }
-        legacy_cash = conn.execute(
-            "SELECT name, initial_balance, properties FROM accounts WHERE id = 1"
-        ).fetchone()
-        legacy_tx = conn.execute(
-            "SELECT amount, original_amount, original_currency, fx_rate, fx_source FROM transactions WHERE id = 1"
-        ).fetchone()
 
-    assert "balance" not in columns
+    assert {"settings", "types", "subtypes", "accounts", "transactions"} <= tables
+    assert "balance" not in account_columns
     assert {
         "original_amount",
         "original_currency",
         "fx_rate",
         "fx_source",
     } <= tx_columns
-    assert legacy_cash == ("Legacy Cash", 50.0, "{}")
-    assert legacy_tx == (75.0, 75.0, "ARS", 1.0, None)
-
-    from main import app
-    from fastapi.testclient import TestClient
-
-    with TestClient(app) as test_client:
-        response = test_client.get("/api/accounts/1")
-
-    assert response.status_code == 200
-    assert response.json()["balance"] == 125.0
 
 
 def test_reports_and_csv_export_work_for_basic_journal_flow(client):
@@ -540,6 +477,7 @@ def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_path
     config_response = client.get("/api/settings/config")
     assert config_response.status_code == 200
     assert config_response.json()["general"]["port"] == "5999"
+    assert "current_book" not in config_response.json()["general"]
     assert config_response.json()["app"]["language"] == "es"
     assert config_response.json()["finance"]["usd_official_buy_ars"] == "0.00"
 
@@ -596,10 +534,10 @@ def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_path
     assert prefs_response.status_code == 200
     assert prefs_response.json() == pref_payload
 
-    meta_db = isolated_paths / "data" / "app_meta.sqlite3"
-    with sqlite3.connect(meta_db) as conn:
+    main_db = app_config.get_db_path()
+    with sqlite3.connect(main_db) as conn:
         rows = conn.execute(
-            "SELECT section, key, value FROM app_settings ORDER BY section, key"
+            "SELECT section, key, value FROM settings ORDER BY section, key"
         ).fetchall()
     assert ("general", "port", "6001") in rows
     assert ("app", "language", "en") in rows
@@ -614,8 +552,7 @@ def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_path
         "2026-03-16T11:16:04.488756-03:00",
     ) in rows
 
-    book_db = isolated_paths / "data" / "home.db"
-    with sqlite3.connect(book_db) as conn:
+    with sqlite3.connect(main_db) as conn:
         rows = conn.execute(
             "SELECT key, value FROM user_preferences ORDER BY key"
         ).fetchall()
@@ -625,12 +562,12 @@ def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_path
     assert any(row[0] == "common_transactions_pins" for row in rows)
 
 
-def test_user_preferences_are_scoped_per_book(client):
-    home_prefs = {
+def test_user_preferences_are_global_in_single_database(client):
+    preferences = {
         "show_zero_balance_accounts": True,
         "report_sort_directions": {"journal": "asc", "ledger": "asc", "txlist": "desc"},
     }
-    response = client.put("/api/settings/preferences", json=home_prefs)
+    response = client.put("/api/settings/preferences", json=preferences)
     assert response.status_code == 200
 
     finance_config = {
@@ -645,27 +582,7 @@ def test_user_preferences_are_scoped_per_book(client):
     }
     assert client.put("/api/settings/config", json=finance_config).status_code == 200
 
-    create_book = client.post("/api/books", json={"name": "biz", "basic_seed": False})
-    assert create_book.status_code == 200
-
-    select_biz = client.post("/api/books/select", json={"name": "biz"})
-    assert select_biz.status_code == 200
-    assert client.get("/api/settings/preferences").json() == {}
-    assert (
-        client.get("/api/settings/config").json()["finance"]
-        == finance_config["finance"]
-    )
-
-    biz_prefs = {
-        "show_zero_balance_accounts": False,
-        "report_sort_directions": {"journal": "desc"},
-    }
-    update_biz = client.put("/api/settings/preferences", json=biz_prefs)
-    assert update_biz.status_code == 200
-
-    select_home = client.post("/api/books/select", json={"name": "home"})
-    assert select_home.status_code == 200
-    assert client.get("/api/settings/preferences").json() == home_prefs
+    assert client.get("/api/settings/preferences").json() == preferences
     assert (
         client.get("/api/settings/config").json()["finance"]
         == finance_config["finance"]
@@ -698,8 +615,7 @@ def test_legacy_finance_preferences_are_migrated_to_global_config(
         == "2026-03-16T11:16:04.488756-03:00"
     )
 
-    book_db = isolated_paths / "data" / "home.db"
-    with sqlite3.connect(book_db) as conn:
+    with sqlite3.connect(app_config.get_db_path()) as conn:
         rows = conn.execute("SELECT key FROM user_preferences ORDER BY key").fetchall()
     assert not any(row[0].startswith("finance_") for row in rows)
 

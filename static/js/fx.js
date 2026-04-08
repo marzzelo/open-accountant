@@ -469,7 +469,11 @@ window.FX = (() => {
   function init() {
     // Sincronizar estado de sonido con la preferencia ya cargada en State
     // NOTA: State/View/Modal son const en app.js → NO están en window; usar bare name + typeof
-    _soundEnabled = !!(typeof State !== 'undefined' && State.userPreferences && State.userPreferences.fx_sounds_enabled);
+    _soundEnabled = !(
+      typeof State !== 'undefined'
+      && State.userPreferences
+      && State.userPreferences.fx_sounds_enabled === false
+    );
 
     // Canvas lightning overlay
     _canvas = document.getElementById('fx-lightning-canvas');

@@ -1,11 +1,11 @@
 """Tag service functions for CRUD and transaction assignment."""
 
-import sqlite3
 from typing import Iterable
 
+from database import ci_order_sql, is_unique_violation
 from models import TagOut, TagSummary
 from services.errors import ConflictError, NotFoundError, ValidationError
-from services.helpers import require_row
+from services.helpers import require_row, serialize_temporal_value
 
 DEFAULT_TAG_COLOR = "#3B82F6"
 
@@ -55,8 +55,8 @@ def _row_to_tag_out(row) -> TagOut:
         user_id=row["user_id"],
         name=row["name"],
         color=row["color"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+        created_at=serialize_temporal_value(row["created_at"]),
+        updated_at=serialize_temporal_value(row["updated_at"]),
         transaction_count=row["transaction_count"],
     )
 
@@ -77,14 +77,15 @@ def _ensure_tag_ids_exist(conn, tag_ids: list[int]):
 
 
 def list_tags(conn) -> list[TagOut]:
+    order_sql = ci_order_sql(conn, "t.name")
     rows = conn.execute(
-        """
+        f"""
         SELECT t.id, t.user_id, t.name, t.color, t.created_at, t.updated_at,
                COUNT(tt.transaction_id) AS transaction_count
         FROM tags t
         LEFT JOIN transaction_tags tt ON tt.tag_id = t.id
         GROUP BY t.id
-        ORDER BY t.name COLLATE NOCASE, t.id
+        ORDER BY {order_sql}, t.id
         """
     ).fetchall()
     return [_row_to_tag_out(row) for row in rows]
@@ -110,14 +111,20 @@ def get_tag(conn, tag_id: int) -> TagOut:
 
 def create_tag(conn, data) -> TagOut:
     try:
-        cur = conn.execute(
-            "INSERT INTO tags (user_id, name, color) VALUES (?, ?, ?)",
-            (data.user_id, data.name.strip(), (data.color or DEFAULT_TAG_COLOR).upper()),
+        row = conn.execute(
+            "INSERT INTO tags (user_id, name, color) VALUES (?, ?, ?) RETURNING id",
+            (
+                data.user_id,
+                data.name.strip(),
+                (data.color or DEFAULT_TAG_COLOR).upper(),
+            ),
         )
-    except sqlite3.IntegrityError as exc:
+    except Exception as exc:
+        if not is_unique_violation(exc):
+            raise
         raise ConflictError("A tag with that name already exists") from exc
 
-    return get_tag(conn, cur.lastrowid)
+    return get_tag(conn, row.fetchone()["id"])
 
 
 def update_tag(conn, tag_id: int, data) -> TagOut:
@@ -136,12 +143,14 @@ def update_tag(conn, tag_id: int, data) -> TagOut:
         conn.execute(
             """
             UPDATE tags
-            SET user_id = ?, name = ?, color = ?, updated_at = datetime('now')
+            SET user_id = ?, name = ?, color = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
             (next_user_id, next_name, next_color, tag_id),
         )
-    except sqlite3.IntegrityError as exc:
+    except Exception as exc:
+        if not is_unique_violation(exc):
+            raise
         raise ConflictError("A tag with that name already exists") from exc
 
     return get_tag(conn, tag_id)
@@ -172,19 +181,22 @@ def replace_transaction_tags(conn, tx_id: int, tag_ids: Iterable[int] | None):
     )
 
 
-def get_transaction_tags_map(conn, tx_ids: Iterable[int]) -> dict[int, list[TagSummary]]:
+def get_transaction_tags_map(
+    conn, tx_ids: Iterable[int]
+) -> dict[int, list[TagSummary]]:
     normalized_tx_ids = [int(tx_id) for tx_id in tx_ids if tx_id is not None]
     if not normalized_tx_ids:
         return {}
 
     placeholders = ",".join("?" for _ in normalized_tx_ids)
+    order_sql = ci_order_sql(conn, "t.name")
     rows = conn.execute(
         f"""
         SELECT tt.transaction_id, t.id, t.name, t.color
         FROM transaction_tags tt
         JOIN tags t ON t.id = tt.tag_id
         WHERE tt.transaction_id IN ({placeholders})
-        ORDER BY t.name COLLATE NOCASE, t.id
+        ORDER BY {order_sql}, t.id
         """,
         normalized_tx_ids,
     ).fetchall()

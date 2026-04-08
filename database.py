@@ -1,28 +1,55 @@
 """
-database.py — SQLite connection, schema, seed data, and balance helpers.
+database.py — database connection, schema bootstrap, and balance helpers.
 """
 
 import json
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
+from urllib.parse import unquote
 
-# DB_PATH is now dynamic — resolved via app_config at runtime
+try:
+    import psycopg
+    from psycopg.errors import IntegrityError as PsycopgIntegrityError
+    from psycopg.rows import dict_row
+except ImportError:  # pragma: no cover
+    psycopg = None
+    PsycopgIntegrityError = None
+    dict_row = None
 
-# Account types where DEBIT increases the balance (normal debit balance)
-DEBIT_NORMAL = {1, 4}  # 1=Activo, 4=Gasto
 
-SCHEMA = """
-PRAGMA journal_mode=WAL;
-PRAGMA foreign_keys=ON;
+DEBIT_NORMAL = {1, 4}  # 1=Asset, 4=Expense
+
+PREFIXED_TABLES = {
+    "projection_series",
+    "transaction_tags",
+    "user_preferences",
+    "transactions",
+    "subtypes",
+    "accounts",
+    "settings",
+    "types",
+    "tags",
+}
+
+SQLITE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS settings (
+    section    TEXT NOT NULL,
+    key        TEXT NOT NULL,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (section, key)
+);
 
 CREATE TABLE IF NOT EXISTS types (
-    id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    id   INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE
 );
 
 CREATE TABLE IF NOT EXISTS subtypes (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    id      INTEGER PRIMARY KEY,
     name    TEXT NOT NULL,
     type_id INTEGER NOT NULL REFERENCES types(id) ON DELETE RESTRICT,
     UNIQUE(name, type_id)
@@ -36,22 +63,22 @@ CREATE TABLE IF NOT EXISTS accounts (
     description     TEXT NOT NULL DEFAULT '',
     initial_balance REAL NOT NULL DEFAULT 0.0,
     properties      TEXT NOT NULL DEFAULT '{}',
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    debit_account  INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
-    credit_account INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
-    amount         REAL NOT NULL CHECK(amount > 0),
-    original_amount REAL NOT NULL CHECK(original_amount > 0),
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    debit_account     INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+    credit_account    INTEGER NOT NULL REFERENCES accounts(id) ON DELETE RESTRICT,
+    amount            REAL NOT NULL CHECK(amount > 0),
+    original_amount   REAL NOT NULL CHECK(original_amount > 0),
     original_currency TEXT NOT NULL DEFAULT 'ARS',
-    fx_rate       REAL NOT NULL DEFAULT 1.0 CHECK(fx_rate > 0),
-    fx_source     TEXT,
-    description    TEXT NOT NULL DEFAULT '',
-    date           TEXT NOT NULL DEFAULT (datetime('now')),
-    created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+    fx_rate           REAL NOT NULL DEFAULT 1.0 CHECK(fx_rate > 0),
+    fx_source         TEXT,
+    description       TEXT NOT NULL DEFAULT '',
+    date              TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS tags (
@@ -59,21 +86,21 @@ CREATE TABLE IF NOT EXISTS tags (
     user_id    TEXT,
     name       TEXT NOT NULL COLLATE NOCASE UNIQUE,
     color      TEXT NOT NULL DEFAULT '#3B82F6',
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS transaction_tags (
     transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
     tag_id         INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-    created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (transaction_id, tag_id)
 );
 
 CREATE TABLE IF NOT EXISTS user_preferences (
     key        TEXT PRIMARY KEY,
     value      TEXT NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS projection_series (
@@ -83,15 +110,103 @@ CREATE TABLE IF NOT EXISTS projection_series (
     start_date     TEXT NOT NULL,
     months         INTEGER NOT NULL CHECK(months >= 1),
     monthly_amount REAL NOT NULL CHECK(monthly_amount > 0),
-    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_tx_debit  ON transactions(debit_account);
+CREATE INDEX IF NOT EXISTS idx_tx_debit ON transactions(debit_account);
 CREATE INDEX IF NOT EXISTS idx_tx_credit ON transactions(credit_account);
-CREATE INDEX IF NOT EXISTS idx_tx_date   ON transactions(date);
-CREATE INDEX IF NOT EXISTS idx_acc_type  ON accounts(type_id);
+CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(date);
+CREATE INDEX IF NOT EXISTS idx_acc_type ON accounts(type_id);
 CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name);
 CREATE INDEX IF NOT EXISTS idx_transaction_tags_tag ON transaction_tags(tag_id);
+"""
+
+POSTGRES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS oacc_settings (
+    section     TEXT NOT NULL,
+    key         TEXT NOT NULL,
+    value       TEXT NOT NULL,
+    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (section, key)
+);
+
+CREATE TABLE IF NOT EXISTS oacc_types (
+    id   INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS oacc_subtypes (
+    id      INTEGER PRIMARY KEY,
+    name    TEXT NOT NULL,
+    type_id INTEGER NOT NULL REFERENCES oacc_types(id) ON DELETE RESTRICT,
+    UNIQUE(name, type_id)
+);
+
+CREATE TABLE IF NOT EXISTS oacc_accounts (
+    id              INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,
+    type_id         INTEGER NOT NULL REFERENCES oacc_types(id) ON DELETE RESTRICT,
+    subtype_id      INTEGER REFERENCES oacc_subtypes(id) ON DELETE SET NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    initial_balance DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    properties      TEXT NOT NULL DEFAULT '{}',
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS oacc_transactions (
+    id                INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    debit_account     INTEGER NOT NULL REFERENCES oacc_accounts(id) ON DELETE RESTRICT,
+    credit_account    INTEGER NOT NULL REFERENCES oacc_accounts(id) ON DELETE RESTRICT,
+    amount            DOUBLE PRECISION NOT NULL CHECK(amount > 0),
+    original_amount   DOUBLE PRECISION NOT NULL CHECK(original_amount > 0),
+    original_currency TEXT NOT NULL DEFAULT 'ARS',
+    fx_rate           DOUBLE PRECISION NOT NULL DEFAULT 1.0 CHECK(fx_rate > 0),
+    fx_source         TEXT,
+    description       TEXT NOT NULL DEFAULT '',
+    date              TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS oacc_tags (
+    id         INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    user_id    TEXT,
+    name       TEXT NOT NULL,
+    color      TEXT NOT NULL DEFAULT '#3B82F6',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS oacc_transaction_tags (
+    transaction_id INTEGER NOT NULL REFERENCES oacc_transactions(id) ON DELETE CASCADE,
+    tag_id         INTEGER NOT NULL REFERENCES oacc_tags(id) ON DELETE CASCADE,
+    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (transaction_id, tag_id)
+);
+
+CREATE TABLE IF NOT EXISTS oacc_user_preferences (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS oacc_projection_series (
+    id             INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    name           TEXT NOT NULL,
+    type           TEXT NOT NULL CHECK(type IN ('income', 'expense')),
+    start_date     DATE NOT NULL,
+    months         INTEGER NOT NULL CHECK(months >= 1),
+    monthly_amount DOUBLE PRECISION NOT NULL CHECK(monthly_amount > 0),
+    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS oacc_idx_tx_debit ON oacc_transactions(debit_account);
+CREATE INDEX IF NOT EXISTS oacc_idx_tx_credit ON oacc_transactions(credit_account);
+CREATE INDEX IF NOT EXISTS oacc_idx_tx_date ON oacc_transactions(date);
+CREATE INDEX IF NOT EXISTS oacc_idx_acc_type ON oacc_accounts(type_id);
+CREATE INDEX IF NOT EXISTS oacc_idx_tags_name ON oacc_tags(LOWER(name));
+CREATE UNIQUE INDEX IF NOT EXISTS oacc_idx_tags_name_unique ON oacc_tags(LOWER(name));
+CREATE INDEX IF NOT EXISTS oacc_idx_transaction_tags_tag ON oacc_transaction_tags(tag_id);
 """
 
 SEED_TYPES = [
@@ -103,20 +218,16 @@ SEED_TYPES = [
 ]
 
 SEED_SUBTYPES = [
-    # Asset
     (1, "Current Asset", 1),
     (2, "Bank", 1),
     (3, "Investments", 1),
     (4, "Fixed Asset", 1),
-    # Liability
     (5, "Current Liability", 2),
     (6, "Long-term Debt", 2),
-    # Income
     (7, "Salary", 3),
     (8, "Other Income", 3),
     (9, "Interest", 3),
     (10, "Dividends", 3),
-    # Expense
     (11, "Automobile", 4),
     (12, "Groceries", 4),
     (13, "Housing", 4),
@@ -124,11 +235,9 @@ SEED_SUBTYPES = [
     (15, "Utilities", 4),
     (16, "Entertainment", 4),
     (17, "Current Expenses", 4),
-    # Equity
     (18, "Net Worth", 5),
 ]
 
-# (name, type_id, subtype_id, description, initial_balance)
 SEED_ACCOUNTS = [
     ("Cash", 1, 1, "Cash on hand", 0.0),
     ("Bank", 1, 2, "Main bank account", 0.0),
@@ -143,14 +252,133 @@ SEED_ACCOUNTS = [
 ]
 
 
-@contextmanager
-def get_db():
+def _prefixed_table_name(table_name: str) -> str:
+    return f"oacc_{table_name}"
+
+
+def _database_url() -> str:
     import app_config
 
-    conn = sqlite3.connect(str(app_config.get_db_path()))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
+    return app_config.database_url()
+
+
+def backend_name(conn=None) -> str:
+    if conn is not None and hasattr(conn, "backend"):
+        return conn.backend
+
+    url = _database_url().lower()
+    if url.startswith("postgres://") or url.startswith("postgresql://"):
+        return "postgresql"
+    return "sqlite"
+
+
+def month_bucket_sql(conn, column_name: str) -> str:
+    if backend_name(conn) == "postgresql":
+        return f"TO_CHAR({column_name}, 'YYYY-MM')"
+    return f"strftime('%Y-%m', {column_name})"
+
+
+def recent_months_filter_sql(conn, column_name: str, months: int) -> str:
+    if backend_name(conn) == "postgresql":
+        return f"{column_name} >= date_trunc('month', CURRENT_DATE - INTERVAL '{months} months')"
+    return f"{column_name} >= date('now', '-{months} months', 'start of month')"
+
+
+def ci_order_sql(conn, column_name: str) -> str:
+    if backend_name(conn) == "postgresql":
+        return f"LOWER({column_name}), {column_name}"
+    return f"{column_name} COLLATE NOCASE"
+
+
+def _sqlite_path_from_url(url: str) -> Path:
+    if not url.startswith("sqlite:///"):
+        raise ValueError(f"Unsupported sqlite URL: {url}")
+    return Path(unquote(url[len("sqlite:///") :]))
+
+
+def _translate_query(query: str, backend: str) -> str:
+    translated = query
+    if backend == "postgresql":
+        translated = translated.replace("?", "%s")
+        for table_name in sorted(PREFIXED_TABLES, key=len, reverse=True):
+            translated = re.sub(
+                rf"(?<!oacc_)\b{table_name}\b",
+                _prefixed_table_name(table_name),
+                translated,
+            )
+    return translated
+
+
+class DatabaseConnection:
+    def __init__(self, backend: str, conn):
+        self.backend = backend
+        self._conn = conn
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None:
+            self.commit()
+        else:
+            self.rollback()
+        self.close()
+        return False
+
+    def execute(self, query: str, params: Any = ()):
+        return self._conn.execute(_translate_query(query, self.backend), params)
+
+    def executemany(self, query: str, params_seq):
+        translated_query = _translate_query(query, self.backend)
+        if self.backend == "sqlite":
+            return self._conn.executemany(translated_query, params_seq)
+
+        with self._conn.cursor() as cursor:
+            cursor.executemany(translated_query, params_seq)
+            return cursor
+
+    def executescript(self, script: str):
+        if self.backend == "sqlite":
+            return self._conn.executescript(script)
+
+        for statement in (part.strip() for part in script.split(";")):
+            if statement:
+                self._conn.execute(statement)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+
+def connect_db() -> DatabaseConnection:
+    backend = backend_name()
+    url = _database_url()
+
+    if backend == "sqlite":
+        db_path = _sqlite_path_from_url(url)
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+        return DatabaseConnection(backend, conn)
+
+    if psycopg is None:
+        raise RuntimeError(
+            "PostgreSQL support requires psycopg. Install requirements.txt again."
+        )
+
+    conn = psycopg.connect(url, row_factory=dict_row)
+    return DatabaseConnection(backend, conn)
+
+
+@contextmanager
+def get_db():
+    conn = connect_db()
     try:
         yield conn
         conn.commit()
@@ -161,12 +389,18 @@ def get_db():
         conn.close()
 
 
+def is_unique_violation(exc: Exception) -> bool:
+    if isinstance(exc, sqlite3.IntegrityError):
+        return True
+    if PsycopgIntegrityError and isinstance(exc, PsycopgIntegrityError):
+        return True
+    return False
+
+
 def balance_delta(type_id: int, role: str, amount: float) -> float:
-    """Return the signed delta contributed by one transaction leg."""
     if type_id in DEBIT_NORMAL:
         return amount if role == "debit" else -amount
-    else:
-        return -amount if role == "debit" else amount
+    return -amount if role == "debit" else amount
 
 
 def compute_balance(
@@ -178,8 +412,7 @@ def compute_balance(
     to_date: str | None = None,
     tag_ids: list[int] | None = None,
 ) -> float:
-    """Recalculate account balance either for all time or for a date range."""
-    params: tuple = (account_id, account_id, account_id, account_id)
+    params: tuple[Any, ...] = (account_id, account_id, account_id, account_id)
     date_filter = ""
     if from_date is not None and to_date is not None:
         date_filter = "\n          AND date BETWEEN ? AND ?"
@@ -188,13 +421,17 @@ def compute_balance(
     tag_filter = ""
     if tag_ids:
         placeholders = ",".join("?" for _ in tag_ids)
-        tag_filter = f"\n          AND EXISTS (\n              SELECT 1 FROM transaction_tags tt\n              WHERE tt.transaction_id = transactions.id\n                AND tt.tag_id IN ({placeholders})\n          )"
+        tag_filter = (
+            f"\n          AND EXISTS (\n              SELECT 1 FROM transaction_tags tt\n"
+            f"              WHERE tt.transaction_id = transactions.id\n"
+            f"                AND tt.tag_id IN ({placeholders})\n          )"
+        )
         params += tuple(tag_ids)
 
     row = conn.execute(
         f"""
         SELECT
-            COALESCE(SUM(CASE WHEN debit_account  = ? THEN amount ELSE 0 END), 0) AS total_debit,
+            COALESCE(SUM(CASE WHEN debit_account = ? THEN amount ELSE 0 END), 0) AS total_debit,
             COALESCE(SUM(CASE WHEN credit_account = ? THEN amount ELSE 0 END), 0) AS total_credit
         FROM transactions
         WHERE (debit_account = ? OR credit_account = ?){date_filter}{tag_filter}
@@ -202,11 +439,11 @@ def compute_balance(
         params,
     ).fetchone()
 
-    td, tc = row["total_debit"], row["total_credit"]
+    total_debit = row["total_debit"]
+    total_credit = row["total_credit"]
     if type_id in DEBIT_NORMAL:
-        return initial_balance + td - tc
-    else:
-        return initial_balance - td + tc
+        return initial_balance + total_debit - total_credit
+    return initial_balance - total_debit + total_credit
 
 
 def compute_filtered_balance(
@@ -218,86 +455,8 @@ def compute_filtered_balance(
     to_date: str,
     tag_ids: list[int] | None = None,
 ) -> float:
-    """Backward-compatible helper for date-range balance calculation."""
     return compute_balance(
         conn, account_id, type_id, initial_balance, from_date, to_date, tag_ids
-    )
-
-
-def _accounts_has_balance_column(conn) -> bool:
-    columns = conn.execute("PRAGMA table_info(accounts)").fetchall()
-    return any(column[1] == "balance" for column in columns)
-
-
-def _drop_legacy_balance_column(conn):
-    if not _accounts_has_balance_column(conn):
-        return
-
-    conn.executescript(
-        """
-        PRAGMA foreign_keys=OFF;
-
-        CREATE TABLE accounts__new (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            name            TEXT NOT NULL UNIQUE,
-            type_id         INTEGER NOT NULL REFERENCES types(id) ON DELETE RESTRICT,
-            subtype_id      INTEGER REFERENCES subtypes(id) ON DELETE SET NULL,
-            description     TEXT NOT NULL DEFAULT '',
-            initial_balance REAL NOT NULL DEFAULT 0.0,
-            properties      TEXT NOT NULL DEFAULT '{}',
-            created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
-        INSERT INTO accounts__new (
-            id, name, type_id, subtype_id, description, initial_balance,
-            properties, created_at, updated_at
-        )
-        SELECT
-            id, name, type_id, subtype_id, description, initial_balance,
-            COALESCE(properties, '{}'),
-            COALESCE(created_at, datetime('now')),
-            COALESCE(updated_at, datetime('now'))
-        FROM accounts;
-
-        DROP TABLE accounts;
-        ALTER TABLE accounts__new RENAME TO accounts;
-
-        CREATE INDEX IF NOT EXISTS idx_acc_type ON accounts(type_id);
-
-        PRAGMA foreign_keys=ON;
-        """
-    )
-
-
-def _transactions_has_column(conn, column_name: str) -> bool:
-    columns = conn.execute("PRAGMA table_info(transactions)").fetchall()
-    return any(column[1] == column_name for column in columns)
-
-
-def _migrate_transaction_fx_columns(conn):
-    additions = {
-        "original_amount": "ALTER TABLE transactions ADD COLUMN original_amount REAL",
-        "original_currency": "ALTER TABLE transactions ADD COLUMN original_currency TEXT",
-        "fx_rate": "ALTER TABLE transactions ADD COLUMN fx_rate REAL",
-        "fx_source": "ALTER TABLE transactions ADD COLUMN fx_source TEXT",
-    }
-
-    for column_name, statement in additions.items():
-        if not _transactions_has_column(conn, column_name):
-            conn.execute(statement)
-
-    conn.execute(
-        "UPDATE transactions SET original_amount = amount WHERE original_amount IS NULL OR original_amount <= 0"
-    )
-    conn.execute(
-        "UPDATE transactions SET original_currency = 'ARS' WHERE original_currency IS NULL OR TRIM(original_currency) = ''"
-    )
-    conn.execute(
-        "UPDATE transactions SET fx_rate = 1.0 WHERE fx_rate IS NULL OR fx_rate <= 0"
-    )
-    conn.execute(
-        "UPDATE transactions SET fx_source = NULL WHERE original_currency = 'ARS'"
     )
 
 
@@ -326,36 +485,86 @@ def update_user_preferences(conn, preferences: dict) -> dict:
             INSERT INTO user_preferences (key, value)
             VALUES (?, ?)
             ON CONFLICT(key)
-            DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+            DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
             """,
             (key, _serialize_preference(value)),
         )
     return get_user_preferences(conn)
 
 
-def init_db():
-    import app_config
+def table_exists(conn, table_name: str) -> bool:
+    if backend_name(conn) == "postgresql":
+        actual_name = _prefixed_table_name(table_name)
+        row = conn.execute(
+            """
+            SELECT 1 AS exists_flag
+            FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = ?
+            """,
+            (actual_name,),
+        ).fetchone()
+        return bool(row)
 
-    app_config.get_db_path().parent.mkdir(parents=True, exist_ok=True)
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    return bool(row)
+
+
+def table_columns(conn, table_name: str) -> list[str]:
+    if backend_name(conn) == "postgresql":
+        actual_name = _prefixed_table_name(table_name)
+        rows = conn.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = ?
+            ORDER BY ordinal_position
+            """,
+            (actual_name,),
+        ).fetchall()
+        return [row["column_name"] for row in rows]
+
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return [row["name"] for row in rows]
+
+
+def init_db():
+    schema = POSTGRES_SCHEMA if backend_name() == "postgresql" else SQLITE_SCHEMA
     with get_db() as conn:
-        conn.executescript(SCHEMA)
-        _drop_legacy_balance_column(conn)
-        _migrate_transaction_fx_columns(conn)
-        for tid, name in SEED_TYPES:
+        conn.executescript(schema)
+        for type_id, type_name in SEED_TYPES:
             conn.execute(
-                "INSERT OR IGNORE INTO types (id, name) VALUES (?, ?)", (tid, name)
+                "INSERT INTO types (id, name) VALUES (?, ?) ON CONFLICT(id) DO NOTHING",
+                (type_id, type_name),
             )
-        for sid, name, type_id in SEED_SUBTYPES:
+        for subtype_id, subtype_name, type_id in SEED_SUBTYPES:
             conn.execute(
-                "INSERT OR IGNORE INTO subtypes (id, name, type_id) VALUES (?, ?, ?)",
-                (sid, name, type_id),
+                """
+                INSERT INTO subtypes (id, name, type_id)
+                VALUES (?, ?, ?)
+                ON CONFLICT(id) DO NOTHING
+                """,
+                (subtype_id, subtype_name, type_id),
             )
-        count = conn.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
-        if count == 0:
-            for name, tid, stid, desc, init_bal in SEED_ACCOUNTS:
+
+        count_row = conn.execute(
+            "SELECT COUNT(*) AS account_count FROM accounts"
+        ).fetchone()
+        if int(count_row["account_count"]) == 0:
+            for (
+                name,
+                type_id,
+                subtype_id,
+                description,
+                initial_balance,
+            ) in SEED_ACCOUNTS:
                 conn.execute(
-                    """INSERT INTO accounts
-                       (name, type_id, subtype_id, description, initial_balance)
-                       VALUES (?, ?, ?, ?, ?)""",
-                    (name, tid, stid, desc, init_bal),
+                    """
+                    INSERT INTO accounts
+                        (name, type_id, subtype_id, description, initial_balance)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (name, type_id, subtype_id, description, initial_balance),
                 )
