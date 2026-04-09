@@ -213,6 +213,7 @@ def test_accounts_transactions_and_reports_services_work_directly(
         ledger = reports_service.get_ledger(conn, reserve.id)
         assert ledger["closing_balance"] == 200.0
         assert ledger["entries"][0]["role"] == "Débito"
+        assert ledger["entries"][0]["counterpart_id"] == accounts["Salary"].id
 
         balance_sheet = reports_service.get_balance(conn)
         assert balance_sheet.total_activo == 200.0
@@ -469,6 +470,7 @@ def test_tags_service_crud_assignment_and_report_filters(initialized_environment
         )
         assert len(ledger["entries"]) == 1
         assert ledger["entries"][0]["id"] == salary_tx.id
+        assert ledger["entries"][0]["counterpart_id"] == accounts["Salary"].id
 
         stats = reports_service.get_stats(conn, tag_ids=[groceries.id])
         assert stats.summary["total_expense"] == 180.0

@@ -5,6 +5,7 @@ const Settings = {
   _tab:    'config',
   _config: {},
   _env:    [],
+  _users:  [],
   _preferences: {},
   _configFormSnapshot: '',
   _syncingFinanceRate: false,
@@ -18,18 +19,28 @@ const Settings = {
   /* ── Load all settings data ───────────────────────────────────────────────── */
   async load() {
     try {
-      const [config, env, preferences] = await Promise.all([
+      const usersPromise = State.currentUser?.is_admin
+        ? this._get('/auth/users').catch(error => {
+          console.error('Settings.load users error:', error);
+          return [];
+        })
+        : Promise.resolve([]);
+
+      const [config, env, preferences, users] = await Promise.all([
         this._get('/settings/config'),
         this._get('/settings/env'),
         this._get('/settings/preferences'),
+        usersPromise,
       ]);
       this._config = config || {};
       this._env    = env    || [];
+      this._users  = users  || [];
       this._preferences = preferences || {};
     } catch (e) {
       console.error('Settings.load error:', e);
       this._config = {};
       this._env    = [];
+      this._users  = [];
       this._preferences = {};
     }
   },
@@ -44,6 +55,13 @@ const Settings = {
   },
 
   _buildHTML() {
+    const tabs = ['config', 'env', ...(State.currentUser?.is_admin ? ['users'] : [])];
+    const tabLabels = {
+      config: t('settings.tab.config'),
+      env: t('settings.tab.env'),
+      users: t('settings.tab.users'),
+    };
+
     return `
       <div class="flex-1 min-h-0 overflow-y-auto overscroll-y-contain">
         <div class="max-w-screen-xl mx-auto px-4 sm:px-6 lg:px-5 xl:px-4 py-6 pb-24 sm:pb-8 w-full">
@@ -51,8 +69,7 @@ const Settings = {
 
           <!-- Tab strip -->
           <div class="sticky top-0 z-10 flex gap-1 mb-0 border-b border-dark-600 bg-dark-900/95 backdrop-blur supports-[backdrop-filter]:bg-dark-900/80">
-            ${['config','env'].map(tab => {
-              const tabLabels = { config: t('settings.tab.config'), env: t('settings.tab.env') };
+            ${tabs.map(tab => {
               return `<button id="stab-${tab}" onclick="Settings._switchTab('${tab}')"
                       class="stab-btn px-4 py-2 text-sm rounded-t-lg border border-dark-600 border-b-0
                              cursor-pointer transition-colors
@@ -68,6 +85,7 @@ const Settings = {
           <div class="bg-dark-800 border border-dark-600 border-t-0 rounded-b-xl rounded-tr-xl p-5">
             <div id="spanel-config" class="${this._tab !== 'config' ? 'hidden' : ''}">${this._configHTML()}</div>
             <div id="spanel-env"    class="${this._tab !== 'env'    ? 'hidden' : ''}">${this._envHTML()}</div>
+            ${State.currentUser?.is_admin ? `<div id="spanel-users" class="${this._tab !== 'users' ? 'hidden' : ''}">${this._usersHTML()}</div>` : ''}
           </div>
         </div>
       </div>`;
@@ -98,7 +116,7 @@ const Settings = {
 
   _switchTab(tab) {
     this._tab = tab;
-    ['config','env'].forEach(t => {
+    ['config','env','users'].forEach(t => {
       const btn = document.getElementById(`stab-${t}`);
       const panel = document.getElementById(`spanel-${t}`);
       if (btn) btn.className =
@@ -477,6 +495,316 @@ const Settings = {
           </span>
         </div>
       </form>`;
+  },
+
+  _usersHTML() {
+    if (!State.currentUser?.is_admin) {
+      return `<p class="text-dark-400 text-sm">${t('settings.users.admin_only')}</p>`;
+    }
+
+    const rows = this._users.length
+      ? this._users.map(user => {
+        const isCurrent = State.currentUser?.id === user.id;
+        const statusClass = user.is_active ? 'text-ingreso' : 'text-pasivo';
+        const statusLabel = user.is_active ? t('settings.users.status_active') : t('settings.users.status_inactive');
+        return `
+          <div class="rounded-2xl border border-dark-700 bg-dark-900/50 px-4 py-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <h3 class="text-base font-semibold text-dark-100">${escapeHtml(user.username)}</h3>
+                ${user.is_admin ? `<span class="inline-flex items-center rounded-full border border-blue-500/30 bg-blue-500/15 px-2 py-0.5 text-[11px] font-medium text-blue-300">${t('settings.users.role_admin')}</span>` : `<span class="inline-flex items-center rounded-full border border-dark-600 px-2 py-0.5 text-[11px] font-medium text-dark-400">${t('settings.users.role_member')}</span>`}
+                ${isCurrent ? `<span class="inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">${t('settings.users.current_session')}</span>` : ''}
+              </div>
+              <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-dark-500">
+                <span class="${statusClass}">${escapeHtml(statusLabel)}</span>
+                <span>${t('settings.users.created_at')}: ${new Date(user.created_at).toLocaleString()}</span>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button type="button" onclick="Settings._openEditUserModal(${user.id})" class="tbtn text-xs px-3 py-1.5">${t('btn.edit')}</button>
+              <button type="button" onclick="Settings._openPasswordModal(${user.id})" class="tbtn text-xs px-3 py-1.5">${t('settings.users.change_password')}</button>
+              <button type="button" onclick="Settings._toggleUserActive(${user.id}, ${user.is_active ? 'false' : 'true'})" class="tbtn text-xs px-3 py-1.5 ${user.is_active ? 'hover:!text-red-400' : 'hover:!text-green-400'}">${user.is_active ? t('btn.deactivate') : t('btn.activate')}</button>
+              ${isCurrent ? '' : `<button type="button" onclick="Settings._deleteUser(${user.id})" class="tbtn text-xs px-3 py-1.5 hover:!text-red-400">${t('settings.users.delete_user')}</button>`}
+            </div>
+          </div>`;
+      }).join('')
+      : `<p class="text-dark-400 text-sm">${t('settings.users.empty')}</p>`;
+
+    return `
+      <div class="flex flex-col gap-4">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 class="text-sm font-semibold text-dark-100">${t('settings.users.title')}</h3>
+            <p class="text-xs text-dark-500 mt-1">${t('settings.users.subtitle')}</p>
+          </div>
+          <button type="button" onclick="Settings._openCreateUserModal()" class="tbtn px-4 py-2 text-sm">${t('settings.users.add_user')}</button>
+        </div>
+        <div class="flex flex-col gap-3">${rows}</div>
+      </div>`;
+  },
+
+  _findUser(userId) {
+    return this._users.find(user => Number(user.id) === Number(userId)) || null;
+  },
+
+  async _reloadUsers() {
+    if (!State.currentUser?.is_admin) return;
+    this._users = await this._get('/auth/users');
+  },
+
+  _userValidationRules() {
+    return {
+      minUsername: 3,
+      maxUsername: 120,
+      minPassword: 8,
+    };
+  },
+
+  _validateUsername(username) {
+    const value = String(username || '').trim();
+    const { minUsername, maxUsername } = this._userValidationRules();
+    if (!value) return t('settings.users.validation.username_required');
+    if (value.length < minUsername) return t('settings.users.validation.username_short', { min: minUsername });
+    if (value.length > maxUsername) return t('settings.users.validation.username_long', { max: maxUsername });
+    return '';
+  },
+
+  _validatePassword(password) {
+    const value = String(password || '');
+    const { minPassword } = this._userValidationRules();
+    if (!value) return t('settings.users.validation.password_required');
+    if (value.length < minPassword) return t('settings.users.validation.password_short', { min: minPassword });
+    return '';
+  },
+
+  _validateUserCreateForm({ username, password }) {
+    return this._validateUsername(username) || this._validatePassword(password);
+  },
+
+  _validateUserEditForm({ username }) {
+    return this._validateUsername(username);
+  },
+
+  _validatePasswordChangeForm({ password, confirmation }) {
+    return this._validatePassword(password)
+      || (!confirmation ? t('settings.users.validation.confirmation_required') : '')
+      || (password !== confirmation ? t('settings.users.password_mismatch') : '');
+  },
+
+  _setFieldValidation(inputId, message) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.setCustomValidity(message || '');
+    input.reportValidity();
+  },
+
+  _clearFieldValidation(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    input.setCustomValidity('');
+  },
+
+  _openCreateUserModal() {
+    Modal.open(`
+      <form data-modal-submit-form class="p-5 space-y-4">
+        <p data-modal-description class="text-sm text-dark-400">${escapeHtml(t('settings.users.create_help'))}</p>
+        <label class="flex flex-col gap-1.5">
+          <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.users.username')}</span>
+          <input id="settings-user-create-username" type="text" data-modal-autofocus
+                 class="bg-dark-700 border border-dark-600 rounded-lg text-dark-200 text-sm px-3 py-2 font-sans outline-none focus:border-blue-500/60">
+        </label>
+        <label class="flex flex-col gap-1.5">
+          <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.users.password')}</span>
+          <input id="settings-user-create-password" type="password"
+                 class="bg-dark-700 border border-dark-600 rounded-lg text-dark-200 text-sm px-3 py-2 font-sans outline-none focus:border-blue-500/60">
+        </label>
+        <label class="flex items-center gap-3 cursor-pointer select-none text-sm text-dark-300">
+          <input id="settings-user-create-admin" type="checkbox" class="w-4 h-4 accent-blue-500">
+          <span>${t('settings.users.make_admin')}</span>
+        </label>
+      </form>`, {
+      title: t('settings.users.create_title'),
+      submitLabel: t('btn.create'),
+      onSubmit: async () => {
+        const username = document.getElementById('settings-user-create-username')?.value?.trim() || '';
+        const password = document.getElementById('settings-user-create-password')?.value || '';
+        const isAdmin = !!document.getElementById('settings-user-create-admin')?.checked;
+        this._clearFieldValidation('settings-user-create-username');
+        this._clearFieldValidation('settings-user-create-password');
+        const validationMessage = this._validateUserCreateForm({ username, password });
+        if (validationMessage) {
+          const targetId = !username || username.length < this._userValidationRules().minUsername
+            ? 'settings-user-create-username'
+            : 'settings-user-create-password';
+          this._setFieldValidation(targetId, validationMessage);
+          Toast.show(validationMessage, 'error');
+          return false;
+        }
+        try {
+          const created = await this._post('/auth/users', { username, password, is_admin: isAdmin });
+          await this._reloadUsers();
+          this._tab = 'users';
+          await this.render();
+          Toast.show(t('settings.users.created', { user: created.username }));
+          return true;
+        } catch (e) {
+          Toast.show(t('msg.error_generic', { msg: e.message }), 'error');
+          return false;
+        }
+      },
+    });
+  },
+
+  _openEditUserModal(userId) {
+    const user = this._findUser(userId);
+    if (!user) return;
+
+    Modal.open(`
+      <form data-modal-submit-form class="p-5 space-y-4">
+        <p data-modal-description class="text-sm text-dark-400">${escapeHtml(t('settings.users.edit_help', { user: user.username }))}</p>
+        <label class="flex flex-col gap-1.5">
+          <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.users.username')}</span>
+          <input id="settings-user-edit-username" type="text" data-modal-autofocus value="${escapeHtml(user.username)}"
+                 class="bg-dark-700 border border-dark-600 rounded-lg text-dark-200 text-sm px-3 py-2 font-sans outline-none focus:border-blue-500/60">
+        </label>
+        <label class="flex items-center gap-3 cursor-pointer select-none text-sm text-dark-300">
+          <input id="settings-user-edit-admin" type="checkbox" class="w-4 h-4 accent-blue-500" ${user.is_admin ? 'checked' : ''}>
+          <span>${t('settings.users.make_admin')}</span>
+        </label>
+      </form>`, {
+      title: t('settings.users.edit_title', { user: user.username }),
+      submitLabel: t('btn.save'),
+      onSubmit: async () => {
+        const username = document.getElementById('settings-user-edit-username')?.value?.trim() || '';
+        const isAdmin = !!document.getElementById('settings-user-edit-admin')?.checked;
+        this._clearFieldValidation('settings-user-edit-username');
+        const validationMessage = this._validateUserEditForm({ username });
+        if (validationMessage) {
+          this._setFieldValidation('settings-user-edit-username', validationMessage);
+          Toast.show(validationMessage, 'error');
+          return false;
+        }
+
+        if (username === user.username && isAdmin === !!user.is_admin) {
+          Toast.show(t('settings.users.validation.no_changes'), 'error');
+          return false;
+        }
+
+        try {
+          const updated = await this._put(`/auth/users/${user.id}`, { username, is_admin: isAdmin });
+          if (State.currentUser?.id === updated.id) {
+            State.currentUser = { ...State.currentUser, username: updated.username, is_admin: updated.is_admin };
+            Auth.renderSessionUi();
+          }
+          await this._reloadUsers();
+          this._tab = 'users';
+          await this.render();
+          Toast.show(t('settings.users.updated', { user: updated.username }));
+          return true;
+        } catch (e) {
+          Toast.show(t('msg.error_generic', { msg: e.message }), 'error');
+          return false;
+        }
+      },
+    });
+  },
+
+  _openPasswordModal(userId) {
+    const user = this._findUser(userId);
+    if (!user) return;
+
+    Modal.open(`
+      <form data-modal-submit-form class="p-5 space-y-4">
+        <p data-modal-description class="text-sm text-dark-400">${escapeHtml(t('settings.users.password_help', { user: user.username }))}</p>
+        <label class="flex flex-col gap-1.5">
+          <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.users.new_password')}</span>
+          <input id="settings-user-password" type="password" data-modal-autofocus
+                 class="bg-dark-700 border border-dark-600 rounded-lg text-dark-200 text-sm px-3 py-2 font-sans outline-none focus:border-blue-500/60">
+        </label>
+        <label class="flex flex-col gap-1.5">
+          <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.users.confirm_password')}</span>
+          <input id="settings-user-password-confirm" type="password"
+                 class="bg-dark-700 border border-dark-600 rounded-lg text-dark-200 text-sm px-3 py-2 font-sans outline-none focus:border-blue-500/60">
+        </label>
+      </form>`, {
+      title: t('settings.users.change_password_title', { user: user.username }),
+      submitLabel: t('settings.users.change_password'),
+      onSubmit: async () => {
+        const password = document.getElementById('settings-user-password')?.value || '';
+        const confirmation = document.getElementById('settings-user-password-confirm')?.value || '';
+        this._clearFieldValidation('settings-user-password');
+        this._clearFieldValidation('settings-user-password-confirm');
+        const validationMessage = this._validatePasswordChangeForm({ password, confirmation });
+        if (validationMessage) {
+          const targetId = !password || password.length < this._userValidationRules().minPassword
+            ? 'settings-user-password'
+            : 'settings-user-password-confirm';
+          this._setFieldValidation(targetId, validationMessage);
+          Toast.show(validationMessage, 'error');
+          return false;
+        }
+
+        try {
+          await this._put(`/auth/users/${user.id}/password`, { password });
+          Toast.show(t('settings.users.password_updated', { user: user.username }));
+          if (State.currentUser?.id === user.id) {
+            await Auth.logout();
+          }
+          return true;
+        } catch (e) {
+          Toast.show(t('msg.error_generic', { msg: e.message }), 'error');
+          return false;
+        }
+      },
+    });
+  },
+
+  async _toggleUserActive(userId, nextActive) {
+    const user = this._findUser(userId);
+    if (!user) return;
+
+    const confirmed = await Dialog.confirm({
+      title: nextActive ? t('settings.users.activate_title', { user: user.username }) : t('settings.users.deactivate_title', { user: user.username }),
+      message: nextActive ? t('settings.users.activate_confirm', { user: user.username }) : t('settings.users.deactivate_confirm', { user: user.username }),
+      confirmLabel: nextActive ? t('btn.activate') : t('btn.deactivate'),
+      cancelLabel: t('btn.cancel'),
+      submitTone: nextActive ? 'primary' : 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      await this._put(`/auth/users/${user.id}/status`, { is_active: !!nextActive });
+      await this._reloadUsers();
+      this._tab = 'users';
+      await this.render();
+      Toast.show(nextActive ? t('settings.users.activated', { user: user.username }) : t('settings.users.deactivated', { user: user.username }));
+    } catch (e) {
+      Toast.show(t('msg.error_generic', { msg: e.message }), 'error');
+    }
+  },
+
+  async _deleteUser(userId) {
+    const user = this._findUser(userId);
+    if (!user) return;
+
+    const confirmed = await Dialog.confirm({
+      title: t('settings.users.delete_title', { user: user.username }),
+      message: t('settings.users.delete_confirm', { user: user.username }),
+      confirmLabel: t('settings.users.delete_user'),
+      cancelLabel: t('btn.cancel'),
+      submitTone: 'danger',
+    });
+    if (!confirmed) return;
+
+    try {
+      await this._del(`/auth/users/${user.id}`);
+      await this._reloadUsers();
+      this._tab = 'users';
+      await this.render();
+      Toast.show(t('settings.users.deleted', { user: user.username }));
+    } catch (e) {
+      Toast.show(t('msg.error_generic', { msg: e.message }), 'error');
+    }
   },
 
   async _onFxSoundsChange(event) {

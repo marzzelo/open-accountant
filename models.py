@@ -84,6 +84,48 @@ class AccountOut(BaseModel):
     monthly_history: list[MonthlyBar] = []
 
 
+class UserOut(BaseModel):
+    id: int
+    username: str
+    is_admin: bool
+    is_active: bool
+    created_at: str
+
+
+class LoginIn(BaseModel):
+    username: str = Field(..., min_length=1, max_length=120)
+    password: str = Field(..., min_length=1, max_length=255)
+    remember_me: bool = False
+
+
+class SessionOut(BaseModel):
+    authenticated: bool
+    user: Optional[UserOut] = None
+    expires_at: Optional[str] = None
+    remember_me: bool = False
+    requires_setup: bool = False
+    message: Optional[str] = None
+
+
+class UserCreateIn(BaseModel):
+    username: str = Field(..., min_length=1, max_length=120)
+    password: str = Field(..., min_length=8, max_length=255)
+    is_admin: bool = False
+
+
+class UserUpdateIn(BaseModel):
+    username: str = Field(..., min_length=1, max_length=120)
+    is_admin: bool = False
+
+
+class UserPasswordUpdateIn(BaseModel):
+    password: str = Field(..., min_length=8, max_length=255)
+
+
+class UserStatusUpdateIn(BaseModel):
+    is_active: bool
+
+
 # ── Tags ─────────────────────────────────────────────────────────────────────
 
 

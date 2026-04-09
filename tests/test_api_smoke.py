@@ -12,6 +12,202 @@ def _accounts_by_name(client):
     return {item["name"]: item for item in response.json()}
 
 
+def test_unauthenticated_requests_require_login(raw_client):
+    accounts_response = raw_client.get("/api/accounts")
+    assert accounts_response.status_code == 401
+
+    session_response = raw_client.get("/api/auth/session")
+    assert session_response.status_code == 200
+    assert session_response.json()["authenticated"] is False
+
+
+def test_login_sets_cookie_and_allows_authenticated_requests(raw_client):
+    login_response = raw_client.post(
+        "/api/auth/login",
+        json={
+            "username": app_config.auth_bootstrap_admin_username(),
+            "password": app_config.auth_bootstrap_admin_password(),
+            "remember_me": True,
+        },
+    )
+    assert login_response.status_code == 200
+    payload = login_response.json()
+    assert payload["authenticated"] is True
+    assert payload["user"]["username"] == app_config.auth_bootstrap_admin_username()
+    assert payload["remember_me"] is True
+    assert app_config.auth_cookie_name() in raw_client.cookies
+
+    accounts_response = raw_client.get("/api/accounts")
+    assert accounts_response.status_code == 200
+
+
+def test_session_endpoint_returns_real_user_id_when_multiple_sessions_exist(
+    client, raw_client
+):
+    login_response = raw_client.post(
+        "/api/auth/login",
+        json={
+            "username": app_config.auth_bootstrap_admin_username(),
+            "password": app_config.auth_bootstrap_admin_password(),
+            "remember_me": False,
+        },
+    )
+    assert login_response.status_code == 200
+
+    session_response = raw_client.get("/api/auth/session")
+    assert session_response.status_code == 200
+    session_payload = session_response.json()
+    assert session_payload["authenticated"] is True
+    assert (
+        session_payload["user"]["username"]
+        == app_config.auth_bootstrap_admin_username()
+    )
+    assert session_payload["user"]["id"] == 1
+
+
+def test_logout_invalidates_session_cookie(raw_client):
+    login_response = raw_client.post(
+        "/api/auth/login",
+        json={
+            "username": app_config.auth_bootstrap_admin_username(),
+            "password": app_config.auth_bootstrap_admin_password(),
+            "remember_me": False,
+        },
+    )
+    assert login_response.status_code == 200
+
+    logout_response = raw_client.post("/api/auth/logout")
+    assert logout_response.status_code == 200
+    assert logout_response.json()["authenticated"] is False
+
+    accounts_response = raw_client.get("/api/accounts")
+    assert accounts_response.status_code == 401
+
+
+def test_admin_can_create_deactivate_and_reset_user_password(client, raw_client):
+    create_response = client.post(
+        "/api/auth/users",
+        json={
+            "username": "alice",
+            "password": "alice-pass-123",
+            "is_admin": False,
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["username"] == "alice"
+    assert created["is_active"] is True
+
+    update_response = client.put(
+        f"/api/auth/users/{created['id']}",
+        json={"username": "alice-edited", "is_admin": True},
+    )
+    assert update_response.status_code == 200
+    updated_user = update_response.json()
+    assert updated_user["username"] == "alice-edited"
+    assert updated_user["is_admin"] is True
+
+    list_response = client.get("/api/auth/users")
+    assert list_response.status_code == 200
+    assert any(item["username"] == "alice-edited" for item in list_response.json())
+
+    login_response = raw_client.post(
+        "/api/auth/login",
+        json={
+            "username": "alice-edited",
+            "password": "alice-pass-123",
+            "remember_me": False,
+        },
+    )
+    assert login_response.status_code == 200
+    raw_client.post("/api/auth/logout")
+
+    password_response = client.put(
+        f"/api/auth/users/{created['id']}/password",
+        json={"password": "alice-new-pass-456"},
+    )
+    assert password_response.status_code == 200
+
+    relogin_response = raw_client.post(
+        "/api/auth/login",
+        json={
+            "username": "alice-edited",
+            "password": "alice-new-pass-456",
+            "remember_me": False,
+        },
+    )
+    assert relogin_response.status_code == 200
+
+    delete_response = client.delete(f"/api/auth/users/{created['id']}")
+    assert delete_response.status_code == 204
+
+    session_response = raw_client.get("/api/auth/session")
+    assert session_response.status_code == 200
+    assert session_response.json()["authenticated"] is False
+
+    accounts_response = raw_client.get("/api/accounts")
+    assert accounts_response.status_code == 401
+
+    list_response = client.get("/api/auth/users")
+    assert list_response.status_code == 200
+    assert not any(item["username"] == "alice-edited" for item in list_response.json())
+
+    blocked_login = raw_client.post(
+        "/api/auth/login",
+        json={
+            "username": "alice-edited",
+            "password": "alice-new-pass-456",
+            "remember_me": False,
+        },
+    )
+    assert blocked_login.status_code == 401
+
+
+def test_admin_cannot_deactivate_self(client):
+    users_response = client.get("/api/auth/users")
+    assert users_response.status_code == 200
+    admin_user = next(
+        item
+        for item in users_response.json()
+        if item["username"] == app_config.auth_bootstrap_admin_username()
+    )
+
+    deactivate_response = client.put(
+        f"/api/auth/users/{admin_user['id']}/status",
+        json={"is_active": False},
+    )
+    assert deactivate_response.status_code == 400
+
+
+def test_admin_cannot_remove_own_admin_access(client):
+    users_response = client.get("/api/auth/users")
+    assert users_response.status_code == 200
+    admin_user = next(
+        item
+        for item in users_response.json()
+        if item["username"] == app_config.auth_bootstrap_admin_username()
+    )
+
+    update_response = client.put(
+        f"/api/auth/users/{admin_user['id']}",
+        json={"username": admin_user["username"], "is_admin": False},
+    )
+    assert update_response.status_code == 400
+
+
+def test_admin_cannot_delete_self(client):
+    users_response = client.get("/api/auth/users")
+    assert users_response.status_code == 200
+    admin_user = next(
+        item
+        for item in users_response.json()
+        if item["username"] == app_config.auth_bootstrap_admin_username()
+    )
+
+    delete_response = client.delete(f"/api/auth/users/{admin_user['id']}")
+    assert delete_response.status_code == 400
+
+
 def test_seed_data_is_available(client):
     types_response = client.get("/api/types")
     assert types_response.status_code == 200
@@ -98,7 +294,15 @@ def test_init_db_bootstraps_single_database_schema(isolated_paths):
             row[1] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()
         }
 
-    assert {"settings", "types", "subtypes", "accounts", "transactions"} <= tables
+    assert {
+        "settings",
+        "types",
+        "subtypes",
+        "accounts",
+        "transactions",
+        "users",
+        "auth_sessions",
+    } <= tables
     assert "balance" not in account_columns
     assert {
         "original_amount",

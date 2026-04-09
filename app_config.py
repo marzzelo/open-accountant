@@ -58,6 +58,14 @@ _DEFAULTS: dict[str, dict[str, str]] = {
 
 _SENSITIVE = {"secret", "password", "token", "key", "pass", "api_key"}
 
+AUTH_ENABLED_ENV = "AUTH_ENABLED"
+AUTH_BOOTSTRAP_ADMIN_USERNAME_ENV = "AUTH_BOOTSTRAP_ADMIN_USERNAME"
+AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV = "AUTH_BOOTSTRAP_ADMIN_PASSWORD"
+AUTH_SESSION_DAYS_DEFAULT_ENV = "AUTH_SESSION_DAYS_DEFAULT"
+AUTH_SESSION_DAYS_REMEMBER_ME_ENV = "AUTH_SESSION_DAYS_REMEMBER_ME"
+AUTH_COOKIE_SECURE_ENV = "AUTH_COOKIE_SECURE"
+AUTH_COOKIE_NAME_ENV = "AUTH_COOKIE_NAME"
+
 
 def get_db_path() -> Path:
     return DATA_DIR / DEFAULT_SQLITE_DB_NAME
@@ -89,6 +97,7 @@ def load():
     _migrate_legacy_meta_settings()
     _ensure_defaults()
     _migrate_legacy_finance_preferences()
+    _bootstrap_auth_admin_if_needed()
 
 
 def database_url() -> str:
@@ -99,8 +108,53 @@ def _env_value(name: str) -> str:
     return os.environ.get(name, "").strip()
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = _env_value(name)
+    if not raw:
+        return default
+    return raw.lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = _env_value(name)
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 def current_language() -> str:
     return get("app", "language", _DEFAULTS["app"]["language"])
+
+
+def auth_enabled() -> bool:
+    return _env_bool(AUTH_ENABLED_ENV, True)
+
+
+def auth_bootstrap_admin_username() -> str:
+    return _env_value(AUTH_BOOTSTRAP_ADMIN_USERNAME_ENV)
+
+
+def auth_bootstrap_admin_password() -> str:
+    return _env_value(AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV)
+
+
+def auth_session_days_default() -> int:
+    return max(1, _env_int(AUTH_SESSION_DAYS_DEFAULT_ENV, 1))
+
+
+def auth_session_days_remember_me() -> int:
+    return max(1, _env_int(AUTH_SESSION_DAYS_REMEMBER_ME_ENV, 30))
+
+
+def auth_cookie_secure() -> bool:
+    return _env_bool(AUTH_COOKIE_SECURE_ENV, False)
+
+
+def auth_cookie_name() -> str:
+    return _env_value(AUTH_COOKIE_NAME_ENV) or "open_accountant_session"
 
 
 def set_language(lang: str):
@@ -169,6 +223,17 @@ def _ensure_defaults():
     for section, values in _DEFAULTS.items():
         for key, default in values.items():
             _insert_if_missing(section, key, default)
+
+
+def _bootstrap_auth_admin_if_needed():
+    if not auth_enabled():
+        return
+
+    from database import get_db
+    from services import auth_service
+
+    with get_db() as conn:
+        auth_service.bootstrap_admin_if_needed(conn)
 
 
 def _legacy_finance_db_candidates() -> list[Path]:

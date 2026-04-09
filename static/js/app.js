@@ -52,6 +52,36 @@ function htmlAttrs(attrs = {}) {
     .join(' ');
 }
 
+function formatApiError(payload, fallback = 'Unknown error') {
+  if (payload == null) return fallback;
+  if (typeof payload === 'string') return payload;
+
+  if (Array.isArray(payload)) {
+    const parts = payload
+      .map(item => formatApiError(item, ''))
+      .filter(Boolean);
+    return parts.join(' | ') || fallback;
+  }
+
+  if (typeof payload === 'object') {
+    if (typeof payload.detail === 'string') return payload.detail;
+    if (payload.detail != null) return formatApiError(payload.detail, fallback);
+    if (typeof payload.message === 'string') return payload.message;
+
+    if (typeof payload.msg === 'string') {
+      const location = Array.isArray(payload.loc) ? payload.loc.join('.') : '';
+      return location ? `${location}: ${payload.msg}` : payload.msg;
+    }
+
+    const values = Object.values(payload)
+      .map(value => formatApiError(value, ''))
+      .filter(Boolean);
+    return values.join(' | ') || fallback;
+  }
+
+  return String(payload);
+}
+
 function normalizeTagColor(color) {
   return /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color) : '#3B82F6';
 }
@@ -80,6 +110,9 @@ const State = {
   hideBalanceAccounts: false,
   showZeroBalanceItems: false,
   balanceTypeFilter: [1, 2, 3, 4, 5],
+  isAuthenticated: false,
+  currentUser: null,
+  sessionExpiresAt: null,
   usageOrder: JSON.parse(localStorage.getItem('acct_usage') || '{}'), // {id: timestamp}
 
   get filtered() { return !!(this.filterFrom && this.filterTo); },
@@ -128,22 +161,39 @@ const State = {
 /* ─── API CLIENT ─────────────────────────────────────────────────── */
 const API = {
   async _fetch(path, opts = {}) {
+    const { skipAuthRedirect = false, headers: customHeaders = {}, ...fetchOpts } = opts;
     const r = await fetch(buildApiUrl(path), {
-      headers: { 'Content-Type': 'application/json' },
-      ...opts,
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', ...customHeaders },
+      ...fetchOpts,
     });
+    const parseError = async () => {
+      const raw = await r.text().catch(() => 'Unknown error');
+      try {
+        const payload = JSON.parse(raw);
+        return formatApiError(payload, raw || 'Unknown error');
+      } catch {
+        return raw || 'Unknown error';
+      }
+    };
+    if ((r.status === 401 || r.status === 403) && !skipAuthRedirect) {
+      const msg = await parseError();
+      Auth.handleUnauthorized(msg);
+      const error = new Error(msg);
+      error.code = 'AUTH_REQUIRED';
+      throw error;
+    }
     if (!r.ok) {
-      const msg = await r.text().catch(() => 'Unknown error');
-      throw new Error(msg);
+      throw new Error(await parseError());
     }
     if (r.status === 204) return null;
     return r.json();
   },
 
-  get(path)         { return this._fetch(path); },
-  post(path, data)  { return this._fetch(path, { method: 'POST',   body: JSON.stringify(data) }); },
-  put(path, data)   { return this._fetch(path, { method: 'PUT',    body: JSON.stringify(data) }); },
-  del(path)         { return this._fetch(path, { method: 'DELETE' }); },
+  get(path, opts = {})         { return this._fetch(path, opts); },
+  post(path, data, opts = {})  { return this._fetch(path, { method: 'POST', body: JSON.stringify(data), ...opts }); },
+  put(path, data, opts = {})   { return this._fetch(path, { method: 'PUT', body: JSON.stringify(data), ...opts }); },
+  del(path, opts = {})         { return this._fetch(path, { method: 'DELETE', ...opts }); },
 
   async loadAll() {
     const [accounts, types, subtypes, tags, version, config, preferences] = await Promise.all([
@@ -182,6 +232,190 @@ const API = {
 
   async reloadConfig() {
     State.appConfig = await this.get('/settings/config');
+  },
+};
+
+const AppShell = {
+  _booted: false,
+
+  async bootstrap() {
+    await API.loadAll();
+    await Preferences.applyLoaded();
+    applyAppVersion();
+    await I18n.init();
+    StatusBar.startClock();
+    StatusBar.refresh();
+    Filter._syncUi();
+    Auth.renderSessionUi();
+    await View.show('board');
+    if (typeof FX !== 'undefined') FX.init();
+    this._booted = true;
+  },
+
+  reset() {
+    this._booted = false;
+    State.accounts = [];
+    State.types = [];
+    State.subtypes = [];
+    State.tags = [];
+    State.appConfig = {};
+    State.userPreferences = {};
+  },
+};
+
+const Auth = {
+  rememberedUserKey: 'oacc_remembered_username',
+  _bound: false,
+
+  _overlay() {
+    return document.getElementById('auth-overlay');
+  },
+
+  _errorBox() {
+    return document.getElementById('auth-error');
+  },
+
+  _submitButton() {
+    return document.getElementById('auth-submit');
+  },
+
+  bindUi() {
+    if (this._bound) return;
+    document.getElementById('auth-form')?.addEventListener('submit', event => {
+      event.preventDefault();
+      this.login();
+    });
+    this._bound = true;
+  },
+
+  _setBusy(busy) {
+    const submit = this._submitButton();
+    if (!submit) return;
+    submit.disabled = busy;
+    submit.textContent = busy ? 'Signing in...' : 'Sign in';
+  },
+
+  _setError(message = '') {
+    const errorBox = this._errorBox();
+    if (!errorBox) return;
+    errorBox.textContent = message;
+    errorBox.classList.toggle('hidden', !message);
+  },
+
+  _rememberedUsername() {
+    return localStorage.getItem(this.rememberedUserKey) || '';
+  },
+
+  _persistRememberedUsername(username, rememberMe) {
+    if (rememberMe && username) {
+      localStorage.setItem(this.rememberedUserKey, username);
+      return;
+    }
+    localStorage.removeItem(this.rememberedUserKey);
+  },
+
+  _setSession(session) {
+    State.isAuthenticated = !!session?.authenticated;
+    State.currentUser = session?.user || null;
+    State.sessionExpiresAt = session?.expires_at || null;
+  },
+
+  clearSessionState() {
+    this._setSession(null);
+    AppShell.reset();
+    this.renderSessionUi();
+  },
+
+  showLogin(message = '') {
+    const overlay = this._overlay();
+    if (!overlay) return;
+    const usernameInput = document.getElementById('auth-username');
+    const passwordInput = document.getElementById('auth-password');
+    const rememberInput = document.getElementById('auth-remember');
+    if (usernameInput && !usernameInput.value) usernameInput.value = this._rememberedUsername();
+    if (passwordInput) passwordInput.value = '';
+    if (rememberInput) rememberInput.checked = !!this._rememberedUsername();
+    this._setError(message || '');
+    overlay.classList.remove('hidden');
+    requestAnimationFrame(() => usernameInput?.focus());
+  },
+
+  hideLogin() {
+    this._overlay()?.classList.add('hidden');
+    this._setError('');
+  },
+
+  renderSessionUi() {
+    const username = State.currentUser?.username || '';
+    [
+      { label: document.getElementById('session-user'), button: document.getElementById('session-logout') },
+      { label: document.getElementById('session-user-mobile'), button: document.getElementById('session-logout-mobile') },
+    ].forEach(({ label, button }) => {
+      if (label) {
+        label.textContent = username ? `Signed in as ${username}` : '';
+        label.classList.toggle('hidden', !username);
+      }
+      if (button) button.classList.toggle('hidden', !username);
+    });
+  },
+
+  async restoreSession() {
+    const session = await API.get('/auth/session', { skipAuthRedirect: true });
+    if (!session?.authenticated) {
+      this.clearSessionState();
+      this.showLogin(session?.message || '');
+      return false;
+    }
+    this._setSession(session);
+    this.hideLogin();
+    this.renderSessionUi();
+    return true;
+  },
+
+  async login() {
+    const username = document.getElementById('auth-username')?.value?.trim() || '';
+    const password = document.getElementById('auth-password')?.value || '';
+    const rememberMe = !!document.getElementById('auth-remember')?.checked;
+
+    this._setBusy(true);
+    this._setError('');
+    try {
+      const session = await API.post('/auth/login', {
+        username,
+        password,
+        remember_me: rememberMe,
+      }, { skipAuthRedirect: true });
+      this._persistRememberedUsername(username, rememberMe);
+      this._setSession(session);
+      this.hideLogin();
+      this.renderSessionUi();
+      await AppShell.bootstrap();
+    } catch (error) {
+      this.showLogin(error.message || 'Unable to sign in');
+    } finally {
+      this._setBusy(false);
+    }
+  },
+
+  async logout() {
+    try {
+      await API.post('/auth/logout', {}, { skipAuthRedirect: true });
+    } catch {
+      // best-effort logout; client state is cleared regardless
+    }
+    Nav.close();
+    this.clearSessionState();
+    this.showLogin('Session closed.');
+    const main = document.getElementById('main');
+    if (main) main.innerHTML = '';
+  },
+
+  handleUnauthorized(message = 'Session expired. Please sign in again.') {
+    if (!State.isAuthenticated && !State.currentUser) return;
+    this.clearSessionState();
+    this.showLogin(message);
+    const main = document.getElementById('main');
+    if (main) main.innerHTML = '';
   },
 };
 
@@ -823,16 +1057,11 @@ View.show = async function (name) {
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
+  Auth.bindUi();
   try {
-    await API.loadAll();
-    await Preferences.applyLoaded();
-    applyAppVersion();
-    await I18n.init();         // load translations + apply static labels
-    StatusBar.startClock();
-    StatusBar.refresh();
-    Filter._syncUi();
-    await View.show('board');
-    if (typeof FX !== 'undefined') FX.init();
+    const hasSession = await Auth.restoreSession();
+    if (!hasSession) return;
+    await AppShell.bootstrap();
   } catch (e) {
     const backendOrigin = window.location.origin;
     document.getElementById('main').innerHTML =

@@ -567,10 +567,25 @@ const Reports = {
     const expTo   = State.filterTo   || `${new Date().getFullYear()}-12-31`;
     const entries = this._sortByDate(data.entries, 'ledger');
 
+    const counterpartCell = entry => {
+      if (!entry.counterpart_id) {
+        return `<span class="text-dark-400">${escapeHtml(entry.counterpart || '')}</span>`;
+      }
+
+      return `<button ${htmlAttrs({
+        type: 'button',
+        class: 'text-left text-blue-300 hover:text-blue-200 underline-offset-2 hover:underline cursor-pointer',
+        'data-report-action': 'open-ledger',
+        'data-account-id': entry.counterpart_id,
+        title: t('report.open_ledger_account', { account: entry.counterpart || '' }),
+        'aria-label': t('report.open_ledger_account', { account: entry.counterpart || '' }),
+      })}>${escapeHtml(entry.counterpart || '')}</button>`;
+    };
+
     const rows = entries.map(e => R.row([
       { v: `<span class="font-mono text-xs">${e.date.slice(0,16)}</span>` },
       { v: `<div class="flex flex-col gap-2"><span>${escapeHtml(e.description || '')}</span>${e.tags?.length ? `<div class="flex flex-wrap gap-1.5">${R.tags(e.tags)}</div>` : ''}</div>` },
-      { v: `<span class="text-dark-400">${escapeHtml(e.counterpart || '')}</span>` },
+      { v: counterpartCell(e) },
       { v: e.debit  ? R.amt(e.debit)  : '', cls: 'text-right' },
       { v: e.credit ? R.amt(e.credit) : '', cls: 'text-right' },
       { v: `<span class="font-semibold">${R.amt(e.balance)}</span>`, cls: 'text-right' },
@@ -596,7 +611,10 @@ const Reports = {
         })}</div>` },
     ])).join('');
 
-    main.innerHTML = R.view(`📖 ${t('report.ledger')}`, t('report.ledger_summary', { count: entries.length }), `
+    main.innerHTML = R.view(
+      `<span class="block w-full text-center text-3xl sm:text-5xl lg:text-4xl font-black tracking-tight leading-none">${escapeHtml(data.account_name)}</span>`,
+      `<span class="block w-full text-center text-sm text-dark-400">📖 ${escapeHtml(t('report.ledger'))} · ${escapeHtml(t('report.ledger_summary', { count: entries.length }))}</span>`,
+      `
       ${this._tagFilterBar()}
       <div class="flex flex-wrap items-center gap-3 mb-4">
         <select ${htmlAttrs({

@@ -313,15 +313,17 @@ def get_ledger(
     tag_map = tags_service.get_transaction_tags_map(conn, [row["id"] for row in rows])
     for row in rows:
         if row["debit_account"] == account_id:
-            role, counterpart, delta = (
+            role, counterpart, counterpart_id, delta = (
                 "Débito",
                 row["credit_name"],
+                row["credit_account"],
                 balance_delta(account["type_id"], "debit", row["amount"]),
             )
         else:
-            role, counterpart, delta = (
+            role, counterpart, counterpart_id, delta = (
                 "Crédito",
                 row["debit_name"],
+                row["debit_account"],
                 balance_delta(account["type_id"], "credit", row["amount"]),
             )
         running += delta
@@ -331,6 +333,7 @@ def get_ledger(
                 "date": row["date"],
                 "description": row["description"] or counterpart,
                 "counterpart": counterpart,
+                "counterpart_id": counterpart_id,
                 "role": role,
                 "debit": row["amount"] if role == "Débito" else None,
                 "credit": row["amount"] if role == "Crédito" else None,

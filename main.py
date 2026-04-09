@@ -10,13 +10,15 @@ from pathlib import Path
 import app_config  # must be imported before database
 import app_version
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from auth import require_authenticated_user
 from routers import types, subtypes, accounts, transactions, reports, tags
 from routers import settings as settings_router, about as about_router
 from routers import projections as projections_router
+from routers import auth as auth_router
 
 
 @asynccontextmanager
@@ -47,15 +49,56 @@ app.add_middleware(
 )
 
 # ── API routers ────────────────────────────────────────────────────────────────
-app.include_router(types.router, prefix="/api", tags=["Types"])
-app.include_router(subtypes.router, prefix="/api", tags=["Subtypes"])
-app.include_router(accounts.router, prefix="/api", tags=["Accounts"])
-app.include_router(transactions.router, prefix="/api", tags=["Transactions"])
-app.include_router(tags.router, prefix="/api", tags=["Tags"])
-app.include_router(reports.router, prefix="/api", tags=["Reports"])
-app.include_router(settings_router.router, prefix="/api", tags=["Settings"])
+app.include_router(auth_router.router, prefix="/api", tags=["Auth"])
+app.include_router(
+    types.router,
+    prefix="/api",
+    tags=["Types"],
+    dependencies=[Depends(require_authenticated_user)],
+)
+app.include_router(
+    subtypes.router,
+    prefix="/api",
+    tags=["Subtypes"],
+    dependencies=[Depends(require_authenticated_user)],
+)
+app.include_router(
+    accounts.router,
+    prefix="/api",
+    tags=["Accounts"],
+    dependencies=[Depends(require_authenticated_user)],
+)
+app.include_router(
+    transactions.router,
+    prefix="/api",
+    tags=["Transactions"],
+    dependencies=[Depends(require_authenticated_user)],
+)
+app.include_router(
+    tags.router,
+    prefix="/api",
+    tags=["Tags"],
+    dependencies=[Depends(require_authenticated_user)],
+)
+app.include_router(
+    reports.router,
+    prefix="/api",
+    tags=["Reports"],
+    dependencies=[Depends(require_authenticated_user)],
+)
+app.include_router(
+    settings_router.router,
+    prefix="/api",
+    tags=["Settings"],
+    dependencies=[Depends(require_authenticated_user)],
+)
 app.include_router(about_router.router, prefix="/api", tags=["About"])
-app.include_router(projections_router.router, prefix="/api", tags=["Projections"])
+app.include_router(
+    projections_router.router,
+    prefix="/api",
+    tags=["Projections"],
+    dependencies=[Depends(require_authenticated_user)],
+)
 
 # ── Static frontend ────────────────────────────────────────────────────────────
 STATIC_DIR = Path(__file__).parent / "static"
