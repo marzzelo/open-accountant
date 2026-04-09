@@ -153,8 +153,21 @@ function _computeTrendDatasets(allLabels, histMonths, histMap, color, settings) 
 
   const inliers  = allPts.filter(p => (!hasMin || p.value >= minVal) && (!hasMax || p.value <= maxVal));
   const outliers = allPts.filter(p => (hasMin && p.value < minVal) || (hasMax && p.value > maxVal));
+  const outlierDataset = outliers.length > 0 ? {
+    label: t('proj.chart.outliers'),
+    type: 'scatter',
+    data: outliers.map(p => ({ x: p.month, y: p.value })),
+    parsing: false,
+    pointStyle: 'crossRot',
+    pointRadius: 7,
+    pointBorderWidth: 2.5,
+    pointBackgroundColor: 'transparent',
+    pointBorderColor: '#ef4444',
+    showLine: false,
+    order: 0,
+  } : null;
 
-  if (inliers.length === 0) return { trendDataset: null, outlierDataset: null };
+  if (inliers.length === 0) return { trendDataset: null, outlierDataset };
 
   const { slope, intercept } = _olsFromPoints(inliers);
   const trendData = allLabels.map((_, i) =>
@@ -174,20 +187,6 @@ function _computeTrendDatasets(allLabels, histMonths, histMap, color, settings) 
     tension: 0,
     order: 2,
   };
-
-  const outlierDataset = outliers.length > 0 ? {
-    label: t('proj.chart.outliers'),
-    type: 'scatter',
-    data: outliers.map(p => ({ x: p.month, y: p.value })),
-    parsing: false,
-    pointStyle: 'crossRot',
-    pointRadius: 7,
-    pointBorderWidth: 2.5,
-    pointBackgroundColor: 'transparent',
-    pointBorderColor: '#ef4444',
-    showLine: false,
-    order: 0,
-  } : null;
 
   return { trendDataset, outlierDataset };
 }
@@ -786,6 +785,10 @@ function _renderCharts() {
   const combinedCanvas = document.getElementById('ch-proj-combined');
   if (combinedCanvas) {
     // _h: true marks a dataset as hidden from the legend
+    const pickScatterData = (result, pointStyle = null) => (
+      result.datasets.find(ds => ds.type === 'scatter' && (ds.pointStyle || null) === pointStyle)?.data || []
+    );
+
     const scatter = (color, data, yId) => ({
       _h: true,
       type: 'scatter',
@@ -796,6 +799,23 @@ function _renderCharts() {
       pointBorderColor: color,
       showLine: false,
       order: 4,
+      yAxisID: yId,
+    });
+
+    const outlierMarks = (label, data, yId) => ({
+      _h: true,
+      label: `${label} (${t('proj.chart.outliers')})`,
+      type: 'scatter',
+      data,
+      parsing: false,
+      pointStyle: 'crossRot',
+      pointRadius: 7,
+      pointHoverRadius: 7,
+      pointBorderWidth: 2.5,
+      pointBackgroundColor: 'transparent',
+      pointBorderColor: '#ef4444',
+      showLine: false,
+      order: 5,
       yAxisID: yId,
     });
 
@@ -830,18 +850,22 @@ function _renderCharts() {
       yAxisID: yId,
     });
 
-    const incScatter  = histMonths.filter(m => incHistMap[m]  != null).map(m => ({ x: m, y: incHistMap[m] }));
-    const expScatter  = histMonths.filter(m => expHistMap[m]  != null).map(m => ({ x: m, y: expHistMap[m] }));
+    const incScatter  = pickScatterData(incomeResult);
+    const incOutliers = pickScatterData(incomeResult, 'crossRot');
+    const expScatter  = pickScatterData(expensesResult);
+    const expOutliers = pickScatterData(expensesResult, 'crossRot');
     const savScatter  = histMonths.filter(m => incHistMap[m]  != null && expHistMap[m] != null)
                                   .map(m => ({ x: m, y: Math.round((incHistMap[m] - expHistMap[m]) * 100) / 100 }));
     const assetScatter = histMonths.filter(m => assetsHistMap[m] != null).map(m => ({ x: m, y: assetsHistMap[m] }));
 
     const datasets = [
       scatter(PROJ_COLORS.income,   incScatter,   'y'),
+      ...(incOutliers.length ? [outlierMarks(t('proj.chart.income'), incOutliers, 'y')] : []),
       ...(incTrend ? [trendLine(PROJ_COLORS.income,   incTrend,         'y')] : []),
       projLine(t('proj.chart.income'),   PROJ_COLORS.income,   incProj,         'y'),
 
       scatter(PROJ_COLORS.expenses, expScatter,   'y'),
+      ...(expOutliers.length ? [outlierMarks(t('proj.chart.expenses'), expOutliers, 'y')] : []),
       ...(expTrend ? [trendLine(PROJ_COLORS.expenses, expTrend,         'y')] : []),
       projLine(t('proj.chart.expenses'), PROJ_COLORS.expenses, expProj,         'y'),
 
