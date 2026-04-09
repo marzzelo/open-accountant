@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, and this project is intended to follow 
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-04-09
+
+### Changed
+
+- Release baseline advanced to `v2.0.0` for the new major milestone.
+- The combined projections chart now marks historical values excluded by the trend range filter with `✕`, matching the UI label.
+
 ## [1.4.0] - 2026-03-21
 
 ### Added
