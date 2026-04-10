@@ -1,3 +1,5 @@
+from datetime import date
+
 import app_config
 
 import pytest
@@ -407,6 +409,28 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
         1550.0 / 300.0, rel=1e-4
     )
     assert projections["health"]["delta_end"]["net_worth"] == 0.0
+
+
+def test_projection_series_adjustments_accept_date_start_dates():
+    adjustments = projections_service._compute_series_adjustments(
+        [
+            {
+                "id": 1,
+                "name": "vacaciones",
+                "type": "expense",
+                "start_date": date(2026, 7, 1),
+                "months": 1,
+                "monthly_amount": 2000000.0,
+            }
+        ],
+        ["2026-07", "2026-08", "2026-09"],
+    )
+
+    assert adjustments["income"] == [0.0, 0.0, 0.0]
+    assert adjustments["expenses"] == [2000000.0, 0.0, 0.0]
+    assert adjustments["savings"] == [-2000000.0, 0.0, 0.0]
+    assert adjustments["assets"] == [-2000000.0, -2000000.0, -2000000.0]
+    assert adjustments["liabilities"] == [2000000.0, 2000000.0, 2000000.0]
 
 
 def test_tags_service_crud_assignment_and_report_filters(initialized_environment):

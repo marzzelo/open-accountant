@@ -16,6 +16,7 @@ from services.helpers import (
     end_of_month_datetime,
     normalize_account_properties,
     require_row,
+    serialize_temporal_value,
 )
 
 
@@ -53,6 +54,11 @@ def _months_range(start: str, count: int) -> list[str]:
         y2, m2 = _add_months(y, m, i)
         result.append(_month_str(y2, m2))
     return result
+
+
+def _series_start_month(start_date) -> str:
+    serialized = serialize_temporal_value(start_date)
+    return str(serialized)[:7]
 
 
 # ── Linear regression (pure Python, no numpy) ─────────────────────────────────
@@ -273,7 +279,7 @@ def _compute_series_adjustments(
     expense_adj = [0.0] * n
 
     for s in series_list:
-        start_ym = s["start_date"][:7]  # "YYYY-MM"
+        start_ym = _series_start_month(s["start_date"])
         sy, sm = _parse_month(start_ym)
         for i, pm in enumerate(projected_months):
             py, pm_n = _parse_month(pm)
@@ -317,10 +323,10 @@ def _row_to_dict(row) -> dict:
         "id": row["id"],
         "name": row["name"],
         "type": row["type"],
-        "start_date": row["start_date"],
+        "start_date": str(serialize_temporal_value(row["start_date"])),
         "months": row["months"],
         "monthly_amount": row["monthly_amount"],
-        "created_at": str(row["created_at"]),
+        "created_at": str(serialize_temporal_value(row["created_at"])),
     }
 
 
