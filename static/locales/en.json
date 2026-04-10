@@ -362,6 +362,7 @@
   "btn.register": "Register →",
   "msg.name_type_required": "Name and type are required",
   "msg.invalid_amount": "Enter a valid amount or a valid mathematical expression",
+  "msg.invalid_money_input": "Enter a valid amount using unambiguous separators",
   "msg.force_balance_single_option": "Choose only one direct balance option",
   "msg.force_balance_no_change": "The account already has that balance",
   "msg.force_balance_conflict": "That target balance requires a movement in the opposite direction. Try the other option or swap the accounts.",

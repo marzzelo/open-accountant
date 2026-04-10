@@ -35,6 +35,167 @@ function fmtSigned(v) {
   })}`;
 }
 
+function _invalidParsedMoney(reason = 'invalid') {
+  return {
+    isEmpty: false,
+    isValid: false,
+    value: Number.NaN,
+    normalized: '',
+    reason,
+  };
+}
+
+function _countChar(value, char) {
+  return (String(value || '').match(new RegExp(`\\${char}`, 'g')) || []).length;
+}
+
+function _isValidThousandsInteger(value, separator) {
+  if (!/^\d+(?:[.,]\d+)*$/.test(value)) return false;
+  if (!value.includes(separator)) return /^\d+$/.test(value);
+
+  const groups = value.split(separator);
+  if (!/^\d{1,3}$/.test(groups[0])) return false;
+  return groups.slice(1).every(group => /^\d{3}$/.test(group));
+}
+
+function _parseMoneyLiteral(rawValue, { maxFractionDigits = 2 } = {}) {
+  const trimmedValue = String(rawValue ?? '').trim();
+  if (!trimmedValue) {
+    return {
+      isEmpty: true,
+      isValid: false,
+      value: Number.NaN,
+      normalized: '',
+      reason: 'empty',
+    };
+  }
+
+  const compactValue = trimmedValue.replace(/\s+/g, '');
+  if (!/^[+-]?\d[\d.,]*$/.test(compactValue)) return _invalidParsedMoney('invalid_chars');
+
+  const sign = /^[+-]/.test(compactValue) ? compactValue[0] : '';
+  const unsignedValue = sign ? compactValue.slice(1) : compactValue;
+  const commaCount = _countChar(unsignedValue, ',');
+  const dotCount = _countChar(unsignedValue, '.');
+
+  if (!commaCount && !dotCount) {
+    return {
+      isEmpty: false,
+      isValid: true,
+      value: Number(sign + unsignedValue),
+      normalized: sign + unsignedValue,
+      reason: null,
+    };
+  }
+
+  if (commaCount && dotCount) {
+    const decimalSeparator = unsignedValue.lastIndexOf(',') > unsignedValue.lastIndexOf('.') ? ',' : '.';
+    const groupSeparator = decimalSeparator === ',' ? '.' : ',';
+    const decimalIndex = unsignedValue.lastIndexOf(decimalSeparator);
+    const integerPart = unsignedValue.slice(0, decimalIndex);
+    const decimalPart = unsignedValue.slice(decimalIndex + 1);
+
+    if (!integerPart || integerPart.includes(decimalSeparator)) return _invalidParsedMoney('ambiguous');
+    if (!new RegExp(`^\\d{1,${maxFractionDigits}}$`).test(decimalPart)) return _invalidParsedMoney('ambiguous');
+    if (!_isValidThousandsInteger(integerPart, groupSeparator)) return _invalidParsedMoney('ambiguous');
+
+    const normalized = `${sign}${integerPart.split(groupSeparator).join('')}.${decimalPart}`;
+    return {
+      isEmpty: false,
+      isValid: true,
+      value: Number(normalized),
+      normalized,
+      reason: null,
+    };
+  }
+
+  const separator = commaCount ? ',' : '.';
+  const separatorCount = commaCount || dotCount;
+
+  if (separatorCount === 1) {
+    const [integerPart, decimalPart] = unsignedValue.split(separator);
+    if (!integerPart || !decimalPart || !/^\d+$/.test(integerPart) || !/^\d+$/.test(decimalPart)) {
+      return _invalidParsedMoney('invalid');
+    }
+    if (decimalPart.length >= 1 && decimalPart.length <= maxFractionDigits) {
+      const normalized = `${sign}${integerPart}.${decimalPart}`;
+      return {
+        isEmpty: false,
+        isValid: true,
+        value: Number(normalized),
+        normalized,
+        reason: null,
+      };
+    }
+    return _invalidParsedMoney(decimalPart.length === 3 && maxFractionDigits < 3 ? 'ambiguous' : 'invalid');
+  }
+
+  if (!_isValidThousandsInteger(unsignedValue, separator)) return _invalidParsedMoney('ambiguous');
+
+  const normalized = sign + unsignedValue.split(separator).join('');
+  return {
+    isEmpty: false,
+    isValid: true,
+    value: Number(normalized),
+    normalized,
+    reason: null,
+  };
+}
+
+function _normalizeMoneyExpression(rawValue, { maxFractionDigits = 2 } = {}) {
+  const expression = String(rawValue ?? '');
+  if (!/^[\d\s.,+\-*/%()]+$/.test(expression)) return _invalidParsedMoney('invalid_expression');
+
+  const tokenPattern = /(?<![\d.,])[-+]?(?:\d[\d.,\s]*\d|\d)(?![\d.,])/g;
+  let sawToken = false;
+  let invalidReason = '';
+
+  const normalized = expression.replace(tokenPattern, token => {
+    sawToken = true;
+    const parsed = _parseMoneyLiteral(token, { maxFractionDigits });
+    if (!parsed.isValid) {
+      invalidReason = parsed.reason || 'invalid_expression';
+      return '__INVALID_MONEY_TOKEN__';
+    }
+    return parsed.normalized;
+  });
+
+  if (!sawToken || invalidReason || normalized.includes('__INVALID_MONEY_TOKEN__')) {
+    return _invalidParsedMoney(invalidReason || 'invalid_expression');
+  }
+  if (!/^[\d\s.+\-*/%()]+$/.test(normalized)) return _invalidParsedMoney('invalid_expression');
+
+  return {
+    isEmpty: false,
+    isValid: true,
+    value: Number.NaN,
+    normalized,
+    reason: null,
+  };
+}
+
+function parseMoneyInput(rawValue, { allowExpression = false, maxFractionDigits = 2 } = {}) {
+  const parsedLiteral = _parseMoneyLiteral(rawValue, { maxFractionDigits });
+  if (parsedLiteral.isEmpty || parsedLiteral.isValid || !allowExpression) return parsedLiteral;
+
+  const normalizedExpression = _normalizeMoneyExpression(rawValue, { maxFractionDigits });
+  if (!normalizedExpression.isValid) return normalizedExpression;
+
+  try {
+    const evaluated = Function(`"use strict"; return (${normalizedExpression.normalized});`)();
+    if (!Number.isFinite(evaluated)) return _invalidParsedMoney('invalid_expression');
+    return {
+      isEmpty: false,
+      isValid: true,
+      value: evaluated,
+      normalized: normalizedExpression.normalized,
+      reason: null,
+    };
+  } catch (_) {
+    return _invalidParsedMoney('invalid_expression');
+  }
+}
+
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, char => ({
     '&': '&amp;',

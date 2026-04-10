@@ -362,6 +362,7 @@
   "btn.register": "Registrar →",
   "msg.name_type_required": "Nombre y tipo son obligatorios",
   "msg.invalid_amount": "Ingresá un monto válido o una expresión matemática correcta",
+  "msg.invalid_money_input": "Ingresá un monto válido con separadores no ambiguos",
   "msg.force_balance_single_option": "Elegí solo una opción de saldo directo",
   "msg.force_balance_no_change": "La cuenta ya tiene ese saldo",
   "msg.force_balance_conflict": "Ese saldo objetivo requiere un movimiento en el sentido opuesto. Probá con la otra opción o invertí las cuentas.",

@@ -239,9 +239,18 @@ const Forms = {
     return `f-currency-${currency.toLowerCase().replace(/_/g, '-')}`;
   },
 
+  _selectedFxRateState() {
+    return parseMoneyInput(document.getElementById('f-fx-rate')?.value, { maxFractionDigits: 4 });
+  },
+
   _selectedFxRate() {
-    const value = parseFloat(document.getElementById('f-fx-rate')?.value);
-    return Number.isFinite(value) && value > 0 ? value : null;
+    const rateState = this._selectedFxRateState();
+    return rateState.isValid && rateState.value > 0 ? rateState.value : null;
+  },
+
+  _hasInvalidManualFxRate() {
+    const rateState = this._selectedFxRateState();
+    return !rateState.isEmpty && (!rateState.isValid || !Number.isFinite(rateState.value) || rateState.value <= 0);
   },
 
   _isDebitNormal(typeId) {
@@ -364,7 +373,11 @@ const Forms = {
   _previewTransactionRate() {
     const currency = this._selectedAmountCurrency();
     if (currency === 'ARS') return 1;
-    return this._selectedFxRate() || this._getCurrencyRate(currency);
+    const rateState = this._selectedFxRateState();
+    if (!rateState.isEmpty) {
+      return rateState.isValid ? rateState.value : Number.NaN;
+    }
+    return this._getCurrencyRate(currency);
   },
 
   _effectiveAmountPreviewField(opts = {}) {
@@ -454,6 +467,10 @@ const Forms = {
 
     if (!amountState.isEmpty && !amountState.isValid) {
       return { tone: 'err', text: t('msg.invalid_amount') };
+    }
+
+    if (currency !== 'ARS' && this._hasInvalidManualFxRate()) {
+      return { tone: 'err', text: t('msg.invalid_money_input') };
     }
 
     if (!forceMode && (amountState.isEmpty || !Number.isFinite(rawAmount) || rawAmount <= 0)) return preview;
@@ -633,39 +650,15 @@ const Forms = {
   },
 
   _evaluateTransactionAmount(rawValue) {
-    const trimmedValue = String(rawValue ?? '').trim();
-    if (!trimmedValue) {
-      return { isEmpty: true, isValid: false, value: Number.NaN };
-    }
+    const parsedAmount = parseMoneyInput(rawValue, { allowExpression: true });
+    if (parsedAmount.isEmpty) return { isEmpty: true, isValid: false, value: Number.NaN };
+    if (!parsedAmount.isValid) return { isEmpty: false, isValid: false, value: Number.NaN };
 
-    const normalizedValue = trimmedValue.replace(/,/g, '');
-    const directValue = Number(normalizedValue);
-    if (Number.isFinite(directValue)) {
-      return {
-        isEmpty: false,
-        isValid: true,
-        value: this._roundMoney(directValue),
-      };
-    }
-
-    if (!/^[0-9eE+\-*/%().\s]+$/.test(normalizedValue)) {
-      return { isEmpty: false, isValid: false, value: Number.NaN };
-    }
-
-    try {
-      const evaluated = Function(`"use strict"; return (${normalizedValue});`)();
-      if (!Number.isFinite(evaluated)) {
-        return { isEmpty: false, isValid: false, value: Number.NaN };
-      }
-
-      return {
-        isEmpty: false,
-        isValid: true,
-        value: this._roundMoney(evaluated),
-      };
-    } catch (_) {
-      return { isEmpty: false, isValid: false, value: Number.NaN };
-    }
+    return {
+      isEmpty: false,
+      isValid: true,
+      value: this._roundMoney(parsedAmount.value),
+    };
   },
 
   _transactionAmountState() {
@@ -679,7 +672,11 @@ const Forms = {
   async _selectedTransactionRate() {
     const currency = this._selectedAmountCurrency();
     if (currency === 'ARS') return 1;
-    return this._selectedFxRate() || await this._resolveCurrencyRate(currency);
+    const rateState = this._selectedFxRateState();
+    if (!rateState.isEmpty) {
+      return rateState.isValid && rateState.value > 0 ? rateState.value : null;
+    }
+    return await this._resolveCurrencyRate(currency);
   },
 
   _syncTransactionFxUi(currency, { preserveRate = false } = {}) {
@@ -721,7 +718,7 @@ const Forms = {
         <div id="f-fx-rate-group" class="${selected.originalCurrency === 'ARS' ? 'hidden' : ''}">
           ${T.label(t('form.label.fx_rate'))}
           ${T.input('f-fx-rate', {
-            type: 'number',
+            type: 'text',
             step: '0.0001',
             min: '0.0001',
             val: rateValue,
@@ -838,9 +835,13 @@ const Forms = {
 
   async _primeAmountCurrencyHelp() {
     const currency = this._selectedAmountCurrency();
-    const rate = this._selectedFxRate() || await this._resolveCurrencyRate(currency);
     const note = document.getElementById('f-amount-currency-note');
     if (!note) return;
+    if (currency !== 'ARS' && this._hasInvalidManualFxRate()) {
+      note.textContent = t('msg.invalid_money_input');
+      return;
+    }
+    const rate = this._selectedFxRate() || await this._resolveCurrencyRate(currency);
     note.textContent = this._amountCurrencyHelp(currency, rate);
   },
 
@@ -868,6 +869,11 @@ const Forms = {
 
     if (!amountState.isEmpty && !amountState.isValid) {
       Toast.show(t('msg.invalid_amount'), 'err');
+      return null;
+    }
+
+    if (this._selectedAmountCurrency() !== 'ARS' && this._hasInvalidManualFxRate()) {
+      Toast.show(t('msg.invalid_money_input'), 'err');
       return null;
     }
 
@@ -920,6 +926,11 @@ const Forms = {
     const meta = this._transactionCurrencyMeta(currency);
     const manualRate = this._selectedFxRate();
 
+    if (meta.originalCurrency !== 'ARS' && this._hasInvalidManualFxRate()) {
+      Toast.show(t('msg.invalid_money_input'), 'err');
+      return null;
+    }
+
     if (meta.originalCurrency === 'ARS') {
       return {
         original_amount: rawAmount,
@@ -966,7 +977,7 @@ const Forms = {
         T.label(`${t('form.label.type')} *`) + T.select('f-type', `<option value="">${t('form.select_placeholder')}</option>` + typeOpts, { 'data-form-change': 'load-subtypes' }),
         T.label(t('form.label.subtype'))  + T.select('f-subtype', `<option value="">${t('form.select_type')}</option>`)
       )}
-      ${T.group(t('form.label.initial_bal'), T.input('f-initial', { type: 'number', step: '0.01', val: '0' }))}
+      ${T.group(t('form.label.initial_bal'), T.input('f-initial', { type: 'text', step: '0.01', val: '0', inputmode: 'decimal' }))}
       ${T.group(t('form.label.description'), T.input('f-desc', { ph: t('form.placeholder.desc') }))}
       <div id="f-account-properties"></div>
     `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
@@ -1005,7 +1016,7 @@ const Forms = {
         ${t('form.initial_balance_help')}
       </p>
       ${T.group(t('form.label.initial_bal'), T.input('f-initial', {
-        type: 'number', step: '0.01', val: acc.initial_balance,
+        type: 'text', step: '0.01', val: acc.initial_balance, inputmode: 'decimal',
         cls: '!text-2xl !font-bold !text-center !text-ingreso !tracking-tight'
       }))}
     `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
@@ -1194,10 +1205,12 @@ const Forms = {
     const name    = document.getElementById('f-name')?.value.trim();
     const typeId  = parseInt(document.getElementById('f-type')?.value);
     const subId   = document.getElementById('f-subtype')?.value;
-    const initial = parseFloat(document.getElementById('f-initial')?.value) || 0;
+    const initialState = parseMoneyInput(document.getElementById('f-initial')?.value);
+    const initial = initialState.isEmpty ? 0 : this._roundMoney(initialState.value);
     const desc    = document.getElementById('f-desc')?.value || '';
     const properties = this._readAccountProperties(typeId);
     if (!name || !typeId) return Toast.show(t('msg.name_type_required'), 'err');
+    if (!initialState.isEmpty && !initialState.isValid) return Toast.show(t('msg.invalid_money_input'), 'err');
     try {
       await API.post('/accounts', { name, type_id: typeId,
         subtype_id: subId ? parseInt(subId) : null, initial_balance: initial, description: desc, properties });
@@ -1218,7 +1231,9 @@ const Forms = {
   },
 
   async _saveInitialBalance(accId) {
-    const initial = parseFloat(document.getElementById('f-initial')?.value) || 0;
+    const initialState = parseMoneyInput(document.getElementById('f-initial')?.value);
+    if (!initialState.isEmpty && !initialState.isValid) return Toast.show(t('msg.invalid_money_input'), 'err');
+    const initial = initialState.isEmpty ? 0 : this._roundMoney(initialState.value);
     try {
       await API.put(`/accounts/${accId}`, { initial_balance: initial });
       Modal.close(); Toast.show(t('msg.balance_updated')); await View.refresh();
@@ -1458,7 +1473,10 @@ document.addEventListener('input', event => {
   const modalContent = document.getElementById('modal-content');
   if (modalContent && !modalContent.contains(target)) return;
 
-  if (target.id === 'f-amount') {
+  if (target.id === 'f-amount' || target.id === 'f-fx-rate') {
+    if (target.id === 'f-fx-rate') {
+      Forms._primeAmountCurrencyHelp();
+    }
     Forms._refreshTransactionEffectiveAmountNote();
   }
 });

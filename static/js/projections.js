@@ -82,6 +82,29 @@ function _getLastKnownValue(metric, projData) {
   return pts.length > 0 ? pts[pts.length - 1].value : null;
 }
 
+function _trendSettingPrecision(field) {
+  return field === 'inflationRate' ? 4 : 2;
+}
+
+function _parseTrendSettingNumber(value, field) {
+  const parsed = parseMoneyInput(value, { maxFractionDigits: _trendSettingPrecision(field) });
+  return parsed.isValid ? parsed.value : null;
+}
+
+function _normalizeTrendSettingValue(field, value) {
+  const parsed = parseMoneyInput(value, { maxFractionDigits: _trendSettingPrecision(field) });
+  if (parsed.isEmpty) return { isEmpty: true, isValid: true, normalized: '', value: null };
+  if (!parsed.isValid || !Number.isFinite(parsed.value) || parsed.value < 0) {
+    return { isEmpty: false, isValid: false, normalized: '', value: Number.NaN };
+  }
+  return {
+    isEmpty: false,
+    isValid: true,
+    normalized: parsed.normalized,
+    value: parsed.value,
+  };
+}
+
 // ── Trend computation ─────────────────────────────────────────────────────────
 
 function _olsFromPoints(pts) {
@@ -111,11 +134,10 @@ function _computeTrendDatasets(allLabels, histMonths, histMap, color, settings) 
 
     const lastPt  = allPts[allPts.length - 1];
     const rawBase = settings.inflationBase;
-    const base    = (rawBase !== '' && rawBase !== null) ? parseFloat(rawBase) : lastPt.value;
+    const base    = (rawBase !== '' && rawBase !== null) ? _parseTrendSettingNumber(rawBase, 'inflationBase') : lastPt.value;
     const rawRate = settings.inflationRate;
-    // Guard against incomplete typed numbers like '-' or '1.'
-    const rate    = (rawRate !== '' && rawRate !== null && !isNaN(parseFloat(rawRate)))
-      ? parseFloat(rawRate) / 100 : 0;
+    const parsedRate = (rawRate !== '' && rawRate !== null) ? _parseTrendSettingNumber(rawRate, 'inflationRate') : null;
+    const rate = parsedRate != null ? parsedRate / 100 : 0;
 
     if (isNaN(base)) return { trendDataset: null, outlierDataset: null };
 
@@ -146,8 +168,8 @@ function _computeTrendDatasets(allLabels, histMonths, histMap, color, settings) 
   }
 
   // ── Linear regression mode (with optional outlier filtering) ────────────────
-  const minVal = settings.minVal !== '' ? parseFloat(settings.minVal) : null;
-  const maxVal = settings.maxVal !== '' ? parseFloat(settings.maxVal) : null;
+  const minVal = settings.minVal !== '' ? _parseTrendSettingNumber(settings.minVal, 'minVal') : null;
+  const maxVal = settings.maxVal !== '' ? _parseTrendSettingNumber(settings.maxVal, 'maxVal') : null;
   const hasMin = minVal !== null && !isNaN(minVal);
   const hasMax = maxVal !== null && !isNaN(maxVal);
 
@@ -534,14 +556,14 @@ function _buildTrendSection(metricKey, sectionLabel, color) {
     <div class="space-y-2${s.mode === 'linear' ? '' : ' hidden'}" id="trend-linear-${metricKey}">
       <div class="flex items-center gap-2">
         <label class="${labelCls}">${t('proj.trend.min') || 'Mín'}</label>
-        <input type="number" value="${s.minVal}"
+        <input type="text" value="${s.minVal}" inputmode="decimal"
                placeholder="${t('proj.trend.no_limit') || 'sin límite'}"
                onchange="Projections._onTrendSetting('${metricKey}', 'minVal', this.value)"
                class="${inputCls}">
       </div>
       <div class="flex items-center gap-2">
         <label class="${labelCls}">${t('proj.trend.max') || 'Máx'}</label>
-        <input type="number" value="${s.maxVal}"
+        <input type="text" value="${s.maxVal}" inputmode="decimal"
                placeholder="${t('proj.trend.no_limit') || 'sin límite'}"
                onchange="Projections._onTrendSetting('${metricKey}', 'maxVal', this.value)"
                class="${inputCls}">
@@ -553,14 +575,14 @@ function _buildTrendSection(metricKey, sectionLabel, color) {
     <div class="space-y-2${s.mode === 'inflation' ? '' : ' hidden'}" id="trend-inflation-${metricKey}">
       <div class="flex items-center gap-2">
         <label class="${labelCls}">${t('proj.trend.base') || 'Base'}</label>
-        <input type="number" value="${s.inflationBase}"
+        <input type="text" value="${s.inflationBase}" inputmode="decimal"
                placeholder="${t('proj.trend.last_value') || 'último valor'}"
                onchange="Projections._onTrendSetting('${metricKey}', 'inflationBase', this.value)"
                class="${inputCls}">
       </div>
       <div class="flex items-center gap-2">
         <label class="${labelCls}">${t('proj.trend.rate') || '% / mes'}</label>
-        <input type="number" step="0.01" value="${s.inflationRate}"
+        <input type="text" step="0.01" value="${s.inflationRate}" inputmode="decimal"
                placeholder="0.00"
                onchange="Projections._onTrendSetting('${metricKey}', 'inflationRate', this.value)"
                class="${inputCls}">
@@ -985,8 +1007,16 @@ const Projections = {
   },
 
   _onTrendSetting(metricKey, field, value) {
-    _projState.trendSettings[metricKey][field] = value;
+    const normalized = _normalizeTrendSettingValue(field, value);
+    if (!normalized.isValid) {
+      Toast.show(t('msg.invalid_money_input'), 'err');
+      _renderTrendPanel();
+      return;
+    }
+
+    _projState.trendSettings[metricKey][field] = normalized.normalized;
     _saveProjPrefs({ [`proj_trend_${metricKey}`]: _projState.trendSettings[metricKey] });
+    _renderTrendPanel();
     _renderCharts();
   },
 
@@ -1019,7 +1049,7 @@ const Projections = {
           T.group(t('proj.series.months'),
               T.input('ps-months', { type: 'number', val: existing?.months ?? 1, ph: '1' })),
           T.group(t('proj.series.amount'),
-              T.input('ps-amount', { type: 'number', val: existing?.monthly_amount ?? '', ph: '0.00' }))
+            T.input('ps-amount', { type: 'text', val: existing?.monthly_amount ?? '', ph: '0.00', inputmode: 'decimal' }))
       )}
     </div>`;
 
@@ -1031,12 +1061,13 @@ const Projections = {
         const type   = document.getElementById('ps-type').value;
         const start  = document.getElementById('ps-start').value;  // YYYY-MM
         const months = parseInt(document.getElementById('ps-months').value, 10);
-        const amount = parseFloat(document.getElementById('ps-amount').value);
+        const amountState = parseMoneyInput(document.getElementById('ps-amount').value);
+        const amount = amountState.isValid ? amountState.value : Number.NaN;
 
         if (!name) { Toast.show(t('msg.invalid_value'), 'err'); return false; }
         if (!start) { Toast.show(t('msg.invalid_value'), 'err'); return false; }
         if (isNaN(months) || months < 1) { Toast.show(t('msg.invalid_value'), 'err'); return false; }
-        if (isNaN(amount) || amount <= 0) { Toast.show(t('msg.invalid_value'), 'err'); return false; }
+        if (amountState.isEmpty || !amountState.isValid || amount <= 0) { Toast.show(t('msg.invalid_money_input'), 'err'); return false; }
 
         const payload = { name, type, start_date: start + '-01', months, monthly_amount: amount };
         try {

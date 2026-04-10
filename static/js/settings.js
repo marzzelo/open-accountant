@@ -110,6 +110,7 @@ const Settings = {
       el.addEventListener('change', () => this._syncConfigSaveButton());
     });
 
+    this._syncFinanceRateValidation();
     this._configFormSnapshot = this._serializeConfigForm();
     this._syncConfigSaveButton();
   },
@@ -248,7 +249,7 @@ const Settings = {
           <label class="flex flex-col gap-1.5 min-w-0">
             <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.finance.official_usd_buy')}</span>
             <input id="cfg-finance-usd-official-buy-ars"
-                   type="number" step="0.01" min="0"
+                   type="text" step="0.01" min="0" inputmode="decimal"
                    data-section="finance" data-key="usd_official_buy_ars" value="${escapeHtml(rate)}"
                    class="bg-dark-700 border border-dark-600 rounded-lg
                           text-dark-200 text-sm px-3 py-2 font-sans
@@ -261,7 +262,7 @@ const Settings = {
           <label class="flex flex-col gap-1.5 min-w-0">
             <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.finance.official_usd_sell')}</span>
             <input id="cfg-finance-usd-official-sell-ars"
-                   type="number" step="0.01" min="0"
+                   type="text" step="0.01" min="0" inputmode="decimal"
                    data-section="finance" data-key="usd_official_sell_ars" value="${escapeHtml(officialSell)}"
                    class="bg-dark-700 border border-dark-600 rounded-lg
                           text-dark-200 text-sm px-3 py-2 font-sans
@@ -270,7 +271,7 @@ const Settings = {
           <label class="flex flex-col gap-1.5 min-w-0">
             <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.finance.blue_usd_buy')}</span>
             <input id="cfg-finance-usd-blue-buy-ars"
-                   type="number" step="0.01" min="0"
+                   type="text" step="0.01" min="0" inputmode="decimal"
                    data-section="finance" data-key="usd_blue_buy_ars" value="${escapeHtml(blueBuy)}"
                    class="bg-dark-700 border border-dark-600 rounded-lg
                           text-dark-200 text-sm px-3 py-2 font-sans
@@ -279,7 +280,7 @@ const Settings = {
           <label class="flex flex-col gap-1.5 min-w-0">
             <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.finance.blue_usd_sell')}</span>
             <input id="cfg-finance-usd-blue-sell-ars"
-                   type="number" step="0.01" min="0"
+                   type="text" step="0.01" min="0" inputmode="decimal"
                    data-section="finance" data-key="usd_blue_sell_ars" value="${escapeHtml(blueSell)}"
                    class="bg-dark-700 border border-dark-600 rounded-lg
                           text-dark-200 text-sm px-3 py-2 font-sans
@@ -288,7 +289,7 @@ const Settings = {
           <label class="flex flex-col gap-1.5 min-w-0">
             <span class="text-xs text-dark-400 uppercase tracking-wide">${t('settings.finance.card_usd')}</span>
             <input id="cfg-finance-usd-card-ars"
-                   type="number" step="0.01" min="0" readonly
+                   type="text" step="0.01" min="0" readonly
                    data-section="finance" data-key="usd_card_ars" value="${escapeHtml(cardRate)}"
                    class="bg-dark-800 border border-dark-700 rounded-lg
                           text-dark-300 text-sm px-3 py-2 font-sans
@@ -320,10 +321,78 @@ const Settings = {
     ];
   },
 
+  _financeRateState(inputOrId) {
+    const input = typeof inputOrId === 'string' ? document.getElementById(inputOrId) : inputOrId;
+    const parsed = parseMoneyInput(input?.value);
+    if (parsed.isEmpty) return { isEmpty: true, isValid: true, value: null, normalized: '' };
+    if (!parsed.isValid || !Number.isFinite(parsed.value) || parsed.value < 0) {
+      return { isEmpty: false, isValid: false, value: Number.NaN, normalized: '' };
+    }
+
+    const rounded = Math.round(parsed.value * 100) / 100;
+    return {
+      isEmpty: false,
+      isValid: true,
+      value: rounded,
+      normalized: rounded.toFixed(2),
+    };
+  },
+
+  _setFinanceInputInvalid(input, invalid) {
+    if (!input) return;
+    input.classList.toggle('border-red-500/70', invalid);
+    input.classList.toggle('focus:border-red-500/70', invalid);
+    input.classList.toggle('focus:ring-red-500/20', invalid);
+  },
+
+  _syncFinanceRateValidation() {
+    let hasInvalid = false;
+    this._financeManualRateIds().forEach(id => {
+      const input = document.getElementById(id);
+      const state = this._financeRateState(input);
+      const invalid = !state.isEmpty && !state.isValid;
+      this._clearFieldValidation(id);
+      this._setFinanceInputInvalid(input, invalid);
+      if (invalid) hasInvalid = true;
+    });
+    return !hasInvalid;
+  },
+
+  _normalizedFinanceConfigValues() {
+    const normalized = {};
+
+    for (const id of this._financeManualRateIds()) {
+      const input = document.getElementById(id);
+      const key = input?.dataset.key;
+      if (!input || !key) continue;
+
+      const state = this._financeRateState(input);
+      if (!state.isValid) {
+        this._setFinanceInputInvalid(input, true);
+        this._setFieldValidation(id, t('msg.invalid_money_input'));
+        return null;
+      }
+
+      this._clearFieldValidation(id);
+      this._setFinanceInputInvalid(input, false);
+      normalized[key] = state.normalized;
+    }
+
+    normalized.usd_card_ars = this._calculateCardDollarRate(normalized.usd_official_sell_ars, '');
+    return normalized;
+  },
+
+  _applyNormalizedFinanceValues(values = {}) {
+    Object.entries(values).forEach(([key, value]) => {
+      const input = document.querySelector(`.cfg-input[data-section="finance"][data-key="${key}"]`);
+      if (input) input.value = value ?? '';
+    });
+  },
+
   _calculateCardDollarRate(officialSellValue, fallback = '') {
-    const officialSell = parseFloat(officialSellValue);
-    if (!Number.isFinite(officialSell) || officialSell <= 0) return fallback;
-    return (officialSell * 1.30).toFixed(2);
+    const officialSellState = this._financeRateState({ value: officialSellValue });
+    if (!officialSellState.isValid || officialSellState.isEmpty || officialSellState.value <= 0) return fallback;
+    return (officialSellState.value * 1.30).toFixed(2);
   },
 
   _syncDerivedFinanceRates() {
@@ -388,12 +457,13 @@ const Settings = {
 
   _handleManualFinanceRateInput() {
     if (this._syncingFinanceRate) return;
+    const isValid = this._syncFinanceRateValidation();
     this._syncDerivedFinanceRates();
     const hasValue = this._financeManualRateIds().some(id => {
       const input = document.getElementById(id);
       return input && input.value.trim() !== '';
     });
-    this._setFinanceLastUpdate(hasValue ? new Date().toISOString() : '');
+    if (isValid) this._setFinanceLastUpdate(hasValue ? new Date().toISOString() : '');
   },
 
   async fetchOfficialDollarRate() {
@@ -417,6 +487,7 @@ const Settings = {
       blueBuyInput.value = Number(data.blue_buy || 0).toFixed(2);
       blueSellInput.value = Number(data.blue_sell || 0).toFixed(2);
       cardInput.value = Number(data.card || 0).toFixed(2);
+      this._syncFinanceRateValidation();
       this._setFinanceLastUpdate(data.last_update || new Date().toISOString());
       Toast.show(t('msg.official_dollar_loaded'));
     } catch (e) {
@@ -429,11 +500,19 @@ const Settings = {
   },
 
   async _saveConfig() {
+    const financeValues = this._normalizedFinanceConfigValues();
+    if (financeValues == null) {
+      Toast.show(t('msg.invalid_money_input'), 'error');
+      return;
+    }
+
     const data = {};
     document.querySelectorAll('.cfg-input').forEach(el => {
       const s = el.dataset.section, k = el.dataset.key;
       if (!data[s]) data[s] = {};
-      data[s][k] = el.value;
+      data[s][k] = s === 'finance' && Object.prototype.hasOwnProperty.call(financeValues, k)
+        ? financeValues[k]
+        : el.value;
     });
 
     const prefPatch = {};
@@ -447,6 +526,8 @@ const Settings = {
         const response = await this._put('/settings/config', data);
         this._config = response.config || this._config;
         if (typeof State !== 'undefined') State.appConfig = this._config;
+        this._applyNormalizedFinanceValues(financeValues);
+        this._syncDerivedFinanceRates();
       }
       if (Object.keys(prefPatch).length) {
         this._preferences = await Preferences.save(prefPatch);

@@ -6,6 +6,12 @@ The format is based on Keep a Changelog, and this project is intended to follow 
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-04-10
+
+### Changed
+
+- Money-like inputs across dialogs, finance settings, and projection trend controls now accept localized non-ambiguous separators and reject ambiguous formats with a validation error.
+
 ## [2.0.0] - 2026-04-09
 
 ### Changed
