@@ -5,7 +5,15 @@ import app_config
 import pytest
 
 from database import get_db, init_db
-from models import AccountIn, SubtypeIn, SubtypeUpdate, TagIn, TagUpdate, TransactionIn
+from models import (
+    AccountIn,
+    AccountUpdate,
+    SubtypeIn,
+    SubtypeUpdate,
+    TagIn,
+    TagUpdate,
+    TransactionIn,
+)
 from routers import reports as reports_router
 from services import (
     about_service,
@@ -27,6 +35,12 @@ def initialized_environment(isolated_paths):
     app_config.load()
     init_db()
     return isolated_paths
+
+
+TEST_BOARD_IMAGE_DATA_URL = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9kAAAAASUVORK5CYII="
+)
 
 
 def test_server_host_and_port_env_override_settings(
@@ -125,13 +139,18 @@ def test_settings_service_updates_config_preferences_env_and_language(
             conn,
             {
                 "show_zero_balance_accounts": True,
+                "board_view_mode": "compact",
                 "finance_usd_official_buy_ars": "1234.00",
                 "finance_usd_blue_sell_ars": "1500.00",
             },
         )
-        assert updated["preferences"] == {"show_zero_balance_accounts": True}
+        assert updated["preferences"] == {
+            "show_zero_balance_accounts": True,
+            "board_view_mode": "compact",
+        }
         assert settings_service.get_preferences(conn) == {
-            "show_zero_balance_accounts": True
+            "show_zero_balance_accounts": True,
+            "board_view_mode": "compact",
         }
 
     config = settings_service.get_config()
@@ -551,6 +570,55 @@ def test_account_properties_auto_infer_without_subtypes(initialized_environment)
     assert cash_reserve.properties["liquidity_profile"] == "quick"
     assert mortgage.properties["liability_term"] == "long_term"
     assert rent.properties["expense_profile"] == "essential"
+    assert cash_reserve.properties["board_image_url"] == helpers.BOARD_IMAGE_DEFAULT_URL
+
+
+def test_account_board_image_round_trip_and_update_preserves_custom_image(
+    initialized_environment,
+):
+    with get_db() as conn:
+        custom_image_account = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Illustrated Reserve",
+                type_id=1,
+                subtype_id=None,
+                description="Image test",
+                initial_balance=0.0,
+                properties=('{"board_image_url":"' + TEST_BOARD_IMAGE_DATA_URL + '"}'),
+            ),
+        )
+
+        updated = accounts_service.update_account(
+            conn,
+            custom_image_account.id,
+            AccountUpdate(description="Updated description"),
+        )
+
+    assert custom_image_account.properties["board_image_url"].startswith(
+        "data:image/png;base64,"
+    )
+    assert (
+        updated.properties["board_image_url"]
+        == custom_image_account.properties["board_image_url"]
+    )
+    assert updated.description == "Updated description"
+
+
+def test_account_board_image_rejects_jpeg_payloads(initialized_environment):
+    with get_db() as conn:
+        with pytest.raises(ValidationError):
+            accounts_service.create_account(
+                conn,
+                AccountIn(
+                    name="JPEG Reserve",
+                    type_id=1,
+                    subtype_id=None,
+                    description="Invalid image",
+                    initial_balance=0.0,
+                    properties='{"board_image_url":"data:image/jpeg;base64,AAAA"}',
+                ),
+            )
 
 
 def test_transactions_service_computes_fx_traceability_fields(initialized_environment):

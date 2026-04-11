@@ -6,6 +6,12 @@ import sqlite3
 from database import init_db
 
 
+TEST_BOARD_IMAGE_DATA_URL = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9kAAAAASUVORK5CYII="
+)
+
+
 def _accounts_by_name(client):
     response = client.get("/api/accounts")
     assert response.status_code == 200
@@ -273,6 +279,44 @@ def test_create_account_and_transaction_updates_balances(client):
             row[1] for row in conn.execute("PRAGMA table_info(accounts)").fetchall()
         }
     assert "balance" not in columns
+
+
+def test_account_image_round_trip_and_default_fallback(client):
+    create_response = client.post(
+        "/api/accounts",
+        json={
+            "name": "Illustrated Savings",
+            "type_id": 1,
+            "subtype_id": 2,
+            "description": "Account with board image",
+            "initial_balance": 25.0,
+            "properties": json.dumps({"board_image_url": TEST_BOARD_IMAGE_DATA_URL}),
+        },
+    )
+    assert create_response.status_code == 201
+
+    created_account = create_response.json()
+    assert created_account["properties"]["board_image_url"].startswith(
+        "data:image/png;base64,"
+    )
+
+    update_response = client.put(
+        f"/api/accounts/{created_account['id']}",
+        json={"description": "Updated board image account"},
+    )
+    assert update_response.status_code == 200
+    assert (
+        update_response.json()["properties"]["board_image_url"]
+        == created_account["properties"]["board_image_url"]
+    )
+
+    accounts = _accounts_by_name(client)
+    bank_response = client.get(f"/api/accounts/{accounts['Bank']['id']}")
+    assert bank_response.status_code == 200
+    assert (
+        bank_response.json()["properties"]["board_image_url"]
+        == "/images/account-tile-default.svg"
+    )
 
 
 def test_init_db_bootstraps_single_database_schema(isolated_paths):
@@ -719,6 +763,7 @@ def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_path
 
     pref_payload = {
         "show_zero_balance_accounts": True,
+        "board_view_mode": "compact",
         "report_sort_directions": {"journal": "asc", "ledger": "desc", "txlist": "asc"},
         "common_transactions_pins": {
             "1|2|salary": {
@@ -769,6 +814,7 @@ def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_path
 def test_user_preferences_are_global_in_single_database(client):
     preferences = {
         "show_zero_balance_accounts": True,
+        "board_view_mode": "compact",
         "report_sort_directions": {"journal": "asc", "ledger": "asc", "txlist": "desc"},
     }
     response = client.put("/api/settings/preferences", json=preferences)

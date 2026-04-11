@@ -1,5 +1,7 @@
 """Shared helper utilities for the backend service layer."""
 
+import base64
+import binascii
 from calendar import monthrange
 import json
 from datetime import date, datetime
@@ -12,6 +14,9 @@ from services.errors import NotFoundError
 ASSET_LIQUIDITY_VALUES = {"quick", "current", "non_current"}
 LIABILITY_TERM_VALUES = {"current", "long_term"}
 EXPENSE_PROFILE_VALUES = {"essential", "discretionary"}
+BOARD_IMAGE_DEFAULT_URL = "/images/account-tile-default.svg"
+BOARD_IMAGE_ALLOWED_MIME_TYPES = {"image/png", "image/webp"}
+BOARD_IMAGE_MAX_BYTES = 350_000
 
 _QUICK_ASSET_HINTS = (
     "cash",
@@ -129,6 +134,54 @@ def parse_json_object(value: Any) -> dict[str, Any]:
     return {}
 
 
+def normalize_board_image_url(value: Any, *, strict: bool = False) -> str:
+    if value is None:
+        return BOARD_IMAGE_DEFAULT_URL
+    if not isinstance(value, str):
+        if strict:
+            raise ValueError("Board image must be a string")
+        return BOARD_IMAGE_DEFAULT_URL
+
+    raw = value.strip()
+    if not raw or raw == BOARD_IMAGE_DEFAULT_URL:
+        return BOARD_IMAGE_DEFAULT_URL
+    if not raw.startswith("data:"):
+        if strict:
+            raise ValueError("Board image must be a PNG or WebP data URL")
+        return BOARD_IMAGE_DEFAULT_URL
+
+    prefix, separator, encoded = raw.partition(",")
+    if separator != "," or ";base64" not in prefix:
+        if strict:
+            raise ValueError("Board image must use base64 encoding")
+        return BOARD_IMAGE_DEFAULT_URL
+
+    mime_type = prefix[5:].split(";", 1)[0].strip().lower()
+    if mime_type not in BOARD_IMAGE_ALLOWED_MIME_TYPES:
+        if strict:
+            raise ValueError("Board image must be PNG or WebP")
+        return BOARD_IMAGE_DEFAULT_URL
+
+    try:
+        decoded = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        if strict:
+            raise ValueError("Board image contains invalid base64 data") from exc
+        return BOARD_IMAGE_DEFAULT_URL
+
+    if not decoded:
+        if strict:
+            raise ValueError("Board image cannot be empty")
+        return BOARD_IMAGE_DEFAULT_URL
+
+    if len(decoded) > BOARD_IMAGE_MAX_BYTES:
+        if strict:
+            raise ValueError("Board image exceeds the maximum allowed size")
+        return BOARD_IMAGE_DEFAULT_URL
+
+    return f"data:{mime_type};base64,{base64.b64encode(decoded).decode('ascii')}"
+
+
 def _hint_text(name: str, subtype_name: str | None = None) -> str:
     return f"{name or ''} {subtype_name or ''}".strip().lower()
 
@@ -167,6 +220,9 @@ def normalize_account_properties(
 ) -> dict[str, Any]:
     properties = parse_json_object(raw_properties)
     normalized = dict(properties)
+    normalized["board_image_url"] = normalize_board_image_url(
+        normalized.get("board_image_url")
+    )
 
     if type_id == 1:
         liquidity = normalized.get("liquidity_profile")
@@ -194,12 +250,20 @@ def serialize_account_properties(
     name: str,
     subtype_name: str | None = None,
 ) -> str:
+    properties = parse_json_object(raw_properties)
+    stored = dict(properties)
+    stored["board_image_url"] = normalize_board_image_url(
+        stored.get("board_image_url"), strict=True
+    )
+
     normalized = normalize_account_properties(
-        raw_properties,
+        stored,
         type_id=type_id,
         name=name,
         subtype_name=subtype_name,
     )
+    if normalized.get("board_image_url") == BOARD_IMAGE_DEFAULT_URL:
+        normalized.pop("board_image_url", None)
     return json.dumps(normalized, ensure_ascii=True, separators=(",", ":"))
 
 
