@@ -91,12 +91,6 @@ const CommonTx = {
   _pinnedStore: {},
   _legacyPinsChecked: false,
 
-  _isExpanded() {
-    return false;
-  },
-
-  _setExpanded() {},
-
   applyPinnedStore(items) {
     this._pinnedStore = items && typeof items === 'object' ? { ...items } : {};
   },
@@ -265,54 +259,27 @@ const CommonTx = {
     }
   },
 
-  async togglePanel(button, content, forceExpanded = null) {
-    const expanded = forceExpanded ?? !content.classList.contains('hidden');
-    const nextExpanded = forceExpanded ?? !expanded;
-    content.classList.toggle('hidden', !nextExpanded);
-    button.setAttribute('aria-expanded', String(nextExpanded));
-    button.title = nextExpanded ? t('common.collapse') : t('common.expand');
-    this._setExpanded(nextExpanded);
-
-    if (nextExpanded && !content.dataset.loaded) {
-      content.dataset.loaded = '1';
-      await this._populateList(content.querySelector('.common-tx-list'));
-    }
+  _dialogListEl() {
+    return document.querySelector('#modal-content .common-tx-list');
   },
 
-  async renderPanel() {
-    const expanded = this._isExpanded();
-    const section = document.createElement('section');
-    section.className = `common-tx-panel${expanded ? ' is-open' : ''}`;
-    section.innerHTML = `
-      <div class="common-tx-shell">
-        <button type="button" class="common-tx-toggle" aria-expanded="${expanded}"
-                title="${expanded ? t('common.collapse') : t('common.expand')}">
-          <span class="common-tx-heading">${t('common.title')}</span>
-          <span class="common-tx-chevron" aria-hidden="true">${expanded ? '▾' : '▸'}</span>
-        </button>
-        <div class="common-tx-content${expanded ? '' : ' hidden'}">
-          <p class="common-tx-subtitle">${t('common.subtitle')}</p>
-          <div class="common-tx-list"></div>
-        </div>
-      </div>`;
+  async refreshDialog() {
+    const listEl = this._dialogListEl();
+    if (!listEl) return;
+    await this._populateList(listEl);
+  },
 
-    const toggleBtn = section.querySelector('.common-tx-toggle');
-    const contentEl = section.querySelector('.common-tx-content');
-    const chevronEl = section.querySelector('.common-tx-chevron');
-
-    toggleBtn.addEventListener('click', async () => {
-      await this.togglePanel(toggleBtn, contentEl);
-      const isOpen = !contentEl.classList.contains('hidden');
-      section.classList.toggle('is-open', isOpen);
-      chevronEl.textContent = isOpen ? '▾' : '▸';
+  async openDialog() {
+    Modal.open(`
+      <div class="p-5">
+        <p data-modal-description class="common-tx-subtitle">${escapeHtml(t('common.subtitle'))}</p>
+        <div class="common-tx-list"></div>
+      </div>`, {
+      title: escapeHtml(t('common.title')),
+      wide: true,
     });
 
-    if (expanded) {
-      contentEl.dataset.loaded = '1';
-      await this._populateList(section.querySelector('.common-tx-list'));
-    }
-
-    return section;
+    await this.refreshDialog();
   },
 
   async togglePin(signature) {
@@ -342,7 +309,7 @@ const CommonTx = {
     try {
       await Preferences.save({ common_transactions_pins: pinnedStore });
       Toast.show(t(pinning ? 'common.pinned_saved' : 'common.unpinned'));
-      await View.show('board');
+      await this.refreshDialog();
     } catch (error) {
       Toast.show(t('msg.error_generic', { msg: error.message }), 'error');
     }
@@ -371,6 +338,7 @@ const Board = {
   _swipeIgnoreUntil: 0,
   _pendingCredit: { accountId: null, cardEl: null },
   _suppressedClick: { accountId: null, until: 0 },
+  _ctxMenu: null,
 
   isCompactMode() {
     return State.boardViewMode === 'compact';
@@ -388,17 +356,11 @@ const Board = {
     }
   },
 
-  _buildViewToolbar() {
-    const toolbar = document.createElement('div');
-    toolbar.className = 'board-toolbar';
-
-    const label = document.createElement('div');
-    label.className = 'board-toolbar-label';
-    label.textContent = t('board.view.label');
-    toolbar.appendChild(label);
-
+  _buildViewToggle({ forDrawer = false } = {}) {
     const toggle = document.createElement('div');
     toggle.className = 'board-view-toggle';
+    toggle.setAttribute('role', 'group');
+    toggle.setAttribute('aria-label', t('board.view.label'));
 
     BOARD_VIEW_OPTIONS.forEach(option => {
       const button = document.createElement('button');
@@ -407,12 +369,66 @@ const Board = {
       button.className = `board-view-btn${active ? ' active' : ''}`;
       button.textContent = t(option.labelKey);
       button.setAttribute('aria-pressed', String(active));
-      button.addEventListener('click', () => this.setViewMode(option.id));
+      button.addEventListener('click', async () => {
+        if (forDrawer && typeof Nav !== 'undefined') Nav.close();
+        await this.setViewMode(option.id);
+      });
       toggle.appendChild(button);
     });
 
-    toolbar.appendChild(toggle);
-    return toolbar;
+    return toggle;
+  },
+
+  _buildCommonTxButton({ forDrawer = false } = {}) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = forDrawer
+      ? 'board-menu-btn board-menu-btn-drawer'
+      : 'board-menu-btn tbtn px-3 py-2 text-xs';
+    button.textContent = t('common.title');
+    button.title = t('common.title');
+    button.addEventListener('click', async () => {
+      if (forDrawer && typeof Nav !== 'undefined') Nav.close();
+      await CommonTx.openDialog();
+    });
+    return button;
+  },
+
+  syncGlobalControls() {
+    const showControls = !!State.isAuthenticated && View.current === 'board';
+    const desktopHost = document.getElementById('toolbar-board-controls');
+    const drawerHost = document.getElementById('drawer-board-controls');
+
+    [desktopHost, drawerHost].forEach(host => {
+      if (!host) return;
+      if (!showControls) {
+        host.replaceChildren();
+        host.classList.add('hidden');
+      }
+    });
+
+    if (!showControls) return;
+
+    if (desktopHost) {
+      desktopHost.replaceChildren(
+        this._buildViewToggle(),
+        this._buildCommonTxButton(),
+      );
+      desktopHost.classList.remove('hidden');
+    }
+
+    if (drawerHost) {
+      const label = document.createElement('div');
+      label.className = 'board-drawer-controls-label';
+      label.textContent = t('board.view.label');
+
+      drawerHost.replaceChildren(
+        label,
+        this._buildViewToggle({ forDrawer: true }),
+        this._buildCommonTxButton({ forDrawer: true }),
+      );
+      drawerHost.classList.remove('hidden');
+    }
   },
 
   _pendingCreditAccount() {
@@ -441,6 +457,35 @@ const Board = {
         <button type="button" class="shrink-0 rounded-lg border border-blue-400/20 px-2 py-1 text-xs text-blue-200 hover:bg-blue-400/10"
                 onclick="Board.clearPendingCreditHint()">${escapeHtml(t('btn.cancel'))}</button>
       </div>`;
+  },
+
+  _closeCtxMenu() {
+    if (!this._ctxMenu) return;
+
+    const { menu, onPointerDown, onScroll, onResize } = this._ctxMenu;
+    document.removeEventListener('pointerdown', onPointerDown, true);
+    document.removeEventListener('scroll', onScroll, true);
+    window.removeEventListener('resize', onResize);
+    menu.remove();
+    this._ctxMenu = null;
+  },
+
+  _positionCtxMenu(menu, trigger) {
+    const gap = 8;
+    const triggerRect = trigger.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+
+    let left = triggerRect.right - menuRect.width;
+    const maxLeft = window.innerWidth - menuRect.width - gap;
+    left = Math.max(gap, Math.min(left, maxLeft));
+
+    let top = triggerRect.bottom + gap;
+    const maxTop = window.innerHeight - menuRect.height - gap;
+    if (top > maxTop) top = triggerRect.top - menuRect.height - gap;
+    top = Math.max(gap, Math.min(top, maxTop));
+
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
   },
 
   clearPendingCreditHint() {
@@ -683,6 +728,7 @@ const Board = {
 
     this._clearPress();
     this._clearPendingCredit();
+    this._closeCtxMenu();
     this._resetDragState();
 
     const typeTotals = {};
@@ -698,11 +744,6 @@ const Board = {
 
     const boardHost = document.createElement('div');
     boardHost.className = 'flex-1 min-h-0 px-0 pb-2 2xl:px-8 flex flex-col';
-
-    boardHost.appendChild(this._buildViewToolbar());
-
-    const shortcutsPanel = await CommonTx.renderPanel();
-    boardHost.appendChild(shortcutsPanel);
 
     const board = document.createElement('div');
     board.className = `board flex-1 min-h-0${compactMode ? ' board-compact' : ''}`;
@@ -842,17 +883,46 @@ const Board = {
   },
 
   ctxMenu(e, accId) {
+    e.preventDefault();
     e.stopPropagation();
-    document.querySelectorAll('.card-ctx-menu').forEach(menu => menu.remove());
+    const trigger = e.currentTarget || e.target.closest('button');
+    if (!trigger) return;
+
+    if (this._ctxMenu?.accountId === accId && this._ctxMenu.trigger === trigger) {
+      this._closeCtxMenu();
+      return;
+    }
+
+    this._closeCtxMenu();
+
     const menu = document.createElement('div');
     menu.className = 'card-ctx-menu';
+    menu.dataset.accountId = String(accId);
     menu.innerHTML = `
       <button onclick="Forms.editAccount(${accId})">✏️ Editar cuenta</button>
       <button onclick="Forms.initialBalance(${accId})">💰 Saldo inicial</button>
       <button onclick="Board.showLedger(${accId})">📖 Libro mayor</button>
       <button class="danger" onclick="Forms.deleteAccount(${accId})">🗑 Eliminar</button>`;
-    e.currentTarget.closest('.card').appendChild(menu);
-    setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
+
+    menu.addEventListener('click', event => {
+      if (event.target.closest('button')) this._closeCtxMenu();
+    });
+
+    document.body.appendChild(menu);
+    this._positionCtxMenu(menu, trigger);
+
+    const onPointerDown = event => {
+      if (menu.contains(event.target) || trigger.contains(event.target)) return;
+      this._closeCtxMenu();
+    };
+    const onScroll = () => this._closeCtxMenu();
+    const onResize = () => this._closeCtxMenu();
+
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+
+    this._ctxMenu = { accountId: accId, trigger, menu, onPointerDown, onScroll, onResize };
   },
 
   showLedger(accId) {

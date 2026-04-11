@@ -544,6 +544,10 @@ const Auth = {
       }
       if (button) button.classList.toggle('hidden', !username);
     });
+
+    if (typeof Board !== 'undefined' && typeof Board.syncGlobalControls === 'function') {
+      Board.syncGlobalControls();
+    }
   },
 
   async restoreSession() {
@@ -638,6 +642,10 @@ const Preferences = {
     if (typeof CommonTx !== 'undefined') {
       CommonTx.applyPinnedStore(prefs.common_transactions_pins || {});
       await CommonTx.migrateLegacyPins();
+    }
+
+    if (typeof Board !== 'undefined' && typeof Board.syncGlobalControls === 'function') {
+      Board.syncGlobalControls();
     }
   },
 };
@@ -746,6 +754,10 @@ const View = {
     document.querySelectorAll('.tbtn[data-view]').forEach(b => {
       b.classList.toggle('active', b.dataset.view === name);
     });
+
+    if (typeof Board !== 'undefined' && typeof Board.syncGlobalControls === 'function') {
+      Board.syncGlobalControls();
+    }
 
     const main = document.getElementById('main');
     main.innerHTML = '<div class="spinner">⏳ Cargando...</div>';
