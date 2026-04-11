@@ -298,16 +298,44 @@ def update_transaction(conn, tx_id: int, data: TransactionUpdate) -> Transaction
         NotFoundError,
     )
 
+    new_debit_account = (
+        data.debit_account if data.debit_account is not None else old["debit_account"]
+    )
+    new_credit_account = (
+        data.credit_account
+        if data.credit_account is not None
+        else old["credit_account"]
+    )
+    if new_debit_account == new_credit_account:
+        raise ValidationError("Debit and credit accounts must be different")
+
+    require_row(
+        conn,
+        "SELECT id FROM accounts WHERE id = ?",
+        (new_debit_account,),
+        f"Debit account {new_debit_account} not found",
+        NotFoundError,
+    )
+    require_row(
+        conn,
+        "SELECT id FROM accounts WHERE id = ?",
+        (new_credit_account,),
+        f"Credit account {new_credit_account} not found",
+        NotFoundError,
+    )
+
     monetary = _monetary_from_update(data, old)
     new_desc = data.description if data.description is not None else old["description"]
     new_date = data.date if data.date is not None else old["date"]
 
     conn.execute(
         """UPDATE transactions
-           SET amount = ?, original_amount = ?, original_currency = ?, fx_rate = ?,
-               fx_source = ?, description = ?, date = ?
+           SET debit_account = ?, credit_account = ?, amount = ?, original_amount = ?,
+               original_currency = ?, fx_rate = ?, fx_source = ?, description = ?, date = ?
            WHERE id = ?""",
         (
+            new_debit_account,
+            new_credit_account,
             monetary["amount"],
             monetary["original_amount"],
             monetary["original_currency"],

@@ -177,6 +177,8 @@ class TransactionIn(BaseModel):
 
 
 class TransactionUpdate(BaseModel):
+    debit_account: Optional[int] = Field(None, gt=0)
+    credit_account: Optional[int] = Field(None, gt=0)
     tag_ids: Optional[list[int]] = None
     amount: Optional[float] = Field(None, gt=0)
     original_amount: Optional[float] = Field(None, gt=0)

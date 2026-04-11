@@ -1193,6 +1193,12 @@ const Forms = {
     await this._deleteAccount(accId);
   },
 
+  _transactionAccountOptions(selectedId = null) {
+    return State.accounts.map(account =>
+      `<option value="${account.id}" ${selectedId != null && Number(account.id) === Number(selectedId) ? 'selected' : ''}>${escapeHtml(account.name)} (${escapeHtml(account.type_name)})</option>`
+    ).join('');
+  },
+
   /* ── Nueva transacción (drag & drop) ─────────────────────────── */
   newTransaction(creditId, debitId, preset = {}) {
     const credit = State.accounts.find(a => a.id === creditId);
@@ -1232,8 +1238,7 @@ const Forms = {
 
   /* ── FAB: transacción manual (mobile) ────────────────────────── */
   newTransactionFAB() {
-    const opts = State.accounts.map(a =>
-      `<option value="${a.id}">${escapeHtml(a.name)} (${escapeHtml(a.type_name)})</option>`).join('');
+    const opts = this._transactionAccountOptions();
     const now = localNow();
     const [firstAccount] = State.accounts;
 
@@ -1319,13 +1324,19 @@ const Forms = {
     const dtLocal = tx.date.replace(' ', 'T').slice(0, 16);
     const selectedCurrency = this._transactionSelectionFromTx(tx);
     const selectedTagIds = (tx.tags || []).map(tag => Number(tag.id));
+    const creditOptions = this._transactionAccountOptions(tx.credit_account);
+    const debitOptions = this._transactionAccountOptions(tx.debit_account);
     Modal.open(T.modalShell(`${t('form.edit_transaction')} #${tx.id}`, `
-      <div class="flex items-center gap-3 bg-dark-700 rounded-xl p-3 mb-5">
-        <div class="flex-1 text-center"><div class="text-xs text-dark-400 mb-1">${t('report.col.credited')}</div>
-          <div class="text-sm font-semibold text-dark-100">${escapeHtml(tx.credit_name)}</div></div>
-        <div class="text-2xl text-gasto">→</div>
-        <div class="flex-1 text-center"><div class="text-xs text-dark-400 mb-1">${t('report.col.debited')}</div>
-          <div class="text-sm font-semibold text-dark-100">${escapeHtml(tx.debit_name)}</div></div>
+      <div class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] gap-3 items-end bg-dark-700 rounded-xl p-3 mb-5">
+        <div>
+          ${T.label(t('form.transaction.source'))}
+          ${T.select('f-credit', creditOptions)}
+        </div>
+        <div class="flex items-center justify-center text-2xl text-gasto pb-2">→</div>
+        <div>
+          ${T.label(t('form.transaction.destination'))}
+          ${T.select('f-debit', debitOptions)}
+        </div>
       </div>
       ${T.group(t('form.label.amount'), this._transactionAmountField({
         value: tx.original_amount ?? tx.amount,
@@ -1462,16 +1473,29 @@ const Forms = {
   async _updateTransaction(txId) {
     const amountState = this._transactionAmountState();
     const rawAmount = amountState.value;
+    const creditId = Number.parseInt(document.getElementById('f-credit')?.value || '', 10);
+    const debitId = Number.parseInt(document.getElementById('f-debit')?.value || '', 10);
     const desc   = document.getElementById('f-desc')?.value;
     const date   = document.getElementById('f-date')?.value?.replace('T', ' ');
     const tagIds = this._selectedTagIds();
+    if (!Number.isInteger(creditId) || !Number.isInteger(debitId)) return Toast.show(t('msg.invalid_value'), 'err');
+    if (creditId === debitId) return Toast.show(t('msg.same_account'), 'err');
     if (!amountState.isValid || rawAmount <= 0) return Toast.show(t('msg.invalid_amount'), 'err');
 
     const txPayload = await this._buildTransactionPayload(rawAmount);
     if (!txPayload) return;
 
     try {
-      await API.put(`/transactions/${txId}`, { description: desc, date, tag_ids: tagIds, ...txPayload });
+      await API.put(`/transactions/${txId}`, {
+        debit_account: debitId,
+        credit_account: creditId,
+        description: desc,
+        date,
+        tag_ids: tagIds,
+        ...txPayload,
+      });
+      State.recordUsage(creditId);
+      State.recordUsage(debitId);
       Modal.close(); Toast.show(t('msg.tx_updated')); await View.refresh();
     } catch (e) { Toast.show(e.message, 'err'); }
   },

@@ -628,6 +628,56 @@ def test_update_transaction_recalculates_amount_from_edited_fx_fields(client):
     assert salary_response.json()["balance"] == 12000.0
 
 
+def test_update_transaction_allows_changing_credit_and_debit_accounts(client):
+    accounts = _accounts_by_name(client)
+
+    create_response = client.post(
+        "/api/transactions",
+        json={
+            "debit_account": accounts["Bank"]["id"],
+            "credit_account": accounts["Salary"]["id"],
+            "amount": 100.0,
+            "description": "Initial classification",
+        },
+    )
+    assert create_response.status_code == 201
+    tx_id = create_response.json()["id"]
+
+    update_response = client.put(
+        f"/api/transactions/{tx_id}",
+        json={
+            "debit_account": accounts["Groceries"]["id"],
+            "credit_account": accounts["Capital"]["id"],
+            "amount": 100.0,
+            "description": "Reclassified transaction",
+        },
+    )
+    assert update_response.status_code == 200
+
+    payload = update_response.json()
+    assert payload["debit_account"] == accounts["Groceries"]["id"]
+    assert payload["debit_name"] == "Groceries"
+    assert payload["credit_account"] == accounts["Capital"]["id"]
+    assert payload["credit_name"] == "Capital"
+    assert payload["description"] == "Reclassified transaction"
+
+    bank_response = client.get(f"/api/accounts/{accounts['Bank']['id']}")
+    assert bank_response.status_code == 200
+    assert bank_response.json()["balance"] == 0.0
+
+    salary_response = client.get(f"/api/accounts/{accounts['Salary']['id']}")
+    assert salary_response.status_code == 200
+    assert salary_response.json()["balance"] == 0.0
+
+    groceries_response = client.get(f"/api/accounts/{accounts['Groceries']['id']}")
+    assert groceries_response.status_code == 200
+    assert groceries_response.json()["balance"] == 100.0
+
+    capital_response = client.get(f"/api/accounts/{accounts['Capital']['id']}")
+    assert capital_response.status_code == 200
+    assert capital_response.json()["balance"] == 100.0
+
+
 def test_list_accounts_returns_recent_movements_and_monthly_history(client):
     accounts = _accounts_by_name(client)
     dates = [
