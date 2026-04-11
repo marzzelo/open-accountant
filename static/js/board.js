@@ -66,6 +66,11 @@ const COLUMNS = [
   },
 ];
 
+const BOARD_VIEW_OPTIONS = [
+  { id: 'cards', labelKey: 'board.view.cards' },
+  { id: 'compact', labelKey: 'board.view.compact' },
+];
+
 // Column header label from i18n (UI label, not DB data)
 function _colLabel(col) {
   return `<span class="inline-flex items-center gap-2 min-w-0">
@@ -367,6 +372,49 @@ const Board = {
   _pendingCredit: { accountId: null, cardEl: null },
   _suppressedClick: { accountId: null, until: 0 },
 
+  isCompactMode() {
+    return State.boardViewMode === 'compact';
+  },
+
+  async setViewMode(mode) {
+    const nextMode = normalizeBoardViewMode(mode);
+    if (nextMode === State.boardViewMode) return;
+
+    try {
+      await Preferences.save({ board_view_mode: nextMode });
+      if (View.current === 'board') await this.render();
+    } catch (error) {
+      Toast.show(t('msg.error_generic', { msg: error.message }), 'err');
+    }
+  },
+
+  _buildViewToolbar() {
+    const toolbar = document.createElement('div');
+    toolbar.className = 'board-toolbar';
+
+    const label = document.createElement('div');
+    label.className = 'board-toolbar-label';
+    label.textContent = t('board.view.label');
+    toolbar.appendChild(label);
+
+    const toggle = document.createElement('div');
+    toggle.className = 'board-view-toggle';
+
+    BOARD_VIEW_OPTIONS.forEach(option => {
+      const button = document.createElement('button');
+      const active = option.id === State.boardViewMode;
+      button.type = 'button';
+      button.className = `board-view-btn${active ? ' active' : ''}`;
+      button.textContent = t(option.labelKey);
+      button.setAttribute('aria-pressed', String(active));
+      button.addEventListener('click', () => this.setViewMode(option.id));
+      toggle.appendChild(button);
+    });
+
+    toolbar.appendChild(toggle);
+    return toolbar;
+  },
+
   _pendingCreditAccount() {
     if (!this._pendingCredit.accountId) return null;
     return State.accounts.find(account => account.id === this._pendingCredit.accountId) || null;
@@ -442,10 +490,32 @@ const Board = {
 
   _resetDragState() {
     const ghost = document.getElementById('ghost');
-    ghost?.classList.add('hidden');
+    if (ghost) {
+      ghost.classList.add('hidden');
+      ghost.classList.remove('ghost--card');
+      ghost.replaceChildren();
+    }
     drag.sourceEl?.classList.remove('dragging');
     document.querySelectorAll('.card.drag-over').forEach(card => card.classList.remove('drag-over'));
     drag = { active: false, sourceId: null, sourceEl: null, pointerId: null };
+  },
+
+  _buildGhostPreview(card) {
+    if (!this.isCompactMode()) {
+      const image = document.createElement('img');
+      image.src = 'images/dollars.png';
+      image.alt = '';
+      image.className = 'ghost-image';
+      return { node: image, isCard: false };
+    }
+
+    const preview = card.cloneNode(true);
+    preview.classList.remove('dragging', 'drag-over', 'credit-selected');
+    preview.classList.add('ghost-card-preview');
+    preview.querySelectorAll('.card-ctx-menu').forEach(menu => menu.remove());
+    preview.querySelectorAll('button').forEach(button => button.remove());
+    preview.style.width = `${Math.round(card.getBoundingClientRect().width)}px`;
+    return { node: preview, isCard: true };
   },
 
   _startDrag(card, accountId, clientX, clientY, pointerId) {
@@ -453,8 +523,11 @@ const Board = {
     if (!ghost) return;
 
     drag = { active: true, sourceId: accountId, sourceEl: card, pointerId };
-    ghost.innerHTML = '<img src="images/dollars.png" alt="" class="ghost-image">';
-    ghost.style.cssText = `left:${clientX}px;top:${clientY}px`;
+    const preview = this._buildGhostPreview(card);
+    ghost.replaceChildren(preview.node);
+    ghost.classList.toggle('ghost--card', preview.isCard);
+    ghost.style.left = `${clientX}px`;
+    ghost.style.top = `${clientY}px`;
     ghost.classList.remove('hidden');
     card.classList.add('dragging');
     if (typeof FX !== 'undefined') {
@@ -606,6 +679,7 @@ const Board = {
 
   async render() {
     const main = document.getElementById('main');
+    const compactMode = this.isCompactMode();
 
     this._clearPress();
     this._clearPendingCredit();
@@ -623,20 +697,22 @@ const Board = {
     shell.appendChild(pendingHint);
 
     const boardHost = document.createElement('div');
-    boardHost.className = 'flex-1 min-h-0 px-0 pb-2 2xl:px-8';
+    boardHost.className = 'flex-1 min-h-0 px-0 pb-2 2xl:px-8 flex flex-col';
+
+    boardHost.appendChild(this._buildViewToolbar());
 
     const shortcutsPanel = await CommonTx.renderPanel();
     boardHost.appendChild(shortcutsPanel);
 
     const board = document.createElement('div');
-    board.className = 'board';
+    board.className = `board flex-1 min-h-0${compactMode ? ' board-compact' : ''}`;
 
     COLUMNS.forEach((col_cfg, colIdx) => {
       const accs = col_cfg.types.flatMap(tid => State.sortedAccounts(tid));
       const colTotal = col_cfg.types.reduce((sum, tid) => sum + (typeTotals[tid] || 0), 0);
 
       const col = document.createElement('div');
-      col.className = 'column';
+      col.className = `column${compactMode ? ' column-compact' : ''}`;
       col.dataset.colIdx = colIdx;
       if (colIdx === _activeTab) col.classList.add('mobile-active');
 
@@ -648,17 +724,22 @@ const Board = {
                        <span class="font-normal opacity-80 text-[11px]">${fmt(colTotal)}</span>`;
       col.appendChild(hdr);
 
+      const body = document.createElement('div');
+      body.className = `column-body${compactMode ? ' column-body-compact' : ''}`;
+
       if (accs.length === 0) {
         const empty = document.createElement('div');
-        empty.className = 'text-dark-500 text-center py-8 text-xs';
+        empty.className = 'column-empty text-dark-500 text-center py-8 text-xs';
         empty.textContent = t('board.empty');
-        col.appendChild(empty);
+        body.appendChild(empty);
       } else {
         accs.forEach(acc => {
           const typeCfg = TYPE_CFG[acc.type_id];
-          col.appendChild(this.buildCard(acc, { accent: typeCfg.accent }));
+          body.appendChild(this.buildCard(acc, { accent: typeCfg.accent }));
         });
       }
+
+      col.appendChild(body);
 
       board.appendChild(col);
     });
@@ -674,6 +755,11 @@ const Board = {
   },
 
   buildCard(acc, cfg) {
+    if (this.isCompactMode()) return this.buildCompactCard(acc, cfg);
+    return this.buildStandardCard(acc, cfg);
+  },
+
+  buildStandardCard(acc, cfg) {
     const card = document.createElement('div');
     card.className = 'card bg-dark-800 border border-dark-600 rounded-xl p-3.5';
     card.dataset.accountId = acc.id;
@@ -714,6 +800,29 @@ const Board = {
         <div class='text-[9px] text-dark-500 uppercase tracking-wide mb-1.5'>${t('board.last_movements').toUpperCase()}</div>
         ${movs}
       </div>`;
+
+    return card;
+  },
+
+  buildCompactCard(acc, cfg) {
+    const card = document.createElement('div');
+    card.className = 'card card-compact bg-dark-800 border border-dark-600 rounded-2xl p-2.5';
+    card.dataset.accountId = acc.id;
+    card.style.setProperty('--card-accent', cfg.accent);
+
+    const balanceClass = acc.balance < 0 ? 'text-pasivo' : 'text-[var(--card-accent)]';
+    const imageUrl = accountBoardImageUrl(acc);
+
+    card.innerHTML = `
+      <div class="card-compact-head">
+        <div class="card-compact-name" title="${escapeHtml(acc.name)}">${escapeHtml(acc.name)}</div>
+        <button class="card-compact-menu text-dark-400 hover:text-dark-200 text-base border-0 bg-transparent cursor-pointer"
+                onclick="Board.ctxMenu(event,${acc.id})">⋯</button>
+      </div>
+      <div class="card-compact-figure">
+        <img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(acc.name)}" class="card-compact-image" draggable="false">
+      </div>
+      <div class="card-compact-balance ${balanceClass}">${fmt(acc.balance)}</div>`;
 
     return card;
   },

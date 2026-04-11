@@ -53,6 +53,9 @@ const T = {
 };
 
 const Forms = {
+  _accountPropertiesDraft: {},
+  _accountEditorTypeId: null,
+
   _sortedTags() {
     return [...(State.tags || [])].sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')));
   },
@@ -277,6 +280,142 @@ const Forms = {
     return Math.round((Number(value) || 0) * 100) / 100;
   },
 
+  _copyAccountProperties(properties = {}) {
+    try {
+      return JSON.parse(JSON.stringify(properties && typeof properties === 'object' ? properties : {}));
+    } catch (_) {
+      return {};
+    }
+  },
+
+  _resetAccountEditorState(properties = {}, typeId = null) {
+    this._accountPropertiesDraft = this._copyAccountProperties(properties);
+    const numericTypeId = Number.parseInt(typeId ?? '', 10);
+    this._accountEditorTypeId = Number.isNaN(numericTypeId) ? null : numericTypeId;
+  },
+
+  _accountEditorProperties() {
+    return this._copyAccountProperties(this._accountPropertiesDraft);
+  },
+
+  _setAccountEditorProperties(properties = {}) {
+    this._accountPropertiesDraft = this._copyAccountProperties(properties);
+  },
+
+  _currentAccountEditorTypeId(typeId = null) {
+    const selectedTypeId = Number.parseInt(document.getElementById('f-type')?.value || '', 10);
+    if (!Number.isNaN(selectedTypeId)) {
+      this._accountEditorTypeId = selectedTypeId;
+      return selectedTypeId;
+    }
+
+    const explicitTypeId = Number.parseInt(typeId ?? '', 10);
+    if (!Number.isNaN(explicitTypeId)) {
+      this._accountEditorTypeId = explicitTypeId;
+      return explicitTypeId;
+    }
+
+    return this._accountEditorTypeId;
+  },
+
+  _accountImageField(properties = {}) {
+    const imageUrl = accountBoardImageUrl(properties);
+    const customImage = hasCustomBoardImageUrl(properties);
+
+    return `
+      <div class="mb-4 rounded-xl border border-dark-600 bg-dark-800/70 px-3 py-3">
+        <div class="text-[11px] font-semibold uppercase tracking-wide text-dark-400 mb-2">${escapeHtml(t('form.account_image.title'))}</div>
+        <div class="text-xs text-dark-400 mb-3">${escapeHtml(t('form.account_image.help'))}</div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+          <div class="account-image-preview-panel">
+            <div class="account-image-preview-stage transparent-preview-bg">
+              <img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(t('form.account_image.preview_alt'))}" class="account-image-preview-media" draggable="false">
+            </div>
+          </div>
+          <div class="min-w-0 space-y-3">
+            <div class="text-[11px] text-dark-500">${escapeHtml(t(customImage ? 'form.account_image.custom_active' : 'form.account_image.default_active'))}</div>
+            <input id="f-account-image-file" type="file" accept="image/png,image/webp" data-form-change="account-image-file"
+                   class="block w-full rounded-lg border border-dark-600 bg-dark-700/60 px-3 py-2.5 text-xs text-dark-300 cursor-pointer">
+            <div class="text-[11px] leading-relaxed text-dark-500">${escapeHtml(t('form.account_image.spec'))}</div>
+            ${customImage
+              ? `<button type="button" data-form-action="clear-account-image"
+                   class="inline-flex items-center rounded-lg border border-dark-600 px-3 py-2 text-xs font-medium text-dark-300 hover:bg-dark-700 cursor-pointer bg-transparent">${escapeHtml(t('form.account_image.reset'))}</button>`
+              : ''}
+          </div>
+        </div>
+      </div>`;
+  },
+
+  _readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.onerror = () => reject(new Error(t('msg.account_image_read_error')));
+      reader.readAsDataURL(file);
+    });
+  },
+
+  _loadImageFromDataUrl(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error(t('msg.account_image_processing_error')));
+      image.src = dataUrl;
+    });
+  },
+
+  async _normalizeAccountImageFile(file) {
+    if (!file) return null;
+    if (!BOARD_IMAGE_MIME_TYPES.includes(file.type)) {
+      throw new Error(t('msg.account_image_invalid_type'));
+    }
+
+    const sourceDataUrl = await this._readFileAsDataUrl(file);
+    const image = await this._loadImageFromDataUrl(sourceDataUrl);
+    const canvas = document.createElement('canvas');
+    const size = BOARD_IMAGE_NORMALIZED_SIZE;
+    canvas.width = size;
+    canvas.height = size;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error(t('msg.account_image_processing_error'));
+
+    const drawScale = Math.min(size / image.naturalWidth, size / image.naturalHeight);
+    const drawWidth = Math.max(1, Math.round(image.naturalWidth * drawScale));
+    const drawHeight = Math.max(1, Math.round(image.naturalHeight * drawScale));
+    const offsetX = Math.round((size - drawWidth) / 2);
+    const offsetY = Math.round((size - drawHeight) / 2);
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+    return canvas.toDataURL('image/png');
+  },
+
+  async _handleAccountImageSelection(file) {
+    if (!file) return;
+
+    try {
+      const normalizedImageUrl = await this._normalizeAccountImageFile(file);
+      const nextProperties = this._accountEditorProperties();
+      nextProperties.board_image_url = normalizedImageUrl;
+      this._setAccountEditorProperties(nextProperties);
+      this._renderAccountPropertiesFields(this._currentAccountEditorTypeId(), nextProperties);
+    } catch (error) {
+      const input = document.getElementById('f-account-image-file');
+      if (input) input.value = '';
+      Toast.show(error.message || t('msg.account_image_processing_error'), 'err');
+    }
+  },
+
+  _clearAccountImage() {
+    const nextProperties = this._accountEditorProperties();
+    delete nextProperties.board_image_url;
+    this._setAccountEditorProperties(nextProperties);
+    this._renderAccountPropertiesFields(this._currentAccountEditorTypeId(), nextProperties);
+  },
+
   _accountPropertyOptions(typeId, selected = {}) {
     if (typeId === 1) {
       return {
@@ -319,14 +458,16 @@ const Forms = {
   },
 
   _accountPropertiesFields(typeId, properties = {}) {
+    const imageField = this._accountImageField(properties);
     const definition = this._accountPropertyOptions(typeId, properties);
-    if (!definition) return '';
+    if (!definition) return imageField;
 
     const options = definition.options.map(option =>
       `<option value="${option.value}" ${option.value === definition.value ? 'selected' : ''}>${escapeHtml(option.label)}</option>`
     ).join('');
 
     return `
+      ${imageField}
       <div class="mb-4 rounded-xl border border-dark-600 bg-dark-800/70 px-3 py-3">
         <div class="text-[11px] font-semibold uppercase tracking-wide text-dark-400 mb-2">${escapeHtml(t('form.classification.title'))}</div>
         <div class="text-xs text-dark-400 mb-3">${escapeHtml(t('form.classification.help'))}</div>
@@ -334,15 +475,21 @@ const Forms = {
       </div>`;
   },
 
-  _renderAccountPropertiesFields(typeId, properties = {}) {
+  _renderAccountPropertiesFields(typeId, properties = null) {
     const container = document.getElementById('f-account-properties');
     if (!container) return;
-    container.innerHTML = this._accountPropertiesFields(Number.parseInt(typeId, 10), properties);
+    const resolvedTypeId = this._currentAccountEditorTypeId(typeId);
+    if (properties && typeof properties === 'object') this._setAccountEditorProperties(properties);
+    container.innerHTML = this._accountPropertiesFields(resolvedTypeId, this._accountEditorProperties());
   },
 
   _readAccountProperties(typeId) {
     const numericTypeId = Number(typeId);
-    const properties = {};
+    const properties = this._accountEditorProperties();
+
+    delete properties.liquidity_profile;
+    delete properties.liability_term;
+    delete properties.expense_profile;
 
     if (numericTypeId === 1) {
       const liquidity = document.getElementById('f-liquidity-profile')?.value || '';
@@ -354,6 +501,12 @@ const Forms = {
       const expenseProfile = document.getElementById('f-expense-profile')?.value || '';
       if (expenseProfile) properties.expense_profile = expenseProfile;
     }
+
+    if (properties.board_image_url === BOARD_IMAGE_DEFAULT_URL || !properties.board_image_url) {
+      delete properties.board_image_url;
+    }
+
+    this._setAccountEditorProperties(properties);
 
     return JSON.stringify(properties);
   },
@@ -969,6 +1122,7 @@ const Forms = {
 
   /* ── Nueva cuenta ─────────────────────────────────────────────── */
   newAccount() {
+    this._resetAccountEditorState();
     const typeOpts = State.types.map(type =>
       `<option value="${type.id}">${escapeHtml(type.name)}</option>`).join('');
     Modal.open(T.modalShell(t('form.new_account'), `
@@ -982,13 +1136,14 @@ const Forms = {
       <div id="f-account-properties"></div>
     `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
       + T.btnSuccess(t('btn.create'), { 'data-form-action': 'save-account' })));
-    this._renderAccountPropertiesFields(document.getElementById('f-type')?.value);
+    this._renderAccountPropertiesFields(document.getElementById('f-type')?.value, this._accountEditorProperties());
   },
 
   /* ── Editar cuenta ────────────────────────────────────────────── */
   async editAccount(accId) {
     const acc  = State.accounts.find(a => a.id === accId);
     if (!acc) return;
+    this._resetAccountEditorState(acc.properties || {}, acc.type_id);
     const subs = State.subtypes.filter(s => s.type_id === acc.type_id);
     const subOpts = `<option value="">${t('form.no_subtype')}</option>` +
       subs.map(s => `<option value="${s.id}" ${s.id === acc.subtype_id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
@@ -1214,6 +1369,7 @@ const Forms = {
     try {
       await API.post('/accounts', { name, type_id: typeId,
         subtype_id: subId ? parseInt(subId) : null, initial_balance: initial, description: desc, properties });
+      this._resetAccountEditorState();
       Modal.close(); Toast.show(t('msg.account_created', {name})); await View.refresh();
     } catch (e) { Toast.show(e.message, 'err'); }
   },
@@ -1226,6 +1382,7 @@ const Forms = {
     const properties = this._readAccountProperties(acc?.type_id);
     try {
       await API.put(`/accounts/${accId}`, { name, subtype_id: subId ? parseInt(subId) : null, description: desc, properties });
+      this._resetAccountEditorState();
       Modal.close(); Toast.show(t('msg.account_updated')); await View.refresh();
     } catch (e) { Toast.show(e.message, 'err'); }
   },
@@ -1391,6 +1548,9 @@ document.addEventListener('click', event => {
     case 'update-account':
       Forms._updateAccount(Number(action.dataset.accountId));
       break;
+    case 'clear-account-image':
+      Forms._clearAccountImage();
+      break;
     case 'save-initial-balance':
       Forms._saveInitialBalance(Number(action.dataset.accountId));
       break;
@@ -1443,7 +1603,7 @@ document.addEventListener('click', event => {
   }
 });
 
-document.addEventListener('change', event => {
+document.addEventListener('change', async event => {
   const target = event.target.closest('[data-form-change]');
   if (!target) return;
 
@@ -1453,6 +1613,9 @@ document.addEventListener('change', event => {
   switch (target.dataset.formChange) {
     case 'load-subtypes':
       Forms._loadSubtypes(target.value);
+      break;
+    case 'account-image-file':
+      await Forms._handleAccountImageSelection(target.files?.[0] || null);
       break;
     case 'toggle-force-balance':
       Forms._syncForceBalanceMode(target.dataset.target);

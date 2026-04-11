@@ -6,6 +6,11 @@
 // Resuelve automáticamente contra el host que sirvió la página
 // → funciona tanto en localhost como desde dispositivos remotos en la red
 const API_BASE = `${window.location.origin}/api`;
+const BOARD_VIEW_MODES = new Set(['cards', 'compact']);
+const BOARD_VIEW_MODE_DEFAULT = 'cards';
+const BOARD_IMAGE_DEFAULT_URL = '/images/account-tile-default.svg';
+const BOARD_IMAGE_MIME_TYPES = ['image/png', 'image/webp'];
+const BOARD_IMAGE_NORMALIZED_SIZE = 200;
 
 function buildApiUrl(path = '') {
   const normalizedPath = String(path || '').replace(/^\/+/, '');
@@ -213,6 +218,26 @@ function htmlAttrs(attrs = {}) {
     .join(' ');
 }
 
+function normalizeBoardViewMode(mode) {
+  return BOARD_VIEW_MODES.has(mode) ? mode : BOARD_VIEW_MODE_DEFAULT;
+}
+
+function accountBoardImageUrl(source) {
+  const properties = source?.properties && typeof source.properties === 'object'
+    ? source.properties
+    : source && typeof source === 'object'
+      ? source
+      : {};
+  const candidate = typeof properties.board_image_url === 'string'
+    ? properties.board_image_url.trim()
+    : '';
+  return candidate || BOARD_IMAGE_DEFAULT_URL;
+}
+
+function hasCustomBoardImageUrl(source) {
+  return accountBoardImageUrl(source).startsWith('data:image/');
+}
+
 function formatApiError(payload, fallback = 'Unknown error') {
   if (payload == null) return fallback;
   if (typeof payload === 'string') return payload;
@@ -270,6 +295,7 @@ const State = {
   userPreferences: {},
   hideBalanceAccounts: false,
   showZeroBalanceItems: false,
+  boardViewMode: BOARD_VIEW_MODE_DEFAULT,
   balanceTypeFilter: [1, 2, 3, 4, 5],
   isAuthenticated: false,
   currentUser: null,
@@ -600,6 +626,7 @@ const Preferences = {
     const prefs = State.userPreferences || {};
     State.hideBalanceAccounts = !!prefs.hide_balance_accounts;
     State.showZeroBalanceItems = !!prefs.show_zero_balance_accounts;
+    State.boardViewMode = normalizeBoardViewMode(prefs.board_view_mode);
 
     if (typeof Reports !== 'undefined') {
       const persistedSort = prefs.report_sort_directions;
