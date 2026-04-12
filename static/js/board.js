@@ -4,6 +4,7 @@
 let _activeTab = 0; // índice de COLUMNS
 const MOBILE_SWIPE_DISTANCE = 56;
 const MOBILE_SWIPE_VERTICAL_TOLERANCE = 48;
+const MOBILE_TAB_TRANSITION_MS = 240;
 
 const TYPE_CFG = {
   // type_name comes from the database (always English after seed migration)
@@ -336,6 +337,7 @@ const Board = {
   _press: null,
   _swipe: null,
   _swipeIgnoreUntil: 0,
+  _tabTransition: null,
   _pendingCredit: { accountId: null, cardEl: null },
   _suppressedClick: { accountId: null, until: 0 },
   _ctxMenu: null,
@@ -506,6 +508,91 @@ const Board = {
     this._swipe = null;
   },
 
+  _shouldAnimateMobileGalleryTabChange() {
+    return this.isCompactMode() && window.innerWidth < 768;
+  },
+
+  _resetMobileColumnState(activeIdx = _activeTab) {
+    if (this._tabTransition?.timerId) clearTimeout(this._tabTransition.timerId);
+    this._tabTransition = null;
+
+    document.querySelector('.board')?.classList.remove('mobile-column-animating');
+
+    document.querySelectorAll('.column').forEach(col => {
+      const isActive = parseInt(col.dataset.colIdx, 10) === activeIdx;
+      col.classList.remove(
+        'mobile-transition-enter',
+        'mobile-transition-enter-from-left',
+        'mobile-transition-enter-from-right',
+        'mobile-transition-exit',
+        'mobile-transition-exit-to-left',
+        'mobile-transition-exit-to-right',
+        'mobile-swipe-preview'
+      );
+      col.classList.toggle('mobile-active', isActive);
+      col.style.removeProperty('transform');
+      col.style.removeProperty('opacity');
+    });
+  },
+
+  _setMobileSwipePreview(deltaX) {
+    if (!this._shouldAnimateMobileGalleryTabChange()) return;
+
+    const activeCol = document.querySelector('.board.board-compact .column.mobile-active');
+    if (!activeCol) return;
+
+    const maxOffset = Math.min(Math.round(window.innerWidth * 0.09), 28);
+    const offset = Math.max(-maxOffset, Math.min(maxOffset, deltaX * 0.28));
+    const progress = Math.min(Math.abs(deltaX) / MOBILE_SWIPE_DISTANCE, 1);
+
+    activeCol.classList.add('mobile-swipe-preview');
+    activeCol.style.transform = `translate3d(${offset}px, 0, 0)`;
+    activeCol.style.opacity = String(1 - progress * 0.18);
+  },
+
+  _clearMobileSwipePreview() {
+    const activeCol = document.querySelector('.board.board-compact .column.mobile-active');
+    if (!activeCol) return;
+
+    activeCol.classList.remove('mobile-swipe-preview');
+    activeCol.style.removeProperty('transform');
+    activeCol.style.removeProperty('opacity');
+  },
+
+  _animateMobileTabChange(previousIdx, nextIdx, direction) {
+    const board = document.querySelector('.board.board-compact');
+    const leavingCol = board?.querySelector(`.column[data-col-idx="${previousIdx}"]`);
+    const enteringCol = board?.querySelector(`.column[data-col-idx="${nextIdx}"]`);
+
+    if (!board || !leavingCol || !enteringCol || leavingCol === enteringCol) {
+      this._resetMobileColumnState(nextIdx);
+      return;
+    }
+
+    const enterFromClass = direction > 0
+      ? 'mobile-transition-enter-from-right'
+      : 'mobile-transition-enter-from-left';
+    const exitToClass = direction > 0
+      ? 'mobile-transition-exit-to-left'
+      : 'mobile-transition-exit-to-right';
+
+    board.classList.add('mobile-column-animating');
+    enteringCol.classList.add('mobile-active', 'mobile-transition-enter', enterFromClass);
+    leavingCol.classList.add('mobile-active', 'mobile-transition-exit');
+    leavingCol.classList.remove('mobile-swipe-preview');
+    leavingCol.style.removeProperty('transform');
+    leavingCol.style.removeProperty('opacity');
+
+    requestAnimationFrame(() => {
+      enteringCol.classList.remove(enterFromClass);
+      leavingCol.classList.add(exitToClass);
+    });
+
+    this._tabTransition = {
+      timerId: window.setTimeout(() => this._resetMobileColumnState(_activeTab), MOBILE_TAB_TRANSITION_MS),
+    };
+  },
+
   _suppressNextClick(accountId) {
     this._suppressedClick = { accountId, until: Date.now() + 500 };
   },
@@ -658,15 +745,20 @@ const Board = {
     if (this._swipe && this._swipe.pointerId === e.pointerId && !this._swipe.handled) {
       const deltaX = e.clientX - this._swipe.startX;
       const deltaY = e.clientY - this._swipe.startY;
+      if (Math.abs(deltaY) <= MOBILE_SWIPE_VERTICAL_TOLERANCE) this._setMobileSwipePreview(deltaX);
       if (Math.abs(deltaY) <= MOBILE_SWIPE_VERTICAL_TOLERANCE && Math.abs(deltaX) >= MOBILE_SWIPE_DISTANCE) {
         e.preventDefault();
         this._swipe.handled = true;
         this._swipeIgnoreUntil = Date.now() + 350;
+        this._clearMobileSwipePreview();
         this._clearPress();
         this.selectRelativeTab(deltaX > 0 ? -1 : 1);
         return;
       }
-      if (Math.abs(deltaY) > MOBILE_SWIPE_VERTICAL_TOLERANCE) this._swipe.handled = true;
+      if (Math.abs(deltaY) > MOBILE_SWIPE_VERTICAL_TOLERANCE) {
+        this._swipe.handled = true;
+        this._clearMobileSwipePreview();
+      }
     }
 
     if (drag.active) {
@@ -689,7 +781,10 @@ const Board = {
   },
 
   _handlePointerUp(e) {
-    if (this._swipe && this._swipe.pointerId === e.pointerId) this._clearSwipe();
+    if (this._swipe && this._swipe.pointerId === e.pointerId) {
+      if (!this._swipe.handled) this._clearMobileSwipePreview();
+      this._clearSwipe();
+    }
 
     if (drag.active && drag.pointerId === e.pointerId) {
       this._finishDrag(e.clientX, e.clientY);
@@ -736,6 +831,8 @@ const Board = {
     const compactMode = this.isCompactMode();
 
     this._clearPress();
+    this._clearMobileSwipePreview();
+    this._resetMobileColumnState(_activeTab);
     this._clearPendingCredit();
     this._closeCtxMenu();
     this._resetDragState();
@@ -941,20 +1038,31 @@ const Board = {
 
   selectRelativeTab(offset) {
     const total = COLUMNS.length;
-    this.selectTab((_activeTab + offset + total) % total);
+    this.selectTab((_activeTab + offset + total) % total, { direction: offset >= 0 ? 1 : -1 });
   },
 
-  selectTab(colIdx) {
-    _activeTab = colIdx;
-    const cfg = COLUMNS[colIdx];
+  selectTab(colIdx, { animate = true, direction = null } = {}) {
+    const total = COLUMNS.length;
+    const nextIdx = ((Number(colIdx) % total) + total) % total;
+    const previousIdx = _activeTab;
+
+    this._resetMobileColumnState(previousIdx);
+    _activeTab = nextIdx;
+
+    const cfg = COLUMNS[nextIdx];
     document.querySelectorAll('.mttab').forEach(tab => {
-      const active = parseInt(tab.dataset.col, 10) === colIdx;
+      const active = parseInt(tab.dataset.col, 10) === nextIdx;
       tab.classList.toggle('active', active);
       tab.style.setProperty('--tab-accent', active ? cfg.accent : '');
     });
-    document.querySelectorAll('.column').forEach(col => {
-      col.classList.toggle('mobile-active', parseInt(col.dataset.colIdx, 10) === colIdx);
-    });
+
+    if (animate && previousIdx !== nextIdx && this._shouldAnimateMobileGalleryTabChange()) {
+      const resolvedDirection = direction ?? (nextIdx > previousIdx ? 1 : -1);
+      this._animateMobileTabChange(previousIdx, nextIdx, resolvedDirection);
+      return;
+    }
+
+    this._resetMobileColumnState(nextIdx);
   },
 
   initDrag() {
@@ -972,6 +1080,7 @@ const Board = {
     document.addEventListener('pointermove', e => this._handlePointerMove(e));
     document.addEventListener('pointerup', e => this._handlePointerUp(e));
     document.addEventListener('pointercancel', () => {
+      if (!this._swipe?.handled) this._clearMobileSwipePreview();
       this._clearSwipe();
       this._clearPress();
       this._resetDragState();

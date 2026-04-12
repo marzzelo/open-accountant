@@ -506,8 +506,42 @@
     height: 100%; overflow-y: auto; overflow-x: hidden;
     touch-action: pan-y;
   }
+  .board.board-compact {
+    position: relative;
+  }
   .column { display: none; max-height: none; overflow-y: visible; padding-bottom: 88px; }
   .column.mobile-active { display: flex; }
+  .board.board-compact .column.mobile-active,
+  .board.board-compact .column.mobile-transition-exit {
+    transition: transform .24s cubic-bezier(.22, 1, .36, 1), opacity .24s ease;
+    will-change: transform, opacity;
+  }
+  .board.board-compact .column.mobile-active.mobile-swipe-preview {
+    transition: none;
+  }
+  .board.board-compact.mobile-column-animating .column.mobile-transition-exit {
+    display: flex;
+    position: absolute;
+    inset: 0 0 auto 0;
+    z-index: 2;
+    pointer-events: none;
+  }
+  .board.board-compact .column.mobile-transition-enter-from-left {
+    transform: translate3d(-18px, 0, 0);
+    opacity: .36;
+  }
+  .board.board-compact .column.mobile-transition-enter-from-right {
+    transform: translate3d(18px, 0, 0);
+    opacity: .36;
+  }
+  .board.board-compact .column.mobile-transition-exit-to-left {
+    transform: translate3d(-24px, 0, 0);
+    opacity: 0;
+  }
+  .board.board-compact .column.mobile-transition-exit-to-right {
+    transform: translate3d(24px, 0, 0);
+    opacity: 0;
+  }
   .column.mobile-active,
   .card {
     touch-action: pan-y;
