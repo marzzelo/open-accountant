@@ -722,6 +722,15 @@ const Board = {
     Forms.newTransaction(creditId, accountId);
   },
 
+  _handleNativeContextMenu(e) {
+    if (!isMobile()) return;
+
+    const card = e.target.closest('.card');
+    if (!card) return;
+
+    e.preventDefault();
+  },
+
   async render() {
     const main = document.getElementById('main');
     const compactMode = this.isCompactMode();
@@ -958,6 +967,7 @@ const Board = {
 
     main.addEventListener('pointerdown', e => this._handlePointerDown(e));
     main.addEventListener('click', e => this._handleCardClick(e));
+    main.addEventListener('contextmenu', e => this._handleNativeContextMenu(e));
 
     document.addEventListener('pointermove', e => this._handlePointerMove(e));
     document.addEventListener('pointerup', e => this._handlePointerUp(e));

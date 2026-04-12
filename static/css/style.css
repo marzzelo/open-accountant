@@ -286,6 +286,7 @@
   line-height: 1.25;
   min-width: 0;
   display: -webkit-box;
+  line-clamp: 2;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
@@ -310,6 +311,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
+  pointer-events: none;
   filter: drop-shadow(0 12px 20px #00000030);
 }
 
@@ -518,6 +520,43 @@
 
   .drawer-board-controls .board-view-btn {
     flex: 1 1 0;
+  }
+
+  .column-body-compact {
+    grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+    gap: 10px;
+  }
+
+  .card-compact {
+    gap: 6px;
+    padding: 9px;
+  }
+
+  .card-compact-head {
+    min-height: 0;
+  }
+
+  .card-compact-name {
+    font-size: 11px;
+  }
+
+  .card-compact-figure {
+    width: clamp(42px, 20vw, 58px);
+    height: clamp(42px, 20vw, 58px);
+    aspect-ratio: auto;
+    margin: 2px auto 0;
+    padding: 6px;
+    border-radius: 14px;
+    background: #0f1520;
+    box-shadow: inset 0 0 0 1px #ffffff0a;
+  }
+
+  .card-compact-image {
+    filter: drop-shadow(0 6px 10px #00000026);
+  }
+
+  .card-compact-balance {
+    font-size: 12px;
   }
 }
 
