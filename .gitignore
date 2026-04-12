@@ -17,6 +17,7 @@ ENV/
 
 # ── Environment & secrets ─────────────────────────────────────────────────────
 .env
+private/
 # Keep the example file:
 !.env.example
 

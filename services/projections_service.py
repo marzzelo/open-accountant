@@ -262,6 +262,348 @@ def _round_or_none(value: Optional[float], digits: int = 4) -> Optional[float]:
     return round(value, digits) if value is not None else None
 
 
+# ── Investment helpers ─────────────────────────────────────────────────────────
+
+_INVESTMENT_SUBTYPE_ID = 3  # Investments (Asset)
+_DIVIDEND_SUBTYPE_ID = 10  # Dividends (Income)
+
+_INVESTMENT_NAME_HINTS = (
+    "investment",
+    "investments",
+    "brokerage",
+    "portfolio",
+    "etf",
+    "mutual fund",
+    "stock",
+    "trading",
+)
+_DIVIDEND_NAME_HINTS = (
+    "dividend",
+    "dividends",
+    "dividendo",
+    "dividendos",
+)
+
+
+def _identify_investment_accounts(conn) -> list[dict]:
+    """Return asset accounts classified as investments (subtype_id=3 or name hints)."""
+    rows = conn.execute(
+        """SELECT a.id, a.name, a.type_id, a.initial_balance, a.subtype_id,
+                  COALESCE(s.name, '') AS subtype_name
+           FROM accounts a
+           LEFT JOIN subtypes s ON a.subtype_id = s.id
+           WHERE a.type_id = 1"""
+    ).fetchall()
+    result = []
+    for r in rows:
+        if r["subtype_id"] == _INVESTMENT_SUBTYPE_ID:
+            result.append(dict(r))
+            continue
+        text = f"{r['name']} {r['subtype_name']}".lower()
+        if any(h in text for h in _INVESTMENT_NAME_HINTS):
+            result.append(dict(r))
+    return result
+
+
+def _identify_dividend_accounts(conn) -> list[dict]:
+    """Return income accounts classified as dividends (subtype_id=10 or name hints)."""
+    rows = conn.execute(
+        """SELECT a.id, a.name, a.type_id, a.initial_balance, a.subtype_id,
+                  COALESCE(s.name, '') AS subtype_name
+           FROM accounts a
+           LEFT JOIN subtypes s ON a.subtype_id = s.id
+           WHERE a.type_id = 3"""
+    ).fetchall()
+    result = []
+    for r in rows:
+        if r["subtype_id"] == _DIVIDEND_SUBTYPE_ID:
+            result.append(dict(r))
+            continue
+        text = f"{r['name']} {r['subtype_name']}".lower()
+        if any(h in text for h in _DIVIDEND_NAME_HINTS):
+            result.append(dict(r))
+    return result
+
+
+def _get_monthly_investment_balances(
+    conn,
+    investment_account_ids: list[int],
+    from_date: str,
+    to_date: str,
+) -> dict[str, float]:
+    """Return {YYYY-MM: total_balance} for the given investment accounts."""
+    if not investment_account_ids:
+        return {}
+
+    accounts = conn.execute(
+        f"""SELECT id, type_id, initial_balance FROM accounts
+            WHERE id IN ({','.join('?' for _ in investment_account_ids)})""",
+        tuple(investment_account_ids),
+    ).fetchall()
+
+    month_expr = month_bucket_sql(conn, "date")
+    months_rows = conn.execute(
+        f"""SELECT DISTINCT {month_expr} AS month FROM transactions
+           WHERE date BETWEEN ? AND ? ORDER BY month""",
+        (from_date, to_date),
+    ).fetchall()
+    months = [r["month"] for r in months_rows]
+
+    result: dict[str, float] = {}
+    for month in months:
+        month_end = end_of_month_datetime(month)
+        total = 0.0
+        for acc in accounts:
+            bal = compute_filtered_balance(
+                conn,
+                acc["id"],
+                acc["type_id"],
+                acc["initial_balance"],
+                from_date,
+                month_end,
+            )
+            total += bal
+        result[month] = round(total, 4)
+    return result
+
+
+def _get_monthly_dividend_income(
+    conn,
+    dividend_account_ids: list[int],
+    from_date: str,
+    to_date: str,
+) -> dict[str, float]:
+    """Return {YYYY-MM: total_dividend_income} from dividend accounts.
+
+    Dividend income = credit_amount - debit_amount on dividend accounts (type_id=3).
+    """
+    if not dividend_account_ids:
+        return {}
+
+    placeholders = ",".join("?" for _ in dividend_account_ids)
+    month_expr = month_bucket_sql(conn, "t.date")
+    rows = conn.execute(
+        f"""WITH div_legs AS (
+            SELECT {month_expr} AS month,
+                   t.amount AS credit_amount,
+                   0        AS debit_amount
+            FROM transactions t
+            WHERE t.credit_account IN ({placeholders})
+              AND t.date BETWEEN ? AND ?
+
+            UNION ALL
+
+            SELECT {month_expr} AS month,
+                   0        AS credit_amount,
+                   t.amount AS debit_amount
+            FROM transactions t
+            WHERE t.debit_account IN ({placeholders})
+              AND t.date BETWEEN ? AND ?
+        )
+        SELECT month, SUM(credit_amount - debit_amount) AS value
+        FROM div_legs
+        GROUP BY month
+        HAVING SUM(credit_amount - debit_amount) > 0
+        ORDER BY month""",
+        (
+            *dividend_account_ids,
+            from_date,
+            to_date,
+            *dividend_account_ids,
+            from_date,
+            to_date,
+        ),
+    ).fetchall()
+    return {r["month"]: float(r["value"]) for r in rows}
+
+
+def _get_monthly_investment_contributions(
+    conn,
+    investment_account_ids: list[int],
+    dividend_account_ids: list[int],
+    from_date: str,
+    to_date: str,
+) -> dict[str, float]:
+    """Return {YYYY-MM: net_manual_contribution} into investment accounts.
+
+    Net manual contribution = money flowing into investment accounts from
+    non-investment, non-dividend accounts minus money flowing out to them.
+    Internal transfers between investment accounts are excluded.
+    Dividend-sourced inflows are excluded.
+    Equity (Capital) counterparties are excluded: initial balances booked
+    against Capital represent the accumulated starting state, not individual
+    monthly contributions.
+    """
+    if not investment_account_ids:
+        return {}
+
+    inv_set = set(investment_account_ids)
+    div_set = set(dividend_account_ids)
+    equity_ids = {
+        r["id"]
+        for r in conn.execute("SELECT id FROM accounts WHERE type_id = 5").fetchall()
+    }
+    exclude_set = inv_set | div_set | equity_ids
+
+    inv_placeholders = ",".join("?" for _ in investment_account_ids)
+    month_expr = month_bucket_sql(conn, "t.date")
+
+    # Inflows: investment account is debited (asset debit-normal → balance increases)
+    inflow_rows = conn.execute(
+        f"""SELECT {month_expr} AS month,
+                   t.credit_account AS counterpart,
+                   SUM(t.amount) AS total
+            FROM transactions t
+            WHERE t.debit_account IN ({inv_placeholders})
+              AND t.date BETWEEN ? AND ?
+            GROUP BY month, t.credit_account
+            ORDER BY month""",
+        (*investment_account_ids, from_date, to_date),
+    ).fetchall()
+
+    # Outflows: investment account is credited (asset debit-normal → balance decreases)
+    outflow_rows = conn.execute(
+        f"""SELECT {month_expr} AS month,
+                   t.debit_account AS counterpart,
+                   SUM(t.amount) AS total
+            FROM transactions t
+            WHERE t.credit_account IN ({inv_placeholders})
+              AND t.date BETWEEN ? AND ?
+            GROUP BY month, t.debit_account
+            ORDER BY month""",
+        (*investment_account_ids, from_date, to_date),
+    ).fetchall()
+
+    result: dict[str, float] = {}
+    for r in inflow_rows:
+        if r["counterpart"] in exclude_set:
+            continue
+        result[r["month"]] = result.get(r["month"], 0.0) + float(r["total"])
+    for r in outflow_rows:
+        if r["counterpart"] in exclude_set:
+            continue
+        result[r["month"]] = result.get(r["month"], 0.0) - float(r["total"])
+
+    return {m: round(v, 4) for m, v in result.items()}
+
+
+# ── Robust statistical estimation ─────────────────────────────────────────────
+
+
+def _iqr_filter(values: list[float], k: float = 1.5) -> tuple[list[float], int]:
+    """Apply IQR × k outlier filtering. Returns (filtered_values, excluded_count)."""
+    if len(values) < 4:
+        return list(values), 0
+    sorted_v = sorted(values)
+    n = len(sorted_v)
+    q1 = sorted_v[n // 4]
+    q3 = sorted_v[(3 * n) // 4]
+    iqr = q3 - q1
+    lower = q1 - k * iqr
+    upper = q3 + k * iqr
+    filtered = [v for v in values if lower <= v <= upper]
+    return filtered, len(values) - len(filtered)
+
+
+def _aggregate(values: list[float], stat: str = "mean") -> float:
+    """Compute mean or median of a list of floats."""
+    if not values:
+        return 0.0
+    if stat == "median":
+        s = sorted(values)
+        n = len(s)
+        if n % 2 == 1:
+            return s[n // 2]
+        return (s[n // 2 - 1] + s[n // 2]) / 2
+    return sum(values) / len(values)
+
+
+def _estimate_investment_model(
+    all_months: list[str],
+    inv_bal_map: dict[str, float],
+    div_map: dict[str, float],
+    contrib_map: dict[str, float],
+    *,
+    stat: str = "mean",
+    exclude_outliers: bool = True,
+    outlier_k: float = 1.5,
+) -> dict:
+    """Estimate monthly yield rate and contribution from trailing data.
+
+    Returns dict with: yield_rate, contribution, sample_count, yield_excluded,
+    contrib_excluded, warnings.
+    """
+    yields: list[float] = []
+    contributions: list[float] = []
+    warnings: list[str] = []
+
+    for i, m in enumerate(all_months):
+        contrib_val = contrib_map.get(m)
+        if contrib_val is not None:
+            contributions.append(contrib_val)
+
+        div_val = div_map.get(m)
+        if div_val is None or div_val <= 0:
+            continue
+        # Compute base as average of opening and closing balance for this month
+        opening = None
+        if i > 0:
+            opening = inv_bal_map.get(all_months[i - 1])
+        closing = inv_bal_map.get(m)
+        if closing is not None and opening is not None:
+            base = (opening + closing) / 2
+        elif closing is not None:
+            base = closing
+        elif opening is not None:
+            base = opening
+        else:
+            continue
+        if base > 0:
+            yields.append(div_val / base)
+
+    yield_excluded = 0
+    contrib_excluded = 0
+    if exclude_outliers:
+        if yields:
+            yields, yield_excluded = _iqr_filter(yields, outlier_k)
+        if contributions:
+            contributions, contrib_excluded = _iqr_filter(contributions, outlier_k)
+
+    yield_rate = _aggregate(yields, stat)
+    contribution = _aggregate(contributions, stat)
+
+    # Warn if median zeroes out non-empty yield series
+    if stat == "median" and yield_rate == 0 and len(yields) > 0:
+        warnings.append("median_yield_zero")
+    if stat == "median" and contribution == 0 and len(contributions) > 0:
+        warnings.append("median_contribution_zero")
+
+    return {
+        "yield_rate": round(yield_rate, 8),
+        "contribution": round(contribution, 4),
+        "sample_count": len(yields),
+        "contrib_sample_count": len(contributions),
+        "yield_excluded": yield_excluded,
+        "contrib_excluded": contrib_excluded,
+        "warnings": warnings,
+    }
+
+
+def _project_investments(
+    current_investment_balance: float,
+    yield_rate: float,
+    contribution: float,
+    horizon: int,
+) -> list[float]:
+    """Recursively project investment balance: I(t+1) = max(0, I(t)*(1+r) + c)."""
+    result = []
+    bal = current_investment_balance
+    for _ in range(horizon):
+        bal = max(0.0, bal * (1 + yield_rate) + contribution)
+        result.append(round(bal, 4))
+    return result
+
+
 # ── Series adjustments ────────────────────────────────────────────────────────
 
 
@@ -392,13 +734,22 @@ def delete_series(conn, series_id: int) -> None:
 # ── Main projection function ──────────────────────────────────────────────────
 
 
-def get_projections(conn, horizon: int, history_months: int) -> dict:
+def get_projections(
+    conn,
+    horizon: int,
+    history_months: int,
+    *,
+    investment_lookback_months: int | None = None,
+    investment_stat: str = "mean",
+    investment_exclude_outliers: bool = True,
+    investment_outlier_k: float = 1.5,
+) -> dict:
     """
     Compute financial projections using linear regression on historical data
     plus user-defined income/expense series.
 
     Returns a dict with: historical, regression, projected_months,
-    baseline_projection, series_adjustment, current_balances.
+    baseline_projection, series_adjustment, current_balances, investment_model.
     """
     today = date.today()
     today_ym = _month_str(today.year, today.month)
@@ -499,6 +850,51 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
         if expense_total > 0 and props.get("expense_profile") == "essential":
             essential_expense_total += expense_total
 
+    # ── Investment data collection ──
+    inv_accounts = _identify_investment_accounts(conn)
+    div_accounts = _identify_dividend_accounts(conn)
+    inv_ids = [a["id"] for a in inv_accounts]
+    div_ids = [a["id"] for a in div_accounts]
+
+    current_investment_balance = 0.0
+    for a in inv_accounts:
+        current_investment_balance += compute_balance(
+            conn, a["id"], a["type_id"], a["initial_balance"]
+        )
+    current_non_inv_assets = current_assets - current_investment_balance
+
+    inv_lookback = investment_lookback_months or history_months
+    inv_y, inv_m = _add_months(today.year, today.month, -inv_lookback)
+    inv_start = _month_str(inv_y, inv_m) + "-01 00:00:00"
+    inv_months = _months_range(_month_str(inv_y, inv_m), inv_lookback + 1)
+
+    inv_bal_map = _get_monthly_investment_balances(
+        conn, inv_ids, inv_start, history_end
+    )
+    div_map = _get_monthly_dividend_income(conn, div_ids, inv_start, history_end)
+    contrib_map = _get_monthly_investment_contributions(
+        conn, inv_ids, div_ids, inv_start, history_end
+    )
+
+    # Historical investment balance sparse aligned with all_hist_months
+    hist_inv_sparse = [inv_bal_map.get(m, None) for m in all_hist_months]
+
+    investment_model = _estimate_investment_model(
+        inv_months,
+        inv_bal_map,
+        div_map,
+        contrib_map,
+        stat=investment_stat,
+        exclude_outliers=investment_exclude_outliers,
+        outlier_k=investment_outlier_k,
+    )
+
+    has_investments = len(inv_ids) > 0 and current_investment_balance > 0
+
+    # Compute per-month dividend totals aligned to all_hist_months for
+    # excluding from general income (avoid double-counting).
+    div_income_aligned = {m: div_map.get(m, 0.0) for m in all_hist_months}
+
     # ── Regressions ──
     # Use sparse regression directly on known data points to avoid distortion:
     # _fill_by_regression clamps negative predictions to 0, so running
@@ -530,12 +926,35 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
     baseline_expenses = _project(reg_expenses[0], reg_expenses[1], n_hist, horizon)
     baseline_savings = _project(reg_savings[0], reg_savings[1], n_hist, horizon)
 
-    # Assets: current balance + cumulative projected savings
-    baseline_assets = []
-    cum_savings = 0.0
+    # ── Investment projection ──
+    baseline_investments: list[float] = []
+    if has_investments:
+        baseline_investments = _project_investments(
+            current_investment_balance,
+            investment_model["yield_rate"],
+            investment_model["contribution"],
+            horizon,
+        )
+    else:
+        baseline_investments = [round(current_investment_balance, 4)] * horizon
+
+    # ── Coherent asset recomposition ──
+    # Non-investment savings = total savings minus the contribution going into investments.
+    # This avoids double-counting: cash transferred to investments moves between buckets.
+    est_contribution = investment_model["contribution"] if has_investments else 0.0
+    baseline_non_inv_assets: list[float] = []
+    cum_non_inv_savings = 0.0
     for i in range(horizon):
-        cum_savings += baseline_savings[i]
-        baseline_assets.append(round(max(0.0, current_assets + cum_savings), 4))
+        non_inv_savings_i = baseline_savings[i] - est_contribution
+        cum_non_inv_savings += non_inv_savings_i
+        val = max(0.0, current_non_inv_assets + cum_non_inv_savings)
+        baseline_non_inv_assets.append(round(val, 4))
+
+    # Total assets = non-investment assets + projected investments
+    baseline_assets = [
+        round(baseline_non_inv_assets[i] + baseline_investments[i], 4)
+        for i in range(horizon)
+    ]
 
     # Liabilities: use regression trend from current balance
     baseline_liabilities = []
@@ -582,19 +1001,37 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
         for i in range(horizon)
     ]
     baseline_current_assets = [
-        round(current_assets_only + max(0.0, baseline_assets[i] - current_assets), 4)
+        round(
+            current_assets_only
+            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets),
+            4,
+        )
         for i in range(horizon)
     ]
     scenario_current_assets = [
-        round(current_assets_only + max(0.0, scenario_assets[i] - current_assets), 4)
+        round(
+            current_assets_only
+            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets)
+            + adj["assets"][i],
+            4,
+        )
         for i in range(horizon)
     ]
     baseline_quick_assets = [
-        round(quick_assets + max(0.0, baseline_assets[i] - current_assets), 4)
+        round(
+            quick_assets
+            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets),
+            4,
+        )
         for i in range(horizon)
     ]
     scenario_quick_assets = [
-        round(quick_assets + max(0.0, scenario_assets[i] - current_assets), 4)
+        round(
+            quick_assets
+            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets)
+            + adj["assets"][i],
+            4,
+        )
         for i in range(horizon)
     ]
     baseline_essential_expense = [
@@ -780,6 +1217,11 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
                 for i in range(len(all_hist_months))
                 if hist_liabilities_sparse[i] is not None
             ],
+            "investments": [
+                {"month": all_hist_months[i], "value": hist_inv_sparse[i]}
+                for i in range(len(all_hist_months))
+                if hist_inv_sparse[i] is not None
+            ],
         },
         "regression": {
             "income": {"slope": reg_income[0], "intercept": reg_income[1]},
@@ -798,12 +1240,28 @@ def get_projections(conn, horizon: int, history_months: int) -> dict:
             "savings": baseline_savings,
             "assets": baseline_assets,
             "liabilities": baseline_liabilities,
+            "investments": baseline_investments,
         },
         "series_adjustment": adj,
         "current_balances": {
             "total_assets": round(current_assets, 4),
             "total_liabilities": round(current_liabilities, 4),
+            "total_investments": round(current_investment_balance, 4),
         },
         "health": projected_health,
         "historical_months": all_hist_months,
+        "investment_model": {
+            "enabled": has_investments,
+            "yield_rate": investment_model["yield_rate"],
+            "contribution": investment_model["contribution"],
+            "sample_count": investment_model["sample_count"],
+            "contrib_sample_count": investment_model["contrib_sample_count"],
+            "yield_excluded": investment_model["yield_excluded"],
+            "contrib_excluded": investment_model["contrib_excluded"],
+            "warnings": investment_model["warnings"],
+            "stat": investment_stat,
+            "exclude_outliers": investment_exclude_outliers,
+            "outlier_k": investment_outlier_k,
+            "lookback_months": inv_lookback,
+        },
     }
