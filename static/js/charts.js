@@ -128,26 +128,35 @@ function _replaceWithEmpty(canvasId) {
   canvas.outerHTML = `<div class="empty h-full flex items-center justify-center">${escapeHtml(t('report.no_data'))}</div>`;
 }
 
-function _buildHorizontalBar(canvasId, items, labelKey, valueKey, color, tooltipLabel) {
-  const total = items.reduce((sum, item) => sum + _num(item[valueKey]), 0);
+function _buildDoughnutChart(canvasId, items, labelKey, valueKey, tooltipLabel, colors = null) {
+  const filteredItems = (items || []).filter(item => _num(item[valueKey]) > 0);
+  const total = filteredItems.reduce((sum, item) => sum + _num(item[valueKey]), 0);
+  const palette = colors || ['#ef5350', '#ff8a65', '#ffd54f', '#66bb6a', '#4fc3f7', '#7986cb', '#ce93d8', '#4db6ac', '#90caf9', '#a5d6a7'];
+
+  if (!filteredItems.length || !total) {
+    _replaceWithEmpty(canvasId);
+    return;
+  }
+
   _charts[canvasId] = new Chart(document.getElementById(canvasId), {
-    type: 'bar',
+    type: 'doughnut',
     data: {
-      labels: items.map(item => item[labelKey]),
+      labels: filteredItems.map(item => item[labelKey]),
       datasets: [{
-        data: items.map(item => item[valueKey]),
-        backgroundColor: color + 'bb',
-        borderColor: color,
-        borderWidth: 1,
-        borderRadius: 8,
+        data: filteredItems.map(item => item[valueKey]),
+        backgroundColor: filteredItems.map((_, index) => palette[index % palette.length]),
+        borderColor: '#161b22',
+        borderWidth: 2,
       }],
     },
     options: {
-      indexAxis: 'y',
       responsive: true,
-      maintainAspectRatio: false,
+      cutout: '58%',
       plugins: {
-        legend: { display: false },
+        legend: {
+          position: 'bottom',
+          labels: { color: '#8b949e', font: { size: 10 }, boxWidth: 12 },
+        },
         tooltip: {
           backgroundColor: '#21262d',
           borderColor: '#30363d',
@@ -155,22 +164,13 @@ function _buildHorizontalBar(canvasId, items, labelKey, valueKey, color, tooltip
           titleColor: '#e6edf3',
           bodyColor: '#c9d1d9',
           callbacks: {
-            label: ctx => ` ${tooltipLabel(ctx)} • ${_fmtPct(total ? ctx.raw / total : null)}`,
+            label: ctx => {
+              const item = filteredItems[ctx.dataIndex];
+              const defaultLabel = `${ctx.label}: ${fmt(ctx.raw)}`;
+              const baseLabel = tooltipLabel ? tooltipLabel(item, ctx) : defaultLabel;
+              return ` ${baseLabel} • ${_fmtPct(total ? ctx.raw / total : null)}`;
+            },
           },
-        },
-      },
-      scales: {
-        x: {
-          ticks: {
-            color: '#8b949e',
-            font: { size: 10 },
-            callback: value => _compactMoney(value),
-          },
-          grid: { color: '#30363d33' },
-        },
-        y: {
-          ticks: { color: '#8b949e', font: { size: 10 } },
-          grid: { display: false },
         },
       },
     },
@@ -188,7 +188,7 @@ const Charts = {
     const expenseBreakdown = _topBreakdown(data.expenses_by_subtype || [], 'subtype', 'amount');
     const incomeBreakdown = _topBreakdown(data.income_by_subtype || [], 'subtype', 'amount');
     const assetComposition = data.asset_composition || [];
-    const topAccounts = data.top_accounts || [];
+    const topAccounts = (data.top_accounts || []).filter(item => String(item.account || '').trim().toUpperCase() !== 'CAPITAL');
     const netWorthEvolution = data.net_worth_evolution || [];
     const netResultClass = _num(summary.net_result) >= 0 ? 'text-ingreso' : 'text-pasivo';
     const savingsRateClass = _num(summary.savings_rate) >= 0 ? 'text-ingreso' : 'text-pasivo';
@@ -353,11 +353,11 @@ const Charts = {
         </div>
         <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
           <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.expense_by_type')}</h3>
-          <div class="h-[320px]"><canvas id="ch-expense-breakdown"></canvas></div>
+          <canvas id="ch-expense-breakdown" height="200"></canvas>
         </div>
         <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
           <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.income_by_type')}</h3>
-          <div class="h-[320px]"><canvas id="ch-income-breakdown"></canvas></div>
+          <canvas id="ch-income-breakdown" height="200"></canvas>
         </div>
         <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
           <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.asset_composition')}</h3>
@@ -365,7 +365,7 @@ const Charts = {
         </div>
         <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
           <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.top_accounts')}</h3>
-          <div class="h-[320px]"><canvas id="ch-top-accounts"></canvas></div>
+          <canvas id="ch-top-accounts" height="200"></canvas>
         </div>
         <div class="xl:col-span-2 bg-dark-800 border border-dark-600 rounded-xl p-4">
           <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.net_worth_evolution')}</h3>
@@ -460,13 +460,13 @@ const Charts = {
 
     /* ── 2. Expenses by Subtype ── */
     if (expenseBreakdown.length > 0) {
-      _buildHorizontalBar(
+      _buildDoughnutChart(
         'ch-expense-breakdown',
         expenseBreakdown,
         'subtype',
         'amount',
-        '#ef5350',
-        ctx => `${ctx.label}: ${fmt(ctx.raw)}`
+        item => `${item.subtype}: ${fmt(item.amount)}`,
+        ['#ef5350', '#ff8a65', '#ffb74d', '#ffd54f', '#e57373', '#f06292', '#a1887f', '#ffcc80']
       );
     } else {
       _replaceWithEmpty('ch-expense-breakdown');
@@ -474,13 +474,13 @@ const Charts = {
 
     /* ── 3. Income by Subtype ── */
     if (incomeBreakdown.length > 0) {
-      _buildHorizontalBar(
+      _buildDoughnutChart(
         'ch-income-breakdown',
         incomeBreakdown,
         'subtype',
         'amount',
-        '#66bb6a',
-        ctx => `${ctx.label}: ${fmt(ctx.raw)}`
+        item => `${item.subtype}: ${fmt(item.amount)}`,
+        ['#66bb6a', '#81c784', '#4db6ac', '#4fc3f7', '#aed581', '#dce775', '#26a69a', '#80cbc4']
       );
     } else {
       _replaceWithEmpty('ch-income-breakdown');
@@ -520,55 +520,14 @@ const Charts = {
 
     /* ── 5. Top Accounts ── */
     if (topAccounts.length > 0) {
-      _charts.topAccounts = new Chart(document.getElementById('ch-top-accounts'), {
-        type: 'bar',
-        data: {
-          labels: topAccounts.map(item => item.account),
-          datasets: [{
-            label: t('chart.volume'),
-            data: topAccounts.map(item => item.volume),
-            backgroundColor: '#4fc3f7bb',
-            borderColor: '#4fc3f7',
-            borderWidth: 1,
-            borderRadius: 8,
-          }],
-        },
-        options: {
-          indexAxis: 'y',
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              backgroundColor: '#21262d',
-              borderColor: '#30363d',
-              borderWidth: 1,
-              titleColor: '#e6edf3',
-              bodyColor: '#c9d1d9',
-              callbacks: {
-                label: ctx => {
-                  const account = topAccounts[ctx.dataIndex];
-                  return ` ${account.account}: ${fmt(ctx.raw)} • ${account.tx_count} ${t('stats.tx_count')}`;
-                },
-              },
-            },
-          },
-          scales: {
-            x: {
-              ticks: {
-                color: '#8b949e',
-                font: { size: 10 },
-                callback: value => _compactMoney(value),
-              },
-              grid: { color: '#30363d33' },
-            },
-            y: {
-              ticks: { color: '#8b949e', font: { size: 10 } },
-              grid: { display: false },
-            },
-          },
-        },
-      });
+      _buildDoughnutChart(
+        'ch-top-accounts',
+        topAccounts,
+        'account',
+        'volume',
+        item => `${item.account}: ${fmt(item.volume)} • ${item.tx_count} ${t('stats.tx_count')}`,
+        ['#4fc3f7', '#90caf9', '#7986cb', '#4db6ac', '#80cbc4', '#66bb6a', '#ffd54f', '#ff8a65']
+      );
     } else {
       _replaceWithEmpty('ch-top-accounts');
     }
@@ -589,6 +548,7 @@ const Charts = {
               tension: 0.35,
               fill: false,
               pointRadius: 2,
+              yAxisID: 'y',
             },
             {
               label: t('report.total_liab'),
@@ -599,6 +559,7 @@ const Charts = {
               tension: 0.35,
               fill: false,
               pointRadius: 2,
+              yAxisID: 'y1',
             },
             {
               label: t('stats.kpi.net_worth'),
@@ -609,6 +570,7 @@ const Charts = {
               tension: 0.35,
               fill: false,
               pointRadius: 3,
+              yAxisID: 'y',
             },
           ],
         },
@@ -623,6 +585,15 @@ const Charts = {
             y: { ticks: { color: '#8b949e', font: { size: 9 },
                            callback: v => '$ ' + (v/1000).toFixed(0) + 'k' },
                  grid: { color: '#30363d44' } },
+            y1: {
+              position: 'right',
+              ticks: {
+                color: '#ef9a9a',
+                font: { size: 9 },
+                callback: v => '$ ' + (v / 1000).toFixed(0) + 'k',
+              },
+              grid: { drawOnChartArea: false },
+            },
           },
         },
       });

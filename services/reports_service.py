@@ -556,8 +556,9 @@ def get_stats(
            FROM transactions t
            JOIN accounts a ON t.debit_account = a.id OR t.credit_account = a.id
            WHERE t.date BETWEEN ? AND ?{tag_filter}
+             AND LOWER(TRIM(a.name)) <> ?
            GROUP BY a.id ORDER BY volume DESC LIMIT 10""",
-        (from_dt, to_dt, *tag_params),
+        (from_dt, to_dt, *tag_params, "capital"),
     ).fetchall()
     top_accounts = [
         {
