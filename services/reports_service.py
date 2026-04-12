@@ -25,6 +25,7 @@ from services.helpers import (
     normalize_account_properties,
     require_row,
     resolve_date_range,
+    serialize_temporal_value,
 )
 from services import tags_service
 
@@ -260,7 +261,7 @@ def journal_data(
     return [
         {
             "id": row["id"],
-            "date": row["date"],
+            "date": serialize_temporal_value(row["date"]),
             "debit_name": row["debit_name"],
             "credit_name": row["credit_name"],
             "amount": row["amount"],
@@ -330,7 +331,7 @@ def get_ledger(
         entries.append(
             {
                 "id": row["id"],
-                "date": row["date"],
+                "date": serialize_temporal_value(row["date"]),
                 "description": row["description"] or counterpart,
                 "counterpart": counterpart,
                 "counterpart_id": counterpart_id,

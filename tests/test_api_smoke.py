@@ -385,6 +385,40 @@ def test_reports_and_csv_export_work_for_basic_journal_flow(client):
     assert "Bank" in body
     assert "Salary" in body
 
+    pdf_response = client.get("/api/reports/export/pdf?report=journal")
+    assert pdf_response.status_code == 200
+    assert "application/pdf" in pdf_response.headers["content-type"]
+    assert "libro_diario.pdf" in pdf_response.headers["content-disposition"]
+    assert pdf_response.content.startswith(b"%PDF-")
+
+
+def test_ledger_pdf_export_returns_a_pdf_file(client):
+    accounts = _accounts_by_name(client)
+    bank_account = accounts["Bank"]
+    salary_account = accounts["Salary"]
+
+    tx_response = client.post(
+        "/api/transactions",
+        json={
+            "debit_account": bank_account["id"],
+            "credit_account": salary_account["id"],
+            "amount": 250.0,
+            "description": "Monthly salary",
+        },
+    )
+    assert tx_response.status_code == 201
+
+    pdf_response = client.get(
+        f"/api/reports/export/pdf?report=ledger&account_id={bank_account['id']}"
+    )
+    assert pdf_response.status_code == 200
+    assert "application/pdf" in pdf_response.headers["content-type"]
+    assert (
+        f"libro_mayor_{bank_account['id']}.pdf"
+        in pdf_response.headers["content-disposition"]
+    )
+    assert pdf_response.content.startswith(b"%PDF-")
+
 
 def test_balance_exports_honor_hide_accounts_and_zero_balance_filters(client):
     accounts = _accounts_by_name(client)
