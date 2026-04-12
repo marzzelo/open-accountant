@@ -13,6 +13,7 @@ let _projState = {
   trendSettings: {
     income:   { mode: 'linear', minVal: '', maxVal: '', inflationBase: '', inflationRate: '' },
     expenses: { mode: 'linear', minVal: '', maxVal: '', inflationBase: '', inflationRate: '' },
+    investments: { lookbackMonths: null, statistic: 'mean', excludeOutliers: true, outlierK: 1.5 },
   },
 };
 
@@ -27,6 +28,7 @@ const PROJ_COLORS = {
   savings:     '#ffd54f',
   assets:      '#4fc3f7',
   liabilities: '#ce93d8',
+  investments: '#ff9800',
 };
 
 function _fmtProjRatio(value) {
@@ -605,6 +607,94 @@ function _buildTrendSection(metricKey, sectionLabel, color) {
     </div>`;
 }
 
+function _buildInvestmentTrendSection() {
+  const s = _projState.trendSettings.investments;
+  const model = _projState.projData?.investment_model;
+  const color = PROJ_COLORS.investments;
+  const inputCls = 'w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-200 text-xs px-2 py-1.5 focus:outline-none focus:border-blue-500';
+  const labelCls = 'text-[11px] text-dark-400 w-24 shrink-0';
+
+  // If no investment accounts detected, show a short message
+  if (model && !model.enabled) {
+    return `
+      <div class="flex-1 min-w-[230px] space-y-3">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${color}"></span>
+          <span class="text-xs font-semibold text-dark-200 uppercase tracking-wide">${t('proj.trend.section_investments')}</span>
+        </div>
+        <p class="text-[10px] text-dark-500 leading-snug">${t('proj.trend.inv_no_data')}</p>
+      </div>`;
+  }
+
+  const meanActive = (s.statistic || 'mean') === 'mean';
+  const medianActive = s.statistic === 'median';
+  const statBtns = `
+    <button onclick="Projections._onInvSetting('statistic', 'mean')"
+            class="tbtn text-xs px-2.5 py-1${meanActive ? ' !bg-blue-600/20 !border-blue-500/40 !text-blue-300' : ''}">
+      ${t('proj.trend.stat_mean')}</button>
+    <button onclick="Projections._onInvSetting('statistic', 'median')"
+            class="tbtn text-xs px-2.5 py-1${medianActive ? ' !bg-blue-600/20 !border-blue-500/40 !text-blue-300' : ''}">
+      ${t('proj.trend.stat_median')}</button>`;
+
+  const outlierChecked = s.excludeOutliers !== false ? 'checked' : '';
+
+  // Model metadata
+  let modelInfo = '';
+  if (model) {
+    const yieldPct = (model.yield_rate * 100).toFixed(4);
+    const contrib = fmt(model.contribution);
+    const warnings = (model.warnings || []).map(w => {
+      const key = `proj.trend.inv_warning_${w}`;
+      return `<div class="text-[10px] text-yellow-500 mt-1">⚠ ${t(key)}</div>`;
+    }).join('');
+    modelInfo = `
+      <div class="mt-3 space-y-1 text-[10px] text-dark-400 border-t border-dark-700 pt-2">
+        <div>${t('proj.trend.inv_yield')}: <span class="text-dark-200">${yieldPct}%</span>
+          <span class="text-dark-500">(${model.sample_count} ${t('proj.trend.inv_samples')}${model.yield_excluded > 0 ? `, ${model.yield_excluded} ${t('proj.trend.inv_excluded')}` : ''})</span></div>
+        <div>${t('proj.trend.inv_contribution')}: <span class="text-dark-200">${contrib}</span>
+          <span class="text-dark-500">(${model.contrib_sample_count} ${t('proj.trend.inv_contrib_samples')}${model.contrib_excluded > 0 ? `, ${model.contrib_excluded} ${t('proj.trend.inv_excluded')}` : ''})</span></div>
+        ${warnings}
+      </div>`;
+  }
+
+  return `
+    <div class="flex-1 min-w-[230px] space-y-3">
+      <div class="flex items-center gap-2">
+        <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${color}"></span>
+        <span class="text-xs font-semibold text-dark-200 uppercase tracking-wide">${t('proj.trend.section_investments')}</span>
+      </div>
+      <div class="text-[10px] text-dark-500 uppercase tracking-wide">${t('proj.trend.mode_compound')}</div>
+      <div class="space-y-2">
+        <div class="flex items-center gap-2">
+          <label class="${labelCls}">${t('proj.trend.lookback')}</label>
+          <input type="number" min="3" max="60" value="${s.lookbackMonths || ''}" inputmode="numeric"
+                 placeholder="${_projState.historyMonths}"
+                 onchange="Projections._onInvSetting('lookbackMonths', this.value)"
+                 class="${inputCls}">
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="${labelCls}">${t('proj.trend.stat')}</label>
+          <div class="flex gap-1">${statBtns}</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="${labelCls}">${t('proj.trend.outlier_toggle')}</label>
+          <input type="checkbox" ${outlierChecked}
+                 onchange="Projections._onInvSetting('excludeOutliers', this.checked)"
+                 class="accent-blue-500">
+        </div>
+        <div class="flex items-center gap-2${s.excludeOutliers !== false ? '' : ' opacity-50'}">
+          <label class="${labelCls}">${t('proj.trend.outlier_k')}</label>
+          <input type="number" min="0.5" max="5" step="0.1" value="${s.outlierK || 1.5}" inputmode="decimal"
+                 ${s.excludeOutliers !== false ? '' : 'disabled'}
+                 onchange="Projections._onInvSetting('outlierK', this.value)"
+                 class="${inputCls}">
+        </div>
+        <p class="text-[10px] text-dark-500 leading-snug">${t('proj.trend.compound_hint')}</p>
+      </div>
+      ${modelInfo}
+    </div>`;
+}
+
 function _buildTrendPanel() {
   const open  = _projState.trendPanelOpen;
   const arrow = open ? '▲' : '▼';
@@ -625,6 +715,7 @@ function _buildTrendPanel() {
     <div class="border-t border-dark-600 px-4 py-4 flex flex-wrap gap-8">
       ${_buildTrendSection('income',   t('proj.trend.section_income')   || 'Ingresos', PROJ_COLORS.income)}
       ${_buildTrendSection('expenses', t('proj.trend.section_expenses') || 'Gastos',   PROJ_COLORS.expenses)}
+      ${_buildInvestmentTrendSection()}
     </div>`;
 
   return `<div class="bg-dark-800 border border-dark-600 rounded-xl">${header}${body}</div>`;
@@ -683,7 +774,7 @@ function _buildPageShell() {
                 onclick="Projections.openSeriesDialog()">${t('proj.controls.add_series')}</button>
       </div>
 
-      <!-- Trend settings panel (income & expenses only) -->
+      <!-- Trend settings panel (income, expenses & investments) -->
       <div id="proj-trend-panel"></div>
 
       <!-- Health summary -->
@@ -698,7 +789,7 @@ function _buildPageShell() {
       <!-- Charts grid -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-5" id="proj-charts-grid">
         <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 lg:col-span-2">
-          <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('proj.chart.combined')}</h3>
+          <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3" id="proj-chart-combined-title">${t('proj.chart.combined')}</h3>
           <canvas id="ch-proj-combined" height="220"></canvas>
         </div>
       </div>
@@ -721,6 +812,8 @@ async function _loadProjPrefs() {
       Object.assign(_projState.trendSettings.income,   prefs.proj_trend_income);
     if (prefs.proj_trend_expenses && typeof prefs.proj_trend_expenses === 'object')
       Object.assign(_projState.trendSettings.expenses, prefs.proj_trend_expenses);
+    if (prefs.proj_trend_investments && typeof prefs.proj_trend_investments === 'object')
+      Object.assign(_projState.trendSettings.investments, prefs.proj_trend_investments);
   } catch {}
 }
 
@@ -728,9 +821,15 @@ async function _loadProjPrefs() {
 
 async function _loadData() {
   try {
+    const inv = _projState.trendSettings.investments;
+    let projUrl = `/reports/projections?horizon=${_projState.horizon}&history_months=${_projState.historyMonths}`;
+    if (inv.lookbackMonths != null) projUrl += `&investment_lookback_months=${inv.lookbackMonths}`;
+    projUrl += `&investment_stat=${inv.statistic || 'mean'}`;
+    projUrl += `&investment_exclude_outliers=${inv.excludeOutliers !== false}`;
+    projUrl += `&investment_outlier_k=${inv.outlierK || 1.5}`;
     const [series, projData] = await Promise.all([
       API.get('/projections/series'),
-      API.get(`/reports/projections?horizon=${_projState.horizon}&history_months=${_projState.historyMonths}`),
+      API.get(projUrl),
     ]);
     _projState.series = series;
     _projState.projData = projData;
@@ -793,19 +892,39 @@ function _renderCharts() {
     return (inc != null && exp != null) ? Math.round((inc - exp) * 100) / 100 : null;
   });
 
-  // Assets = current balance + cumulative projected savings
+  // Assets = non-investment assets + projected investments
+  // When investments are enabled, decompose: non-inv assets grow from savings
+  // minus contributions, investments grow via compound interest model.
   const currentAssets = projData.current_balances?.total_assets ?? 0;
+  const currentInvestments = projData.current_balances?.total_investments ?? 0;
+  const invBaseline = projData.baseline_projection?.investments || [];
+  const hasInv = projData.investment_model?.enabled === true;
+  const estContribution = hasInv ? (projData.investment_model?.contribution ?? 0) : 0;
+  const n_hist = histMonths.length;
   let cumSavings = 0;
   const assetsProjFull = allLabels.map((_, i) => {
     const s = savingsProjFull[i];
     if (s == null) return null;
     cumSavings += s;
+    const projIdx = i - n_hist;
+    if (hasInv && projIdx >= 0 && projIdx < invBaseline.length) {
+      const currentNonInv = currentAssets - currentInvestments;
+      const cumContrib = estContribution * (projIdx + 1);
+      const nonInv = Math.max(0, currentNonInv + cumSavings - cumContrib);
+      return Math.round((nonInv + invBaseline[projIdx]) * 100) / 100;
+    }
     return Math.round((currentAssets + cumSavings) * 100) / 100;
   });
 
-  // ── Combined chart: income/expenses/savings (left) + assets (right) ───────
+  // ── Combined chart: income/expenses/savings (left) + assets + investments (right) ───────
   const combinedCanvas = document.getElementById('ch-proj-combined');
   if (combinedCanvas) {
+    // Update chart title based on whether investments are present
+    const chartTitle = document.getElementById('proj-chart-combined-title');
+    const invModel = projData.investment_model;
+    if (chartTitle) {
+      chartTitle.textContent = (invModel?.enabled) ? t('proj.chart.combined_with_inv') : t('proj.chart.combined');
+    }
     // _h: true marks a dataset as hidden from the legend
     const pickScatterData = (result, pointStyle = null) => (
       result.datasets.find(ds => ds.type === 'scatter' && (ds.pointStyle || null) === pointStyle)?.data || []
@@ -880,6 +999,16 @@ function _renderCharts() {
                                   .map(m => ({ x: m, y: Math.round((incHistMap[m] - expHistMap[m]) * 100) / 100 }));
     const assetScatter = histMonths.filter(m => assetsHistMap[m] != null).map(m => ({ x: m, y: assetsHistMap[m] }));
 
+    // ── Investment data for combined chart ──
+    const invHistMap = {};
+    (projData.historical.investments || []).forEach(p => { invHistMap[p.month] = p.value; });
+    const invScatter = histMonths.filter(m => invHistMap[m] != null).map(m => ({ x: m, y: invHistMap[m] }));
+    const invBaseline = projData.baseline_projection.investments || [];
+    const invProjFull = Array(histMonths.length).fill(null).concat(
+      invBaseline.map(v => Math.round(v * 100) / 100)
+    );
+    const hasInvestments = projData.investment_model?.enabled === true;
+
     const datasets = [
       scatter(PROJ_COLORS.income,   incScatter,   'y'),
       ...(incOutliers.length ? [outlierMarks(t('proj.chart.income'), incOutliers, 'y')] : []),
@@ -897,6 +1026,11 @@ function _renderCharts() {
 
       scatter(PROJ_COLORS.assets,   assetScatter, 'y2'),
       projLine(t('proj.chart.assets'),   PROJ_COLORS.assets,   assetsProjFull,  'y2'),
+
+      ...(hasInvestments ? [
+        scatter(PROJ_COLORS.investments, invScatter, 'y2'),
+        projLine(t('proj.chart.investments'), PROJ_COLORS.investments, invProjFull, 'y2'),
+      ] : []),
     ];
 
     _projCharts['ch-proj-combined'] = new Chart(combinedCanvas, {
@@ -1018,6 +1152,23 @@ const Projections = {
     _saveProjPrefs({ [`proj_trend_${metricKey}`]: _projState.trendSettings[metricKey] });
     _renderTrendPanel();
     _renderCharts();
+  },
+
+  _onInvSetting(field, value) {
+    const inv = _projState.trendSettings.investments;
+    if (field === 'lookbackMonths') {
+      const n = parseInt(value, 10);
+      inv.lookbackMonths = (isNaN(n) || value === '') ? null : Math.max(3, Math.min(60, n));
+    } else if (field === 'statistic') {
+      inv.statistic = value === 'median' ? 'median' : 'mean';
+    } else if (field === 'excludeOutliers') {
+      inv.excludeOutliers = !!value;
+    } else if (field === 'outlierK') {
+      const k = parseFloat(value);
+      inv.outlierK = isNaN(k) ? 1.5 : Math.max(0.5, Math.min(5.0, k));
+    }
+    _saveProjPrefs({ proj_trend_investments: inv });
+    _loadData();
   },
 
   // ── Series dialog ───────────────────────────────────────────────────────────

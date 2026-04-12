@@ -12,6 +12,7 @@ router = APIRouter()
 
 # ── Series CRUD ───────────────────────────────────────────────────────────────
 
+
 @router.get("/projections/series", response_model=list[ProjectionSeriesOut])
 def list_series():
     with get_db() as conn:
@@ -44,10 +45,23 @@ def delete_series(series_id: int):
 
 # ── Projection data ───────────────────────────────────────────────────────────
 
+
 @router.get("/reports/projections")
 def get_projections(
     horizon: int = Query(12, ge=1, le=120),
     history_months: int = Query(12, ge=3, le=60),
+    investment_lookback_months: int = Query(None, ge=3, le=60),
+    investment_stat: str = Query("mean", pattern=r"^(mean|median)$"),
+    investment_exclude_outliers: bool = Query(True),
+    investment_outlier_k: float = Query(1.5, ge=0.5, le=5.0),
 ):
     with get_db() as conn:
-        return projections_service.get_projections(conn, horizon, history_months)
+        return projections_service.get_projections(
+            conn,
+            horizon,
+            history_months,
+            investment_lookback_months=investment_lookback_months,
+            investment_stat=investment_stat,
+            investment_exclude_outliers=investment_exclude_outliers,
+            investment_outlier_k=investment_outlier_k,
+        )
