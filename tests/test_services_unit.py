@@ -718,18 +718,18 @@ def test_aggregate_empty():
 
 
 def test_project_investments_compound_growth():
-    # Joint iteration: contribution = rate * total_assets, interest = inv * yield
-    # With non_inv=0, total_assets = inv_bal, contribution = 0.1 * inv_bal
+    # Joint iteration: contribution = rate * projected_income, interest = inv * yield
     inv, non_inv, detail = projections_service._project_investments(
         1000.0,  # current_investment_balance
-        0.0,  # current_non_inv_assets
+        1000.0,  # current_non_inv_assets
         0.01,  # yield_rate
-        0.1,  # contribution_rate (10% of total assets)
-        [0.0, 0.0, 0.0],  # baseline_savings
+        0.1,  # contribution_rate (10% of projected income)
+        [1000.0, 1000.0, 1000.0],  # projected income
+        [100.0, 100.0, 100.0],  # baseline_savings
         3,
     )
     assert len(inv) == 3
-    # Period 0: total_assets=0+1000=1000, contrib=100, interest=10, inv=1000+10+100=1110
+    # Period 0: income=1000, contrib=100, interest=10, inv=1000+10+100=1110
     assert inv[0] == pytest.approx(1110.0, rel=1e-4)
     assert detail[0]["interest"] == pytest.approx(10.0, rel=1e-4)
     assert detail[0]["contribution"] == pytest.approx(100.0, rel=1e-4)
@@ -737,7 +737,7 @@ def test_project_investments_compound_growth():
 
 def test_project_investments_floors_at_zero():
     inv, non_inv, detail = projections_service._project_investments(
-        50.0, 1000.0, 0.0, 0.0, [-200.0, -200.0, -200.0], 3
+        50.0, 1000.0, 0.0, 0.0, [0.0, 0.0, 0.0], [-200.0, -200.0, -200.0], 3
     )
     # With zero rate and zero contribution_rate, inv stays at 50, non_inv shrinks
     assert inv[0] == pytest.approx(50.0, rel=1e-4)
@@ -746,12 +746,36 @@ def test_project_investments_floors_at_zero():
 
 def test_project_investments_zero_rate_contribution_only():
     inv, non_inv, detail = projections_service._project_investments(
-        0.0, 10000.0, 0.0, 0.05, [0.0, 0.0], 2
+        0.0, 10000.0, 0.0, 0.05, [10000.0, 10000.0], [500.0, 500.0], 2
     )
-    # Period 0: total_assets=10000, contrib=500, inv=0+0+500=500, non_inv=10000+0-500=9500
+    # Period 0: income=10000, contrib=500, inv=0+0+500=500, non_inv stays flat
     assert inv[0] == pytest.approx(500.0, rel=1e-4)
-    # Period 1: total_assets=9500+500=10000, contrib=500, inv=500+0+500=1000
+    # Period 1: income=10000, contrib=500, inv=500+0+500=1000
     assert inv[1] == pytest.approx(1000.0, rel=1e-4)
+
+
+def test_project_flow_from_settings_inflation_uses_last_known_value_by_default():
+    projected = projections_service._project_flow_from_settings(
+        [None, 1000.0, 1200.0],
+        3,
+        3,
+        mode="inflation",
+        inflation_rate=10.0,
+    )
+    assert projected[0] == pytest.approx(1320.0, rel=1e-4)
+    assert projected[1] == pytest.approx(1452.0, rel=1e-4)
+
+
+def test_project_flow_from_settings_linear_respects_min_max_filter():
+    projected = projections_service._project_flow_from_settings(
+        [1000.0, 100000.0, 1200.0],
+        3,
+        1,
+        mode="linear",
+        min_val=900.0,
+        max_val=2000.0,
+    )
+    assert projected[0] == pytest.approx(1300.0, rel=1e-4)
 
 
 def test_estimate_investment_model_basic():
@@ -764,25 +788,27 @@ def test_estimate_investment_model_basic():
     }
     div_map = {"2024-02": 100.0, "2024-03": 100.0, "2024-04": 100.0}
     contrib_map = {"2024-02": 200.0, "2024-03": 200.0, "2024-04": 200.0}
-    asset_bal = {
-        "2024-01": 50000.0,
-        "2024-02": 50000.0,
-        "2024-03": 50000.0,
-        "2024-04": 50000.0,
+    income_map = {
+        "2024-01": 5000.0,
+        "2024-02": 5000.0,
+        "2024-03": 5000.0,
+        "2024-04": 5000.0,
     }
     model = projections_service._estimate_investment_model(
         months,
         inv_bal,
         div_map,
         contrib_map,
-        asset_bal,
+        income_map,
         stat="mean",
         exclude_outliers=False,
         outlier_k=1.5,
     )
     assert model["yield_rate"] > 0
-    # contribution_rate = 200 / 50000 = 0.004
-    assert model["contribution_rate"] == pytest.approx(0.004, rel=1e-4)
+    assert model["interest_amount"] == pytest.approx(100.0, rel=1e-4)
+    # contribution_rate = 200 / 5000 = 0.04
+    assert model["contribution_rate"] == pytest.approx(0.04, rel=1e-4)
+    assert model["contribution_amount"] == pytest.approx(200.0, rel=1e-4)
     assert model["sample_count"] == 3
     assert model["contrib_sample_count"] == 3
     assert model["warnings"] == []
@@ -824,8 +850,45 @@ def test_estimate_investment_model_no_data():
     )
     assert model["yield_rate"] == 0.0
     assert model["contribution_rate"] == 0.0
+    assert model["interest_amount"] == 0.0
+    assert model["contribution_amount"] == 0.0
     assert model["sample_count"] == 0
     assert model["warnings"] == []
+
+
+def test_resolve_investment_projection_inputs_defaults_and_overrides():
+    model = {
+        "yield_rate": 0.02,
+        "contribution_rate": 0.15,
+        "interest_amount": 200.0,
+        "contribution_amount": 750.0,
+        "yield_reference_base": 10000.0,
+        "contribution_reference_income": 5000.0,
+    }
+
+    resolved = projections_service._resolve_investment_projection_inputs(
+        10000.0,
+        model,
+    )
+    assert resolved["default_interest_percent"] == pytest.approx(2.0, rel=1e-4)
+    assert resolved["default_contribution_percent"] == pytest.approx(15.0, rel=1e-4)
+    assert resolved["default_interest_amount"] == pytest.approx(200.0, rel=1e-4)
+    assert resolved["default_contribution_amount"] == pytest.approx(750.0, rel=1e-4)
+    assert resolved["applied_yield_rate"] == pytest.approx(0.02, rel=1e-4)
+    assert resolved["applied_contribution_rate"] == pytest.approx(0.15, rel=1e-4)
+    assert resolved["has_overrides"] is False
+
+    overridden = projections_service._resolve_investment_projection_inputs(
+        10000.0,
+        model,
+        interest_pct_override=3.0,
+        contribution_pct_override=18.0,
+    )
+    assert overridden["applied_interest_amount"] == pytest.approx(300.0, rel=1e-4)
+    assert overridden["applied_contribution_amount"] == pytest.approx(900.0, rel=1e-4)
+    assert overridden["applied_yield_rate"] == pytest.approx(0.03, rel=1e-4)
+    assert overridden["applied_contribution_rate"] == pytest.approx(0.18, rel=1e-4)
+    assert overridden["has_overrides"] is True
 
 
 # ── Investment integration test with DB ───────────────────────────────────────
@@ -956,6 +1019,64 @@ def test_investment_projection_integration(initialized_environment):
     assert (
         result["investment_model"]["contribution_rate"] != 0.0
         or result["investment_model"]["contrib_sample_count"] >= 0
+    )
+    assert result["investment_model"]["default_interest_percent"] >= 0.0
+    assert result["investment_model"]["default_contribution_percent"] >= 0.0
+    assert result["investment_model"]["default_interest_amount"] >= 0.0
+    assert result["investment_model"]["default_contribution_amount"] >= 0.0
+    assert result["investment_model"]["interest_slider"]["max"] > 0.0
+    assert result["investment_model"]["contribution_slider"]["max"] > 0.0
+    assert any(
+        row["interest_pct_investments"] is not None
+        for row in result["investment_detail"]
+    )
+    assert "contribution_pct_income" in result["investment_detail"][0]
+
+    with get_db() as conn:
+        overridden = projections_service.get_projections(
+            conn,
+            3,
+            3,
+            investment_stat="mean",
+            investment_exclude_outliers=False,
+            investment_interest_pct_override=3.0,
+            investment_contribution_pct_override=12.0,
+        )
+
+    assert overridden["investment_model"]["has_overrides"] is True
+    assert overridden["investment_model"]["applied_interest_percent"] == pytest.approx(
+        3.0, rel=1e-4
+    )
+    assert overridden["investment_model"][
+        "applied_contribution_percent"
+    ] == pytest.approx(12.0, rel=1e-4)
+    assert (
+        overridden["baseline_projection"]["investments"]
+        != result["baseline_projection"]["investments"]
+    )
+
+    with get_db() as conn:
+        inflation = projections_service.get_projections(
+            conn,
+            3,
+            3,
+            income_trend_mode="inflation",
+            income_inflation_base=1000.0,
+            income_inflation_rate=10.0,
+            investment_stat="mean",
+            investment_exclude_outliers=False,
+        )
+
+    assert inflation["baseline_projection"]["income"][0] == pytest.approx(
+        1100.0, rel=1e-4
+    )
+    first_projected_detail = next(
+        row for row in inflation["investment_detail"] if row["is_projected"]
+    )
+    assert first_projected_detail["total_income"] == pytest.approx(1100.0, rel=1e-4)
+    assert (
+        inflation["baseline_projection"]["assets"]
+        != result["baseline_projection"]["assets"]
     )
 
 

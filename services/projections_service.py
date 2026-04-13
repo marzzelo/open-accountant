@@ -102,6 +102,80 @@ def _sparse_linear_regression(sparse: list) -> tuple[float, float]:
     return slope, intercept
 
 
+def _indexed_linear_regression(points: list[tuple[int, float]]) -> tuple[float, float]:
+    """OLS on explicit (index, value) points using actual indices."""
+    n = len(points)
+    if n == 0:
+        return 0.0, 0.0
+    if n == 1:
+        return 0.0, float(points[0][1])
+    xs = [float(p[0]) for p in points]
+    ys = [float(p[1]) for p in points]
+    x_mean = sum(xs) / n
+    y_mean = sum(ys) / n
+    num = sum((xs[i] - x_mean) * (ys[i] - y_mean) for i in range(n))
+    den = sum((xs[i] - x_mean) ** 2 for i in range(n))
+    slope = num / den if den else 0.0
+    intercept = y_mean - slope * x_mean
+    return slope, intercept
+
+
+def _project_flow_from_settings(
+    sparse: list[float | None],
+    history_count: int,
+    horizon: int,
+    *,
+    mode: str = "linear",
+    min_val: float | None = None,
+    max_val: float | None = None,
+    inflation_base: float | None = None,
+    inflation_rate: float | None = None,
+) -> list[float]:
+    """Project a flow metric using the same linear/inflation rules as the frontend."""
+
+    def _fallback_projection() -> list[float]:
+        slope, intercept = _sparse_linear_regression(sparse)
+        return [
+            max(0.0, round(intercept + slope * (history_count + i), 4))
+            for i in range(horizon)
+        ]
+
+    known = [(i, float(v)) for i, v in enumerate(sparse) if v is not None]
+    if not known:
+        return _fallback_projection()
+
+    if mode == "inflation":
+        last_idx, last_val = known[-1]
+        base = float(inflation_base) if inflation_base is not None else last_val
+        monthly_rate = (
+            float(inflation_rate) / 100.0 if inflation_rate is not None else 0.0
+        )
+        return [
+            max(
+                0.0,
+                round(
+                    base * ((1 + monthly_rate) ** ((history_count + i) - last_idx)), 4
+                ),
+            )
+            for i in range(horizon)
+        ]
+
+    inliers = [
+        point
+        for point in known
+        if (min_val is None or point[1] >= min_val)
+        and (max_val is None or point[1] <= max_val)
+    ]
+    if not inliers:
+        return _fallback_projection()
+
+    slope, intercept = _indexed_linear_regression(inliers)
+    return [
+        max(0.0, round(intercept + slope * (history_count + i), 4))
+        for i in range(horizon)
+    ]
+
+
 def _fill_by_regression(sparse: list) -> list[float]:
     """
     Fill None entries in a sparse historical series by extrapolating with OLS
@@ -260,6 +334,121 @@ def _safe_ratio(numerator: float, denominator: float) -> Optional[float]:
 
 def _round_or_none(value: Optional[float], digits: int = 4) -> Optional[float]:
     return round(value, digits) if value is not None else None
+
+
+def _slider_step(min_value: float, max_value: float) -> float:
+    span = abs(max_value - min_value)
+    if span <= 1:
+        return 0.01
+    if span <= 10:
+        return 0.05
+    if span <= 100:
+        return 0.5
+    if span <= 1000:
+        return 1.0
+    return 5.0
+
+
+def _build_slider_config(default_value: float, samples: list[float]) -> dict:
+    scale = max([abs(default_value), *(abs(v) for v in samples)] or [0.0])
+    scale = max(scale, 1.0)
+    has_negative = default_value < 0 or any(v < 0 for v in samples)
+    min_value = round(-scale * 1.5, 4) if has_negative else 0.0
+    max_value = round(scale * 2.5, 4)
+    if max_value <= min_value:
+        max_value = round(min_value + 1.0, 4)
+    return {
+        "min": min_value,
+        "max": max_value,
+        "step": _slider_step(min_value, max_value),
+    }
+
+
+def _resolve_investment_projection_inputs(
+    current_investment_balance: float,
+    investment_model: dict,
+    *,
+    interest_pct_override: float | None = None,
+    contribution_pct_override: float | None = None,
+    interest_override: float | None = None,
+    contribution_override: float | None = None,
+) -> dict:
+    interest_reference_base = float(
+        investment_model.get("yield_reference_base")
+        or current_investment_balance
+        or 0.0
+    )
+    contribution_reference_income = float(
+        investment_model.get("contribution_reference_income") or 0.0
+    )
+    default_interest_percent = round(investment_model.get("yield_rate", 0.0) * 100, 4)
+    default_contribution_percent = round(
+        investment_model.get("contribution_rate", 0.0) * 100, 4
+    )
+    default_interest_amount = round(
+        investment_model.get(
+            "interest_amount",
+            default_interest_percent / 100.0 * interest_reference_base,
+        ),
+        4,
+    )
+    default_contribution_amount = round(
+        investment_model.get(
+            "contribution_amount",
+            default_contribution_percent / 100.0 * contribution_reference_income,
+        ),
+        4,
+    )
+
+    if interest_pct_override is not None:
+        applied_interest_percent = round(float(interest_pct_override), 4)
+    elif interest_override is not None and abs(interest_reference_base) > 0.0000001:
+        applied_interest_percent = round(
+            float(interest_override) / interest_reference_base * 100.0, 4
+        )
+    else:
+        applied_interest_percent = default_interest_percent
+
+    if (
+        contribution_pct_override is not None
+        and contribution_reference_income > 0.0000001
+    ):
+        applied_contribution_percent = round(float(contribution_pct_override), 4)
+    elif (
+        contribution_override is not None and contribution_reference_income > 0.0000001
+    ):
+        applied_contribution_percent = round(
+            float(contribution_override) / contribution_reference_income * 100.0, 4
+        )
+    else:
+        applied_contribution_percent = default_contribution_percent
+
+    applied_yield_rate = applied_interest_percent / 100.0
+    applied_contribution_rate = applied_contribution_percent / 100.0
+    applied_interest_amount = round(applied_yield_rate * interest_reference_base, 4)
+    applied_contribution_amount = round(
+        applied_contribution_rate * contribution_reference_income, 4
+    )
+    return {
+        "default_interest_percent": default_interest_percent,
+        "default_contribution_percent": default_contribution_percent,
+        "default_interest_amount": default_interest_amount,
+        "default_contribution_amount": default_contribution_amount,
+        "applied_interest_percent": applied_interest_percent,
+        "applied_contribution_percent": applied_contribution_percent,
+        "applied_interest_amount": round(applied_interest_amount, 4),
+        "applied_contribution_amount": round(applied_contribution_amount, 4),
+        "applied_yield_rate": round(applied_yield_rate, 8),
+        "applied_contribution_rate": round(applied_contribution_rate, 8),
+        "interest_reference_base": round(interest_reference_base, 4),
+        "contribution_reference_income": round(contribution_reference_income, 4),
+        "has_overrides": (
+            interest_pct_override is not None
+            or contribution_pct_override is not None
+            or interest_override is not None
+            or contribution_override is not None
+        ),
+    }
 
 
 # ── Investment helpers ─────────────────────────────────────────────────────────
@@ -505,6 +694,26 @@ def _iqr_filter(values: list[float], k: float = 1.5) -> tuple[list[float], int]:
     return filtered, len(values) - len(filtered)
 
 
+def _iqr_filter_samples(
+    samples: list[dict], value_key: str, k: float = 1.5
+) -> tuple[list[dict], int]:
+    """Apply IQR × k filtering to sample dicts using a numeric field."""
+    if len(samples) < 4:
+        return list(samples), 0
+    values = [float(sample[value_key]) for sample in samples]
+    sorted_v = sorted(values)
+    n = len(sorted_v)
+    q1 = sorted_v[n // 4]
+    q3 = sorted_v[(3 * n) // 4]
+    iqr = q3 - q1
+    lower = q1 - k * iqr
+    upper = q3 + k * iqr
+    filtered = [
+        sample for sample in samples if lower <= float(sample[value_key]) <= upper
+    ]
+    return filtered, len(samples) - len(filtered)
+
+
 def _aggregate(values: list[float], stat: str = "mean") -> float:
     """Compute mean or median of a list of floats."""
     if not values:
@@ -523,27 +732,32 @@ def _estimate_investment_model(
     inv_bal_map: dict[str, float],
     div_map: dict[str, float],
     contrib_map: dict[str, float],
-    asset_bal_map: dict[str, float],
+    income_map: dict[str, float],
     *,
     stat: str = "mean",
     exclude_outliers: bool = True,
     outlier_k: float = 1.5,
 ) -> dict:
-    """Estimate monthly yield rate and contribution rate from trailing data.
+    """Estimate monthly yield and contribution rates from trailing data.
 
-    contribution_rate is the ratio contrib / total_assets per period.
-    Returns dict with: yield_rate, contribution_rate, sample_count, yield_excluded,
-    contrib_excluded, warnings.
+    Yield is interest / investment base for the month.
+    Contribution rate is manual contribution / total income for the month.
     """
-    yields: list[float] = []
-    contribution_rates: list[float] = []
+    interest_samples: list[dict] = []
+    contribution_samples: list[dict] = []
     warnings: list[str] = []
 
     for i, m in enumerate(all_months):
         contrib_val = contrib_map.get(m)
-        asset_val = asset_bal_map.get(m)
-        if contrib_val is not None and asset_val is not None and asset_val > 0:
-            contribution_rates.append(contrib_val / asset_val)
+        income_val = income_map.get(m)
+        if contrib_val is not None and income_val is not None and income_val > 0:
+            contribution_samples.append(
+                {
+                    "amount": float(contrib_val),
+                    "rate": float(contrib_val) / float(income_val),
+                    "income": float(income_val),
+                }
+            )
 
         div_val = div_map.get(m)
         if div_val is None or div_val <= 0:
@@ -562,20 +776,45 @@ def _estimate_investment_model(
         else:
             continue
         if base > 0:
-            yields.append(div_val / base)
+            interest_samples.append(
+                {
+                    "amount": float(div_val),
+                    "rate": float(div_val) / float(base),
+                    "base": float(base),
+                }
+            )
 
     yield_excluded = 0
     contrib_excluded = 0
+    filtered_interest_samples = list(interest_samples)
+    filtered_contribution_samples = list(contribution_samples)
     if exclude_outliers:
-        if yields:
-            yields, yield_excluded = _iqr_filter(yields, outlier_k)
-        if contribution_rates:
-            contribution_rates, contrib_excluded = _iqr_filter(
-                contribution_rates, outlier_k
+        if filtered_interest_samples:
+            filtered_interest_samples, yield_excluded = _iqr_filter_samples(
+                filtered_interest_samples, "rate", outlier_k
             )
+        if filtered_contribution_samples:
+            filtered_contribution_samples, contrib_excluded = _iqr_filter_samples(
+                filtered_contribution_samples, "rate", outlier_k
+            )
+
+    yields = [sample["rate"] for sample in filtered_interest_samples]
+    contribution_rates = [sample["rate"] for sample in filtered_contribution_samples]
+    interest_amounts = [sample["amount"] for sample in filtered_interest_samples]
+    contribution_amounts = [
+        sample["amount"] for sample in filtered_contribution_samples
+    ]
+    yield_bases = [sample["base"] for sample in filtered_interest_samples]
+    contribution_incomes = [
+        sample["income"] for sample in filtered_contribution_samples
+    ]
 
     yield_rate = _aggregate(yields, stat)
     contribution_rate = _aggregate(contribution_rates, stat)
+    interest_amount = _aggregate(interest_amounts, stat)
+    contribution_amount = _aggregate(contribution_amounts, stat)
+    yield_reference_base = _aggregate(yield_bases, stat)
+    contribution_reference_income = _aggregate(contribution_incomes, stat)
 
     # Warn if median zeroes out non-empty yield series
     if stat == "median" and yield_rate == 0 and len(yields) > 0:
@@ -586,6 +825,16 @@ def _estimate_investment_model(
     return {
         "yield_rate": round(yield_rate, 8),
         "contribution_rate": round(contribution_rate, 8),
+        "interest_amount": round(interest_amount, 4),
+        "contribution_amount": round(contribution_amount, 4),
+        "yield_reference_base": round(yield_reference_base, 4),
+        "contribution_reference_income": round(contribution_reference_income, 4),
+        "yield_rate_samples_pct": [
+            round(sample["rate"] * 100, 4) for sample in filtered_interest_samples
+        ],
+        "contribution_rate_samples_pct": [
+            round(sample["rate"] * 100, 4) for sample in filtered_contribution_samples
+        ],
         "sample_count": len(yields),
         "contrib_sample_count": len(contribution_rates),
         "yield_excluded": yield_excluded,
@@ -599,13 +848,14 @@ def _project_investments(
     current_non_inv_assets: float,
     yield_rate: float,
     contribution_rate: float,
+    projected_income: list[float],
     baseline_savings: list[float],
     horizon: int,
 ) -> tuple[list[float], list[float], list[dict]]:
     """Project investment and non-investment assets jointly.
 
-    contribution_rate is the fraction of total assets contributed to
-    investments each period.  Returns (investments, non_inv_assets, detail).
+    contribution_rate is the fraction of projected income contributed to
+    investments each period. Returns (investments, non_inv_assets, detail).
     """
     investments: list[float] = []
     non_inv_assets: list[float] = []
@@ -613,8 +863,11 @@ def _project_investments(
     inv_bal = current_investment_balance
     non_inv_bal = current_non_inv_assets
     for i in range(horizon):
-        total_assets = non_inv_bal + inv_bal
-        contribution = contribution_rate * total_assets
+        opening_investment_balance = inv_bal
+        projected_income_i = max(
+            0.0, projected_income[i] if i < len(projected_income) else 0.0
+        )
+        contribution = contribution_rate * projected_income_i
         interest = inv_bal * yield_rate
         inv_bal = max(0.0, inv_bal + interest + contribution)
         non_inv_savings = baseline_savings[i] - contribution
@@ -623,9 +876,11 @@ def _project_investments(
         non_inv_assets.append(round(non_inv_bal, 4))
         detail.append(
             {
+                "opening_investment_balance": round(opening_investment_balance, 4),
                 "interest": round(interest, 4),
+                "interest_total": round(interest, 4),
                 "contribution": round(contribution, 4),
-                "total_assets": round(total_assets, 4),
+                "projected_income": round(projected_income_i, 4),
             }
         )
     return investments, non_inv_assets, detail
@@ -766,10 +1021,19 @@ def get_projections(
     horizon: int,
     history_months: int,
     *,
+    income_trend_mode: str = "linear",
+    income_trend_min: float | None = None,
+    income_trend_max: float | None = None,
+    income_inflation_base: float | None = None,
+    income_inflation_rate: float | None = None,
     investment_lookback_months: int | None = None,
     investment_stat: str = "mean",
     investment_exclude_outliers: bool = True,
     investment_outlier_k: float = 1.5,
+    investment_interest_pct_override: float | None = None,
+    investment_contribution_pct_override: float | None = None,
+    investment_interest_override: float | None = None,
+    investment_contribution_override: float | None = None,
 ) -> dict:
     """
     Compute financial projections using linear regression on historical data
@@ -903,8 +1167,7 @@ def get_projections(
         conn, inv_ids, div_ids, inv_start, history_end
     )
 
-    # Total asset balances and income for the investment lookback period
-    inv_total_asset_map = _get_monthly_balances(conn, inv_start, history_end, type_id=1)
+    # Total income for the investment lookback period
     inv_income_map_full, _ = _get_monthly_cashflow(conn, inv_start, history_end)
 
     # Historical investment balance sparse aligned with all_hist_months
@@ -915,10 +1178,27 @@ def get_projections(
         inv_bal_map,
         div_map,
         contrib_map,
-        inv_total_asset_map,
+        inv_income_map_full,
         stat=investment_stat,
         exclude_outliers=investment_exclude_outliers,
         outlier_k=investment_outlier_k,
+    )
+
+    investment_projection_inputs = _resolve_investment_projection_inputs(
+        current_investment_balance,
+        investment_model,
+        interest_pct_override=investment_interest_pct_override,
+        contribution_pct_override=investment_contribution_pct_override,
+        interest_override=investment_interest_override,
+        contribution_override=investment_contribution_override,
+    )
+    interest_slider = _build_slider_config(
+        investment_projection_inputs["default_interest_percent"],
+        investment_model.get("yield_rate_samples_pct", []),
+    )
+    contribution_slider = _build_slider_config(
+        investment_projection_inputs["default_contribution_percent"],
+        investment_model.get("contribution_rate_samples_pct", []),
     )
 
     has_investments = len(inv_ids) > 0 and current_investment_balance > 0
@@ -954,9 +1234,20 @@ def get_projections(
             max(0.0, round(intercept + slope * (x_start + i), 4)) for i in range(count)
         ]
 
-    baseline_income = _project(reg_income[0], reg_income[1], n_hist, horizon)
+    baseline_income = _project_flow_from_settings(
+        sparse_income,
+        n_hist,
+        horizon,
+        mode=income_trend_mode,
+        min_val=income_trend_min,
+        max_val=income_trend_max,
+        inflation_base=income_inflation_base,
+        inflation_rate=income_inflation_rate,
+    )
     baseline_expenses = _project(reg_expenses[0], reg_expenses[1], n_hist, horizon)
-    baseline_savings = _project(reg_savings[0], reg_savings[1], n_hist, horizon)
+    baseline_savings = [
+        round(baseline_income[i] - baseline_expenses[i], 4) for i in range(horizon)
+    ]
 
     # ── Investment projection (joint iteration) ──
     baseline_investments: list[float] = []
@@ -967,8 +1258,9 @@ def get_projections(
             _project_investments(
                 current_investment_balance,
                 current_non_inv_assets,
-                investment_model["yield_rate"],
-                investment_model["contribution_rate"],
+                investment_projection_inputs["applied_yield_rate"],
+                investment_projection_inputs["applied_contribution_rate"],
+                baseline_income,
                 baseline_savings,
                 horizon,
             )
@@ -982,9 +1274,13 @@ def get_projections(
             baseline_non_inv_assets.append(round(val, 4))
             _proj_detail.append(
                 {
+                    "opening_investment_balance": round(current_investment_balance, 4),
                     "interest": 0.0,
+                    "interest_total": 0.0,
                     "contribution": 0.0,
-                    "total_assets": round(val + current_investment_balance, 4),
+                    "projected_income": round(
+                        baseline_income[i] if i < len(baseline_income) else 0.0, 4
+                    ),
                 }
             )
 
@@ -1218,12 +1514,18 @@ def get_projections(
 
     # ── Build investment detail table (historical + projected) ──
     _investment_detail: list[dict] = []
-    for m in inv_months:
+    for i, m in enumerate(inv_months):
         inv_balance = inv_bal_map.get(m)
         div_income = div_map.get(m, 0.0)
         contrib = contrib_map.get(m, 0.0)
-        total_assets_m = inv_total_asset_map.get(m)
         income_m = inv_income_map_full.get(m, 0.0)
+        opening_balance = inv_bal_map.get(inv_months[i - 1]) if i > 0 else None
+        if inv_balance is not None and opening_balance is not None:
+            interest_base_m = (opening_balance + inv_balance) / 2
+        elif inv_balance is not None:
+            interest_base_m = inv_balance
+        else:
+            interest_base_m = opening_balance
         _investment_detail.append(
             {
                 "month": m,
@@ -1231,11 +1533,17 @@ def get_projections(
                 "investment_balance": (
                     round(inv_balance, 4) if inv_balance is not None else None
                 ),
+                "interest_total": round(div_income, 4),
                 "interest_earned": round(div_income, 4),
+                "interest_pct_investments": (
+                    round(div_income / interest_base_m * 100, 4)
+                    if interest_base_m and interest_base_m > 0
+                    else None
+                ),
                 "manual_contribution": round(contrib, 4),
-                "contribution_pct_assets": (
-                    round(contrib / total_assets_m * 100, 4)
-                    if total_assets_m and total_assets_m > 0
+                "contribution_pct_income": (
+                    round(contrib / income_m * 100, 4)
+                    if income_m and income_m > 0
                     else None
                 ),
                 "total_income": round(income_m, 4),
@@ -1249,9 +1557,9 @@ def get_projections(
     for i, m in enumerate(projected_months):
         detail_i = _proj_detail[i] if i < len(_proj_detail) else {}
         proj_income_i = baseline_income[i] if i < len(baseline_income) else 0
-        interest_i = detail_i.get("interest", 0)
+        interest_i = detail_i.get("interest_total", detail_i.get("interest", 0))
         contrib_i = detail_i.get("contribution", 0)
-        total_assets_i = detail_i.get("total_assets", 0)
+        opening_investment_balance = detail_i.get("opening_investment_balance", 0)
         _investment_detail.append(
             {
                 "month": m,
@@ -1259,11 +1567,17 @@ def get_projections(
                 "investment_balance": (
                     baseline_investments[i] if i < len(baseline_investments) else None
                 ),
+                "interest_total": round(interest_i, 4),
                 "interest_earned": round(interest_i, 4),
+                "interest_pct_investments": (
+                    round(interest_i / opening_investment_balance * 100, 4)
+                    if opening_investment_balance and opening_investment_balance > 0
+                    else 0.0
+                ),
                 "manual_contribution": round(contrib_i, 4),
-                "contribution_pct_assets": (
-                    round(contrib_i / total_assets_i * 100, 4)
-                    if total_assets_i > 0
+                "contribution_pct_income": (
+                    round(contrib_i / proj_income_i * 100, 4)
+                    if proj_income_i > 0
                     else None
                 ),
                 "total_income": round(proj_income_i, 4),
@@ -1351,6 +1665,39 @@ def get_projections(
             "enabled": has_investments,
             "yield_rate": investment_model["yield_rate"],
             "contribution_rate": investment_model["contribution_rate"],
+            "interest_amount": investment_model["interest_amount"],
+            "contribution_amount": investment_model["contribution_amount"],
+            "default_interest_percent": investment_projection_inputs[
+                "default_interest_percent"
+            ],
+            "default_contribution_percent": investment_projection_inputs[
+                "default_contribution_percent"
+            ],
+            "applied_interest_percent": investment_projection_inputs[
+                "applied_interest_percent"
+            ],
+            "applied_contribution_percent": investment_projection_inputs[
+                "applied_contribution_percent"
+            ],
+            "default_interest_amount": investment_projection_inputs[
+                "default_interest_amount"
+            ],
+            "default_contribution_amount": investment_projection_inputs[
+                "default_contribution_amount"
+            ],
+            "applied_interest_amount": investment_projection_inputs[
+                "applied_interest_amount"
+            ],
+            "applied_contribution_amount": investment_projection_inputs[
+                "applied_contribution_amount"
+            ],
+            "applied_yield_rate": investment_projection_inputs["applied_yield_rate"],
+            "applied_contribution_rate": investment_projection_inputs[
+                "applied_contribution_rate"
+            ],
+            "has_overrides": investment_projection_inputs["has_overrides"],
+            "interest_slider": interest_slider,
+            "contribution_slider": contribution_slider,
             "sample_count": investment_model["sample_count"],
             "contrib_sample_count": investment_model["contrib_sample_count"],
             "yield_excluded": investment_model["yield_excluded"],

@@ -9,7 +9,13 @@ let _projState = {
   historyMonths: 12,
   series: [],
   projData: null,
+  requestSeq: 0,
   trendPanelOpen: false,
+  investmentOverrides: {
+    interestPct: null,
+    contributionPct: null,
+    debounceId: null,
+  },
   trendSettings: {
     income:   { mode: 'linear', minVal: '', maxVal: '', inflationBase: '', inflationRate: '' },
     expenses: { mode: 'linear', minVal: '', maxVal: '', inflationBase: '', inflationRate: '' },
@@ -105,6 +111,56 @@ function _normalizeTrendSettingValue(field, value) {
     normalized: parsed.normalized,
     value: parsed.value,
   };
+}
+
+function _roundSliderValue(value) {
+  return Math.round(Number(value) * 100) / 100;
+}
+
+function _clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function _fmtSliderPct(value) {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  return `${Number(value).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}%`;
+}
+
+function _updateInvestmentSliderValue(field, value) {
+  const valueEl = document.getElementById(`proj-slider-${field}-value`);
+  if (valueEl) valueEl.textContent = _fmtSliderPct(value);
+
+  const sliderEl = document.getElementById(`proj-slider-${field}`);
+  if (sliderEl) sliderEl.value = value;
+
+  const inputEl = document.getElementById(`proj-slider-${field}-input`);
+  if (inputEl) inputEl.value = _roundSliderValue(value);
+}
+
+function _getInvestmentSliderMeta(field) {
+  const model = _projState.projData?.investment_model;
+  if (field === 'interestPct') {
+    return {
+      slider: model?.interest_slider || { min: 0, max: 1, step: 0.01 },
+      fallback: _projState.investmentOverrides.interestPct ?? model?.default_interest_percent ?? 0,
+    };
+  }
+  return {
+    slider: model?.contribution_slider || { min: 0, max: 1, step: 0.01 },
+    fallback: _projState.investmentOverrides.contributionPct ?? model?.default_contribution_percent ?? 0,
+  };
+}
+
+function _scheduleInvestmentRecalc() {
+  if (_projState.investmentOverrides.debounceId) {
+    window.clearTimeout(_projState.investmentOverrides.debounceId);
+  }
+  _projState.investmentOverrides.debounceId = window.setTimeout(() => {
+    _loadData();
+  }, 180);
 }
 
 // ── Trend computation ─────────────────────────────────────────────────────────
@@ -794,6 +850,11 @@ function _buildPageShell() {
         </div>
       </div>
 
+      <div id="proj-investment-sliders" class="bg-dark-800 border border-dark-600 rounded-xl p-4" style="display:none">
+        <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('proj.slider.title')}</h3>
+        <div id="proj-investment-sliders-body"></div>
+      </div>
+
       <!-- Investment detail table -->
       <div id="proj-investment-detail" class="bg-dark-800 border border-dark-600 rounded-xl p-4" style="display:none">
         <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('proj.detail.table_title')}</h3>
@@ -826,24 +887,41 @@ async function _loadProjPrefs() {
 // ── Data loading ──────────────────────────────────────────────────────────────
 
 async function _loadData() {
+  const requestSeq = ++_projState.requestSeq;
   try {
+    const income = _projState.trendSettings.income;
     const inv = _projState.trendSettings.investments;
+    const overrides = _projState.investmentOverrides;
     let projUrl = `/reports/projections?horizon=${_projState.horizon}&history_months=${_projState.historyMonths}`;
+    projUrl += `&income_trend_mode=${encodeURIComponent(income.mode || 'linear')}`;
+    const incomeMin = income.minVal !== '' ? _parseTrendSettingNumber(income.minVal, 'minVal') : null;
+    const incomeMax = income.maxVal !== '' ? _parseTrendSettingNumber(income.maxVal, 'maxVal') : null;
+    const incomeInflationBase = income.inflationBase !== '' ? _parseTrendSettingNumber(income.inflationBase, 'inflationBase') : null;
+    const incomeInflationRate = income.inflationRate !== '' ? _parseTrendSettingNumber(income.inflationRate, 'inflationRate') : null;
+    if (incomeMin != null) projUrl += `&income_trend_min=${encodeURIComponent(incomeMin)}`;
+    if (incomeMax != null) projUrl += `&income_trend_max=${encodeURIComponent(incomeMax)}`;
+    if (incomeInflationBase != null) projUrl += `&income_inflation_base=${encodeURIComponent(incomeInflationBase)}`;
+    if (incomeInflationRate != null) projUrl += `&income_inflation_rate=${encodeURIComponent(incomeInflationRate)}`;
     if (inv.lookbackMonths != null) projUrl += `&investment_lookback_months=${inv.lookbackMonths}`;
     projUrl += `&investment_stat=${inv.statistic || 'mean'}`;
     projUrl += `&investment_exclude_outliers=${inv.excludeOutliers !== false}`;
     projUrl += `&investment_outlier_k=${inv.outlierK || 1.5}`;
+    if (overrides.interestPct != null) projUrl += `&investment_interest_pct_override=${encodeURIComponent(overrides.interestPct)}`;
+    if (overrides.contributionPct != null) projUrl += `&investment_contribution_pct_override=${encodeURIComponent(overrides.contributionPct)}`;
     const [series, projData] = await Promise.all([
       API.get('/projections/series'),
       API.get(projUrl),
     ]);
+    if (requestSeq !== _projState.requestSeq) return;
     _projState.series = series;
     _projState.projData = projData;
     _renderHealthSummary();
     _renderSeriesTable();
     _renderCharts();
+    _renderInvestmentSliders();
     _renderInvestmentDetailTable();
   } catch (e) {
+    if (requestSeq !== _projState.requestSeq) return;
     const tbl = document.getElementById('proj-series-table');
     if (tbl) tbl.innerHTML = `<div class="empty text-pasivo text-xs">Error: ${escapeHtml(e.message)}</div>`;
   }
@@ -1091,6 +1169,95 @@ function _renderCharts() {
 
 }
 
+// ── Investment sliders ───────────────────────────────────────────────────────
+
+function _renderInvestmentSliders() {
+  const container = document.getElementById('proj-investment-sliders');
+  const body = document.getElementById('proj-investment-sliders-body');
+  if (!container || !body) return;
+
+  const model = _projState.projData?.investment_model;
+  if (!model || !model.enabled) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = '';
+
+  const interestSlider = model.interest_slider || { min: 0, max: 1, step: 0.01 };
+  const contributionSlider = model.contribution_slider || { min: 0, max: 1, step: 0.01 };
+  const hasInterestOverride = _projState.investmentOverrides.interestPct != null;
+  const hasContributionOverride = _projState.investmentOverrides.contributionPct != null;
+  const interestRaw = hasInterestOverride
+    ? _projState.investmentOverrides.interestPct
+    : (model.default_interest_percent ?? 0);
+  const contributionRaw = hasContributionOverride
+    ? _projState.investmentOverrides.contributionPct
+    : (model.default_contribution_percent ?? 0);
+  const interestValue = _clamp(interestRaw, interestSlider.min, interestSlider.max);
+  const contributionValue = _clamp(contributionRaw, contributionSlider.min, contributionSlider.max);
+  if (hasInterestOverride) _projState.investmentOverrides.interestPct = interestValue;
+  if (hasContributionOverride) _projState.investmentOverrides.contributionPct = contributionValue;
+
+  const sliderCard = ({ field, label, value, slider, defaultValue }) => `
+    <div class="space-y-2">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="text-sm text-dark-100 font-medium">${label}</div>
+          <div class="text-[11px] text-dark-500">${t('proj.slider.default_value')}: <span class="text-dark-300">${_fmtSliderPct(defaultValue)}</span></div>
+        </div>
+        <div id="proj-slider-${field}-value" class="text-sm text-blue-300 font-medium whitespace-nowrap">${_fmtSliderPct(value)}</div>
+      </div>
+      <div class="flex items-center gap-3">
+        <input type="range"
+               id="proj-slider-${field}"
+               min="${slider.min}"
+               max="${slider.max}"
+               step="${slider.step}"
+               value="${value}"
+               oninput="Projections._onInvestmentSliderInput('${field}', this.value)"
+               class="flex-1 accent-blue-500">
+        <label class="flex items-center gap-1 w-28 shrink-0">
+          <input type="number"
+                 id="proj-slider-${field}-input"
+                 min="${slider.min}"
+                 max="${slider.max}"
+                 step="${slider.step}"
+                 value="${_roundSliderValue(value)}"
+                 inputmode="decimal"
+                 onchange="Projections._onInvestmentSliderFieldChange('${field}', this.value)"
+                 class="w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-100 text-sm px-2 py-1.5 text-right focus:outline-none focus:border-blue-500">
+          <span class="text-xs text-dark-400">%</span>
+        </label>
+      </div>
+      <div class="flex items-center justify-between text-[10px] text-dark-500">
+        <span>${_fmtSliderPct(slider.min)}</span>
+        <span>${_fmtSliderPct(slider.max)}</span>
+      </div>
+    </div>`;
+
+  body.innerHTML = `
+    <div class="space-y-4">
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
+        ${sliderCard({
+          field: 'interestPct',
+          label: t('proj.slider.interest'),
+          value: interestValue,
+          slider: interestSlider,
+          defaultValue: model.default_interest_percent ?? 0,
+        })}
+        ${sliderCard({
+          field: 'contributionPct',
+          label: t('proj.slider.contribution'),
+          value: contributionValue,
+          slider: contributionSlider,
+          defaultValue: model.default_contribution_percent ?? 0,
+        })}
+      </div>
+      <p class="text-[11px] text-dark-500 leading-snug">${t('proj.slider.hint')}</p>
+    </div>`;
+}
+
 // ── Investment detail table ──────────────────────────────────────────────────
 
 function _renderInvestmentDetailTable() {
@@ -1122,9 +1289,9 @@ function _renderInvestmentDetailTable() {
     return `<tr class="${cls} ${bgCls} border-b border-dark-700 hover:bg-dark-700/40">
       <td class="px-3 py-1.5 whitespace-nowrap text-xs">${escapeHtml(row.month)}${row.is_projected ? ' <span class="text-[9px] text-blue-400">▸</span>' : ''}</td>
       <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.investment_balance)}</td>
-      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.interest_earned)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.interest_pct_investments)}</td>
       <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.manual_contribution)}</td>
-      <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.contribution_pct_assets)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.contribution_pct_income)}</td>
       <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.total_income)}</td>
       <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.interest_pct_income)}</td>
     </tr>`;
@@ -1197,7 +1364,8 @@ const Projections = {
     }
     _saveProjPrefs({ [`proj_trend_${metricKey}`]: _projState.trendSettings[metricKey] });
     _renderTrendPanel();
-    _renderCharts();
+    if (metricKey === 'income') _loadData();
+    else _renderCharts();
   },
 
   _onTrendSetting(metricKey, field, value) {
@@ -1211,7 +1379,8 @@ const Projections = {
     _projState.trendSettings[metricKey][field] = normalized.normalized;
     _saveProjPrefs({ [`proj_trend_${metricKey}`]: _projState.trendSettings[metricKey] });
     _renderTrendPanel();
-    _renderCharts();
+    if (metricKey === 'income') _loadData();
+    else _renderCharts();
   },
 
   _onInvSetting(field, value) {
@@ -1229,6 +1398,30 @@ const Projections = {
     }
     _saveProjPrefs({ proj_trend_investments: inv });
     _loadData();
+  },
+
+  _onInvestmentSliderInput(field, value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return;
+    const { slider } = _getInvestmentSliderMeta(field);
+    const rounded = _roundSliderValue(_clamp(parsed, slider.min, slider.max));
+    _projState.investmentOverrides[field] = rounded;
+    _updateInvestmentSliderValue(field, rounded);
+    _scheduleInvestmentRecalc();
+  },
+
+  _onInvestmentSliderFieldChange(field, value) {
+    const { slider, fallback } = _getInvestmentSliderMeta(field);
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+      _updateInvestmentSliderValue(field, fallback);
+      return;
+    }
+
+    const rounded = _roundSliderValue(_clamp(parsed, slider.min, slider.max));
+    _projState.investmentOverrides[field] = rounded;
+    _updateInvestmentSliderValue(field, rounded);
+    _scheduleInvestmentRecalc();
   },
 
   // ── Series dialog ───────────────────────────────────────────────────────────
