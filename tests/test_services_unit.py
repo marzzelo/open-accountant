@@ -718,27 +718,40 @@ def test_aggregate_empty():
 
 
 def test_project_investments_compound_growth():
-    # I(t+1) = max(0, I(t)*(1+r) + c)
-    result = projections_service._project_investments(1000.0, 0.01, 100.0, 3)
-    assert len(result) == 3
-    expected_1 = 1000.0 * 1.01 + 100.0  # 1110.0
-    expected_2 = expected_1 * 1.01 + 100.0  # 1221.1
-    expected_3 = expected_2 * 1.01 + 100.0  # 1333.311
-    assert result[0] == pytest.approx(expected_1, rel=1e-4)
-    assert result[1] == pytest.approx(expected_2, rel=1e-4)
-    assert result[2] == pytest.approx(expected_3, rel=1e-4)
+    # Joint iteration: contribution = rate * total_assets, interest = inv * yield
+    # With non_inv=0, total_assets = inv_bal, contribution = 0.1 * inv_bal
+    inv, non_inv, detail = projections_service._project_investments(
+        1000.0,  # current_investment_balance
+        0.0,  # current_non_inv_assets
+        0.01,  # yield_rate
+        0.1,  # contribution_rate (10% of total assets)
+        [0.0, 0.0, 0.0],  # baseline_savings
+        3,
+    )
+    assert len(inv) == 3
+    # Period 0: total_assets=0+1000=1000, contrib=100, interest=10, inv=1000+10+100=1110
+    assert inv[0] == pytest.approx(1110.0, rel=1e-4)
+    assert detail[0]["interest"] == pytest.approx(10.0, rel=1e-4)
+    assert detail[0]["contribution"] == pytest.approx(100.0, rel=1e-4)
 
 
 def test_project_investments_floors_at_zero():
-    result = projections_service._project_investments(50.0, 0.0, -200.0, 3)
-    assert result[0] == 0.0
-    assert result[1] == 0.0
-    assert result[2] == 0.0
+    inv, non_inv, detail = projections_service._project_investments(
+        50.0, 1000.0, 0.0, 0.0, [-200.0, -200.0, -200.0], 3
+    )
+    # With zero rate and zero contribution_rate, inv stays at 50, non_inv shrinks
+    assert inv[0] == pytest.approx(50.0, rel=1e-4)
+    assert non_inv[0] == pytest.approx(800.0, rel=1e-4)
 
 
 def test_project_investments_zero_rate_contribution_only():
-    result = projections_service._project_investments(0.0, 0.0, 500.0, 2)
-    assert result == [500.0, 1000.0]
+    inv, non_inv, detail = projections_service._project_investments(
+        0.0, 10000.0, 0.0, 0.05, [0.0, 0.0], 2
+    )
+    # Period 0: total_assets=10000, contrib=500, inv=0+0+500=500, non_inv=10000+0-500=9500
+    assert inv[0] == pytest.approx(500.0, rel=1e-4)
+    # Period 1: total_assets=9500+500=10000, contrib=500, inv=500+0+500=1000
+    assert inv[1] == pytest.approx(1000.0, rel=1e-4)
 
 
 def test_estimate_investment_model_basic():
@@ -751,17 +764,25 @@ def test_estimate_investment_model_basic():
     }
     div_map = {"2024-02": 100.0, "2024-03": 100.0, "2024-04": 100.0}
     contrib_map = {"2024-02": 200.0, "2024-03": 200.0, "2024-04": 200.0}
+    asset_bal = {
+        "2024-01": 50000.0,
+        "2024-02": 50000.0,
+        "2024-03": 50000.0,
+        "2024-04": 50000.0,
+    }
     model = projections_service._estimate_investment_model(
         months,
         inv_bal,
         div_map,
         contrib_map,
+        asset_bal,
         stat="mean",
         exclude_outliers=False,
         outlier_k=1.5,
     )
     assert model["yield_rate"] > 0
-    assert model["contribution"] == 200.0
+    # contribution_rate = 200 / 50000 = 0.004
+    assert model["contribution_rate"] == pytest.approx(0.004, rel=1e-4)
     assert model["sample_count"] == 3
     assert model["contrib_sample_count"] == 3
     assert model["warnings"] == []
@@ -779,6 +800,7 @@ def test_estimate_investment_model_median_yield_zero_warning():
         inv_bal,
         div_map,
         contrib_map,
+        {m: 10000.0 for m in months},
         stat="median",
         exclude_outliers=False,
         outlier_k=1.5,
@@ -795,12 +817,13 @@ def test_estimate_investment_model_no_data():
         {},
         {},
         {},
+        {},
         stat="mean",
         exclude_outliers=True,
         outlier_k=1.5,
     )
     assert model["yield_rate"] == 0.0
-    assert model["contribution"] == 0.0
+    assert model["contribution_rate"] == 0.0
     assert model["sample_count"] == 0
     assert model["warnings"] == []
 
@@ -931,7 +954,7 @@ def test_investment_projection_integration(initialized_environment):
 
     # Verify internal transfer is detected as contribution, not general income
     assert (
-        result["investment_model"]["contribution"] != 0.0
+        result["investment_model"]["contribution_rate"] != 0.0
         or result["investment_model"]["contrib_sample_count"] >= 0
     )
 

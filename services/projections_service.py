@@ -523,24 +523,27 @@ def _estimate_investment_model(
     inv_bal_map: dict[str, float],
     div_map: dict[str, float],
     contrib_map: dict[str, float],
+    asset_bal_map: dict[str, float],
     *,
     stat: str = "mean",
     exclude_outliers: bool = True,
     outlier_k: float = 1.5,
 ) -> dict:
-    """Estimate monthly yield rate and contribution from trailing data.
+    """Estimate monthly yield rate and contribution rate from trailing data.
 
-    Returns dict with: yield_rate, contribution, sample_count, yield_excluded,
+    contribution_rate is the ratio contrib / total_assets per period.
+    Returns dict with: yield_rate, contribution_rate, sample_count, yield_excluded,
     contrib_excluded, warnings.
     """
     yields: list[float] = []
-    contributions: list[float] = []
+    contribution_rates: list[float] = []
     warnings: list[str] = []
 
     for i, m in enumerate(all_months):
         contrib_val = contrib_map.get(m)
-        if contrib_val is not None:
-            contributions.append(contrib_val)
+        asset_val = asset_bal_map.get(m)
+        if contrib_val is not None and asset_val is not None and asset_val > 0:
+            contribution_rates.append(contrib_val / asset_val)
 
         div_val = div_map.get(m)
         if div_val is None or div_val <= 0:
@@ -566,23 +569,25 @@ def _estimate_investment_model(
     if exclude_outliers:
         if yields:
             yields, yield_excluded = _iqr_filter(yields, outlier_k)
-        if contributions:
-            contributions, contrib_excluded = _iqr_filter(contributions, outlier_k)
+        if contribution_rates:
+            contribution_rates, contrib_excluded = _iqr_filter(
+                contribution_rates, outlier_k
+            )
 
     yield_rate = _aggregate(yields, stat)
-    contribution = _aggregate(contributions, stat)
+    contribution_rate = _aggregate(contribution_rates, stat)
 
     # Warn if median zeroes out non-empty yield series
     if stat == "median" and yield_rate == 0 and len(yields) > 0:
         warnings.append("median_yield_zero")
-    if stat == "median" and contribution == 0 and len(contributions) > 0:
+    if stat == "median" and contribution_rate == 0 and len(contribution_rates) > 0:
         warnings.append("median_contribution_zero")
 
     return {
         "yield_rate": round(yield_rate, 8),
-        "contribution": round(contribution, 4),
+        "contribution_rate": round(contribution_rate, 8),
         "sample_count": len(yields),
-        "contrib_sample_count": len(contributions),
+        "contrib_sample_count": len(contribution_rates),
         "yield_excluded": yield_excluded,
         "contrib_excluded": contrib_excluded,
         "warnings": warnings,
@@ -591,17 +596,39 @@ def _estimate_investment_model(
 
 def _project_investments(
     current_investment_balance: float,
+    current_non_inv_assets: float,
     yield_rate: float,
-    contribution: float,
+    contribution_rate: float,
+    baseline_savings: list[float],
     horizon: int,
-) -> list[float]:
-    """Recursively project investment balance: I(t+1) = max(0, I(t)*(1+r) + c)."""
-    result = []
-    bal = current_investment_balance
-    for _ in range(horizon):
-        bal = max(0.0, bal * (1 + yield_rate) + contribution)
-        result.append(round(bal, 4))
-    return result
+) -> tuple[list[float], list[float], list[dict]]:
+    """Project investment and non-investment assets jointly.
+
+    contribution_rate is the fraction of total assets contributed to
+    investments each period.  Returns (investments, non_inv_assets, detail).
+    """
+    investments: list[float] = []
+    non_inv_assets: list[float] = []
+    detail: list[dict] = []
+    inv_bal = current_investment_balance
+    non_inv_bal = current_non_inv_assets
+    for i in range(horizon):
+        total_assets = non_inv_bal + inv_bal
+        contribution = contribution_rate * total_assets
+        interest = inv_bal * yield_rate
+        inv_bal = max(0.0, inv_bal + interest + contribution)
+        non_inv_savings = baseline_savings[i] - contribution
+        non_inv_bal = max(0.0, non_inv_bal + non_inv_savings)
+        investments.append(round(inv_bal, 4))
+        non_inv_assets.append(round(non_inv_bal, 4))
+        detail.append(
+            {
+                "interest": round(interest, 4),
+                "contribution": round(contribution, 4),
+                "total_assets": round(total_assets, 4),
+            }
+        )
+    return investments, non_inv_assets, detail
 
 
 # ── Series adjustments ────────────────────────────────────────────────────────
@@ -876,6 +903,10 @@ def get_projections(
         conn, inv_ids, div_ids, inv_start, history_end
     )
 
+    # Total asset balances and income for the investment lookback period
+    inv_total_asset_map = _get_monthly_balances(conn, inv_start, history_end, type_id=1)
+    inv_income_map_full, _ = _get_monthly_cashflow(conn, inv_start, history_end)
+
     # Historical investment balance sparse aligned with all_hist_months
     hist_inv_sparse = [inv_bal_map.get(m, None) for m in all_hist_months]
 
@@ -884,6 +915,7 @@ def get_projections(
         inv_bal_map,
         div_map,
         contrib_map,
+        inv_total_asset_map,
         stat=investment_stat,
         exclude_outliers=investment_exclude_outliers,
         outlier_k=investment_outlier_k,
@@ -926,29 +958,35 @@ def get_projections(
     baseline_expenses = _project(reg_expenses[0], reg_expenses[1], n_hist, horizon)
     baseline_savings = _project(reg_savings[0], reg_savings[1], n_hist, horizon)
 
-    # ── Investment projection ──
+    # ── Investment projection (joint iteration) ──
     baseline_investments: list[float] = []
+    baseline_non_inv_assets: list[float] = []
+    _proj_detail: list[dict] = []
     if has_investments:
-        baseline_investments = _project_investments(
-            current_investment_balance,
-            investment_model["yield_rate"],
-            investment_model["contribution"],
-            horizon,
+        baseline_investments, baseline_non_inv_assets, _proj_detail = (
+            _project_investments(
+                current_investment_balance,
+                current_non_inv_assets,
+                investment_model["yield_rate"],
+                investment_model["contribution_rate"],
+                baseline_savings,
+                horizon,
+            )
         )
     else:
         baseline_investments = [round(current_investment_balance, 4)] * horizon
-
-    # ── Coherent asset recomposition ──
-    # Non-investment savings = total savings minus the contribution going into investments.
-    # This avoids double-counting: cash transferred to investments moves between buckets.
-    est_contribution = investment_model["contribution"] if has_investments else 0.0
-    baseline_non_inv_assets: list[float] = []
-    cum_non_inv_savings = 0.0
-    for i in range(horizon):
-        non_inv_savings_i = baseline_savings[i] - est_contribution
-        cum_non_inv_savings += non_inv_savings_i
-        val = max(0.0, current_non_inv_assets + cum_non_inv_savings)
-        baseline_non_inv_assets.append(round(val, 4))
+        cum_non_inv_savings = 0.0
+        for i in range(horizon):
+            cum_non_inv_savings += baseline_savings[i]
+            val = max(0.0, current_non_inv_assets + cum_non_inv_savings)
+            baseline_non_inv_assets.append(round(val, 4))
+            _proj_detail.append(
+                {
+                    "interest": 0.0,
+                    "contribution": 0.0,
+                    "total_assets": round(val + current_investment_balance, 4),
+                }
+            )
 
     # Total assets = non-investment assets + projected investments
     baseline_assets = [
@@ -1178,6 +1216,65 @@ def get_projections(
         },
     }
 
+    # ── Build investment detail table (historical + projected) ──
+    _investment_detail: list[dict] = []
+    for m in inv_months:
+        inv_balance = inv_bal_map.get(m)
+        div_income = div_map.get(m, 0.0)
+        contrib = contrib_map.get(m, 0.0)
+        total_assets_m = inv_total_asset_map.get(m)
+        income_m = inv_income_map_full.get(m, 0.0)
+        _investment_detail.append(
+            {
+                "month": m,
+                "is_projected": False,
+                "investment_balance": (
+                    round(inv_balance, 4) if inv_balance is not None else None
+                ),
+                "interest_earned": round(div_income, 4),
+                "manual_contribution": round(contrib, 4),
+                "contribution_pct_assets": (
+                    round(contrib / total_assets_m * 100, 4)
+                    if total_assets_m and total_assets_m > 0
+                    else None
+                ),
+                "total_income": round(income_m, 4),
+                "interest_pct_income": (
+                    round(div_income / income_m * 100, 4)
+                    if income_m and income_m > 0
+                    else None
+                ),
+            }
+        )
+    for i, m in enumerate(projected_months):
+        detail_i = _proj_detail[i] if i < len(_proj_detail) else {}
+        proj_income_i = baseline_income[i] if i < len(baseline_income) else 0
+        interest_i = detail_i.get("interest", 0)
+        contrib_i = detail_i.get("contribution", 0)
+        total_assets_i = detail_i.get("total_assets", 0)
+        _investment_detail.append(
+            {
+                "month": m,
+                "is_projected": True,
+                "investment_balance": (
+                    baseline_investments[i] if i < len(baseline_investments) else None
+                ),
+                "interest_earned": round(interest_i, 4),
+                "manual_contribution": round(contrib_i, 4),
+                "contribution_pct_assets": (
+                    round(contrib_i / total_assets_i * 100, 4)
+                    if total_assets_i > 0
+                    else None
+                ),
+                "total_income": round(proj_income_i, 4),
+                "interest_pct_income": (
+                    round(interest_i / proj_income_i * 100, 4)
+                    if proj_income_i > 0
+                    else None
+                ),
+            }
+        )
+
     # ── Build historical output (only months with real data for scatter points) ──
     return {
         "historical": {
@@ -1253,7 +1350,7 @@ def get_projections(
         "investment_model": {
             "enabled": has_investments,
             "yield_rate": investment_model["yield_rate"],
-            "contribution": investment_model["contribution"],
+            "contribution_rate": investment_model["contribution_rate"],
             "sample_count": investment_model["sample_count"],
             "contrib_sample_count": investment_model["contrib_sample_count"],
             "yield_excluded": investment_model["yield_excluded"],
@@ -1264,4 +1361,5 @@ def get_projections(
             "outlier_k": investment_outlier_k,
             "lookback_months": inv_lookback,
         },
+        "investment_detail": _investment_detail,
     }

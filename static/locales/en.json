@@ -508,6 +508,7 @@
   "proj.trend.compound_hint": "Estimates monthly yield from booked dividends and manual contributions. Median may collapse to zero if dividends are irregular.",
   "proj.trend.inv_yield": "Monthly yield",
   "proj.trend.inv_contribution": "Estimated monthly contribution",
+  "proj.trend.inv_contribution_rate": "Contribution rate (% of assets)",
   "proj.trend.inv_samples": "Yield samples",
   "proj.trend.inv_contrib_samples": "Contribution samples",
   "proj.trend.inv_excluded": "excluded",
@@ -516,6 +517,14 @@
   "proj.trend.inv_warning_median_contribution_zero": "Median contribution is 0. Consider using mean.",
   "proj.chart.investments": "Investments (projected)",
   "proj.chart.combined_with_inv": "Income · Expenses · Savings · Assets · Investments",
+  "proj.detail.table_title": "Investment detail",
+  "proj.detail.col_month": "Month",
+  "proj.detail.col_investment_balance": "Invested",
+  "proj.detail.col_interest": "Interest",
+  "proj.detail.col_contribution": "Contribution",
+  "proj.detail.col_contribution_pct": "Contrib / Assets",
+  "proj.detail.col_total_income": "Total income",
+  "proj.detail.col_interest_pct_income": "Interest / Income",
   "proj.no_history": "No historical data for the selected window",
   "proj.no_series": "No scheduled series. Click ＋ Series to add one."
 }
