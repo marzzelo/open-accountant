@@ -642,7 +642,7 @@ function _buildInvestmentTrendSection() {
   let modelInfo = '';
   if (model) {
     const yieldPct = (model.yield_rate * 100).toFixed(4);
-    const contrib = fmt(model.contribution);
+    const contribRatePct = (model.contribution_rate * 100).toFixed(4);
     const warnings = (model.warnings || []).map(w => {
       const key = `proj.trend.inv_warning_${w}`;
       return `<div class="text-[10px] text-yellow-500 mt-1">⚠ ${t(key)}</div>`;
@@ -651,7 +651,7 @@ function _buildInvestmentTrendSection() {
       <div class="mt-3 space-y-1 text-[10px] text-dark-400 border-t border-dark-700 pt-2">
         <div>${t('proj.trend.inv_yield')}: <span class="text-dark-200">${yieldPct}%</span>
           <span class="text-dark-500">(${model.sample_count} ${t('proj.trend.inv_samples')}${model.yield_excluded > 0 ? `, ${model.yield_excluded} ${t('proj.trend.inv_excluded')}` : ''})</span></div>
-        <div>${t('proj.trend.inv_contribution')}: <span class="text-dark-200">${contrib}</span>
+        <div>${t('proj.trend.inv_contribution_rate')}: <span class="text-dark-200">${contribRatePct}%</span>
           <span class="text-dark-500">(${model.contrib_sample_count} ${t('proj.trend.inv_contrib_samples')}${model.contrib_excluded > 0 ? `, ${model.contrib_excluded} ${t('proj.trend.inv_excluded')}` : ''})</span></div>
         ${warnings}
       </div>`;
@@ -794,6 +794,12 @@ function _buildPageShell() {
         </div>
       </div>
 
+      <!-- Investment detail table -->
+      <div id="proj-investment-detail" class="bg-dark-800 border border-dark-600 rounded-xl p-4" style="display:none">
+        <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('proj.detail.table_title')}</h3>
+        <div id="proj-investment-detail-body"></div>
+      </div>
+
     </div></div>`;
 }
 
@@ -836,6 +842,7 @@ async function _loadData() {
     _renderHealthSummary();
     _renderSeriesTable();
     _renderCharts();
+    _renderInvestmentDetailTable();
   } catch (e) {
     const tbl = document.getElementById('proj-series-table');
     if (tbl) tbl.innerHTML = `<div class="empty text-pasivo text-xs">Error: ${escapeHtml(e.message)}</div>`;
@@ -893,26 +900,21 @@ function _renderCharts() {
   });
 
   // Assets = non-investment assets + projected investments
-  // When investments are enabled, decompose: non-inv assets grow from savings
-  // minus contributions, investments grow via compound interest model.
+  // Backend computes the joint iteration for projected months (contribution_rate model).
   const currentAssets = projData.current_balances?.total_assets ?? 0;
-  const currentInvestments = projData.current_balances?.total_investments ?? 0;
-  const invBaseline = projData.baseline_projection?.investments || [];
-  const hasInv = projData.investment_model?.enabled === true;
-  const estContribution = hasInv ? (projData.investment_model?.contribution ?? 0) : 0;
+  const assetBaseline = projData.baseline_projection?.assets || [];
   const n_hist = histMonths.length;
   let cumSavings = 0;
   const assetsProjFull = allLabels.map((_, i) => {
+    const projIdx = i - n_hist;
+    // For projected months, use the backend's pre-computed values
+    if (projIdx >= 0 && projIdx < assetBaseline.length) {
+      return Math.round(assetBaseline[projIdx] * 100) / 100;
+    }
+    // For historical months, reconstruct from trend
     const s = savingsProjFull[i];
     if (s == null) return null;
     cumSavings += s;
-    const projIdx = i - n_hist;
-    if (hasInv && projIdx >= 0 && projIdx < invBaseline.length) {
-      const currentNonInv = currentAssets - currentInvestments;
-      const cumContrib = estContribution * (projIdx + 1);
-      const nonInv = Math.max(0, currentNonInv + cumSavings - cumContrib);
-      return Math.round((nonInv + invBaseline[projIdx]) * 100) / 100;
-    }
     return Math.round((currentAssets + cumSavings) * 100) / 100;
   });
 
@@ -1087,6 +1089,64 @@ function _renderCharts() {
     });
   }
 
+}
+
+// ── Investment detail table ──────────────────────────────────────────────────
+
+function _renderInvestmentDetailTable() {
+  const container = document.getElementById('proj-investment-detail');
+  const body = document.getElementById('proj-investment-detail-body');
+  if (!container || !body) return;
+
+  const { projData } = _projState;
+  const detail = projData?.investment_detail;
+  if (!detail || detail.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = '';
+
+  const fmtMoney = (v) => {
+    if (v == null) return '—';
+    return fmt(v);
+  };
+  const fmtPct = (v) => {
+    if (v == null) return '—';
+    return Number(v).toFixed(2) + '%';
+  };
+
+  const rows = detail.map(row => {
+    const cls = row.is_projected ? 'text-blue-300/80' : 'text-dark-200';
+    const bgCls = row.is_projected ? 'bg-blue-900/10' : '';
+    return `<tr class="${cls} ${bgCls} border-b border-dark-700 hover:bg-dark-700/40">
+      <td class="px-3 py-1.5 whitespace-nowrap text-xs">${escapeHtml(row.month)}${row.is_projected ? ' <span class="text-[9px] text-blue-400">▸</span>' : ''}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.investment_balance)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.interest_earned)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.manual_contribution)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.contribution_pct_assets)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.total_income)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.interest_pct_income)}</td>
+    </tr>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="overflow-x-auto">
+      <table class="w-full text-left">
+        <thead>
+          <tr class="text-[10px] text-dark-400 uppercase tracking-wide border-b border-dark-600">
+            <th class="px-3 py-2">${t('proj.detail.col_month')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_investment_balance')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_interest')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_contribution')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_contribution_pct')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_total_income')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_interest_pct_income')}</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
