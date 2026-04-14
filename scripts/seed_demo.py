@@ -22,7 +22,7 @@ AUTO_REPLACE_PREFIX = "sample.db"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from database import SCHEMA, SEED_SUBTYPES, SEED_TYPES
+from database import SQLITE_SCHEMA, SEED_SUBTYPES, SEED_TYPES
 
 MARKET_RATES = [
     {
@@ -651,7 +651,7 @@ def seed(db_path: Path, force: bool = False) -> bool:
     conn = sqlite3.connect(str(db_path))
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
-    conn.executescript(SCHEMA)
+    conn.executescript(SQLITE_SCHEMA)
 
     for type_id, type_name in SEED_TYPES:
         conn.execute(

@@ -390,15 +390,18 @@ function _buildProjectedAssetSeries(
   currentAssets,
   projectedSavings,
   projectedReturns,
-  projectedContributions = []
 ) {
+  // NOTE: contributions are intentionally excluded here.
+  // A periodic manual contribution is an internal transfer from
+  // non-investment assets to investment assets.  It does NOT change
+  // total assets — it only affects the split between the two buckets
+  // and, indirectly, the interest earned on the larger investment base.
   let running = Number(currentAssets || 0);
   return projectedSavings.map((savings, index) => {
     running = _roundProjectionValue(
       running
       + Number(savings || 0)
       + Number(projectedReturns[index] || 0)
-      + Number(projectedContributions[index] || 0)
     );
     return running;
   });
@@ -508,13 +511,11 @@ function _deriveProjectionDisplayState() {
       currentAssets,
       baselineSavingsProjected,
       projectedReturns,
-      projectedContributions
     ),
     scenarioAssetsProjected: _buildProjectedAssetSeries(
       currentAssets,
       scenarioSavingsProjected,
       projectedReturns,
-      projectedContributions
     ),
   };
 }
@@ -1278,8 +1279,7 @@ function _renderCharts() {
     if (projIdx >= 0 && projIdx < projMonths.length) {
       const displayedSavings = savingsProjFull[i] ?? 0;
       const projectedReturn = projectedReturns[projIdx] ?? 0;
-      const projectedContribution = projectedContributions[projIdx] ?? 0;
-      projectedAssetsRunning += displayedSavings + projectedReturn + projectedContribution;
+      projectedAssetsRunning += displayedSavings + projectedReturn;
       return Math.round(projectedAssetsRunning * 100) / 100;
     }
     return null;
