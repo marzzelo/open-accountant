@@ -19,7 +19,7 @@ let _projState = {
   trendSettings: {
     income:   { mode: 'linear', minVal: '', maxVal: '', inflationBase: '', inflationRate: '' },
     expenses: { mode: 'linear', minVal: '', maxVal: '', inflationBase: '', inflationRate: '' },
-    investments: { lookbackMonths: null, statistic: 'mean', excludeOutliers: true, outlierK: 1.5 },
+    investments: { lookbackMonths: null, includeCurrentMonth: false, excludeOutliers: true, outlierK: 1.5 },
   },
 };
 
@@ -682,16 +682,7 @@ function _buildInvestmentTrendSection() {
       </div>`;
   }
 
-  const meanActive = (s.statistic || 'mean') === 'mean';
-  const medianActive = s.statistic === 'median';
-  const statBtns = `
-    <button onclick="Projections._onInvSetting('statistic', 'mean')"
-            class="tbtn text-xs px-2.5 py-1${meanActive ? ' !bg-blue-600/20 !border-blue-500/40 !text-blue-300' : ''}">
-      ${t('proj.trend.stat_mean')}</button>
-    <button onclick="Projections._onInvSetting('statistic', 'median')"
-            class="tbtn text-xs px-2.5 py-1${medianActive ? ' !bg-blue-600/20 !border-blue-500/40 !text-blue-300' : ''}">
-      ${t('proj.trend.stat_median')}</button>`;
-
+  const includeCurrentChecked = s.includeCurrentMonth === true ? 'checked' : '';
   const outlierChecked = s.excludeOutliers !== false ? 'checked' : '';
 
   // Model metadata
@@ -729,8 +720,10 @@ function _buildInvestmentTrendSection() {
                  class="${inputCls}">
         </div>
         <div class="flex items-center gap-2">
-          <label class="${labelCls}">${t('proj.trend.stat')}</label>
-          <div class="flex gap-1">${statBtns}</div>
+          <label class="${labelCls}">${t('proj.trend.include_current_month')}</label>
+          <input type="checkbox" ${includeCurrentChecked}
+                 onchange="Projections._onInvSetting('includeCurrentMonth', this.checked)"
+                 class="accent-blue-500">
         </div>
         <div class="flex items-center gap-2">
           <label class="${labelCls}">${t('proj.trend.outlier_toggle')}</label>
@@ -881,6 +874,7 @@ async function _loadProjPrefs() {
       Object.assign(_projState.trendSettings.expenses, prefs.proj_trend_expenses);
     if (prefs.proj_trend_investments && typeof prefs.proj_trend_investments === 'object')
       Object.assign(_projState.trendSettings.investments, prefs.proj_trend_investments);
+    delete _projState.trendSettings.investments.statistic;
   } catch {}
 }
 
@@ -903,7 +897,7 @@ async function _loadData() {
     if (incomeInflationBase != null) projUrl += `&income_inflation_base=${encodeURIComponent(incomeInflationBase)}`;
     if (incomeInflationRate != null) projUrl += `&income_inflation_rate=${encodeURIComponent(incomeInflationRate)}`;
     if (inv.lookbackMonths != null) projUrl += `&investment_lookback_months=${inv.lookbackMonths}`;
-    projUrl += `&investment_stat=${inv.statistic || 'mean'}`;
+    projUrl += `&investment_include_current_month=${inv.includeCurrentMonth === true}`;
     projUrl += `&investment_exclude_outliers=${inv.excludeOutliers !== false}`;
     projUrl += `&investment_outlier_k=${inv.outlierK || 1.5}`;
     if (overrides.interestPct != null) projUrl += `&investment_interest_pct_override=${encodeURIComponent(overrides.interestPct)}`;
@@ -1284,10 +1278,17 @@ function _renderInvestmentDetailTable() {
   };
 
   const rows = detail.map(row => {
-    const cls = row.is_projected ? 'text-blue-300/80' : 'text-dark-200';
-    const bgCls = row.is_projected ? 'bg-blue-900/10' : '';
+    const cls = row.is_projected
+      ? 'text-blue-300/80'
+      : (row.is_current_partial ? 'text-amber-200' : 'text-dark-200');
+    const bgCls = row.is_projected
+      ? 'bg-blue-900/10'
+      : (row.is_current_partial ? 'bg-amber-900/10' : '');
+    const monthBadge = row.is_projected
+      ? ' <span class="text-[9px] text-blue-400">▸</span>'
+      : (row.is_current_partial ? ` <span class="text-[9px] text-amber-400 uppercase tracking-wide">${escapeHtml(t('proj.detail.partial_badge'))}</span>` : '');
     return `<tr class="${cls} ${bgCls} border-b border-dark-700 hover:bg-dark-700/40">
-      <td class="px-3 py-1.5 whitespace-nowrap text-xs">${escapeHtml(row.month)}${row.is_projected ? ' <span class="text-[9px] text-blue-400">▸</span>' : ''}</td>
+      <td class="px-3 py-1.5 whitespace-nowrap text-xs">${escapeHtml(row.month)}${monthBadge}</td>
       <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.investment_balance)}</td>
       <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.interest_pct_investments)}</td>
       <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.manual_contribution)}</td>
@@ -1388,14 +1389,15 @@ const Projections = {
     if (field === 'lookbackMonths') {
       const n = parseInt(value, 10);
       inv.lookbackMonths = (isNaN(n) || value === '') ? null : Math.max(3, Math.min(60, n));
-    } else if (field === 'statistic') {
-      inv.statistic = value === 'median' ? 'median' : 'mean';
+    } else if (field === 'includeCurrentMonth') {
+      inv.includeCurrentMonth = !!value;
     } else if (field === 'excludeOutliers') {
       inv.excludeOutliers = !!value;
     } else if (field === 'outlierK') {
       const k = parseFloat(value);
       inv.outlierK = isNaN(k) ? 1.5 : Math.max(0.5, Math.min(5.0, k));
     }
+    delete inv.statistic;
     _saveProjPrefs({ proj_trend_investments: inv });
     _loadData();
   },

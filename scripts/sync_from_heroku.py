@@ -20,6 +20,7 @@ Usage:
 """
 
 import argparse
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -55,28 +56,69 @@ DEFAULT_LOCAL_URL = "postgresql://postgres@localhost:5432/open_accountant"
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 
+def _resolve_heroku_cli() -> str | None:
+    """Resolve a runnable Heroku CLI path across platforms."""
+    candidates = ["heroku"]
+    if sys.platform == "win32":
+        candidates.extend(["heroku.cmd", "heroku.exe", "heroku.bat"])
+
+    for candidate in candidates:
+        cli_path = shutil.which(candidate)
+        if cli_path:
+            return cli_path
+
+    return None
+
+
+def _format_heroku_cli_error(stderr: str) -> str:
+    """Translate common Heroku CLI failures into actionable script errors."""
+    details = stderr.strip()
+    lowered = details.lower()
+
+    auth_markers = (
+        "invalid credentials",
+        "unauthorized",
+        "press any key to open up the browser to login",
+        "setrawmode",
+    )
+    if any(marker in lowered for marker in auth_markers):
+        message = (
+            "ERROR: Heroku CLI authentication failed. Run `heroku login` in an "
+            "interactive terminal, set HEROKU_API_KEY, or pass --heroku-url directly."
+        )
+        if details:
+            return f"{message}\n  {details}"
+        return message
+
+    if details:
+        return f"ERROR: Could not get DATABASE_URL from Heroku.\n  {details}"
+    return "ERROR: Could not get DATABASE_URL from Heroku."
+
+
 def _get_heroku_database_url(app_name: str) -> str:
     """Retrieve DATABASE_URL from Heroku CLI."""
-    try:
-        result = subprocess.run(
-            ["heroku", "config:get", "DATABASE_URL", "--app", app_name],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except FileNotFoundError:
+    heroku_cli = _resolve_heroku_cli()
+    if not heroku_cli:
         print(
             "ERROR: 'heroku' CLI not found.  Install it or pass --heroku-url directly."
         )
         sys.exit(1)
+
+    try:
+        result = subprocess.run(
+            [heroku_cli, "config:get", "DATABASE_URL", "--app", app_name],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            stdin=subprocess.DEVNULL,
+        )
     except subprocess.TimeoutExpired:
         print("ERROR: heroku CLI timed out (login required?).")
         sys.exit(1)
 
     url = result.stdout.strip()
     if result.returncode != 0 or not url:
-        stderr = result.stderr.strip()
-        print(f"ERROR: Could not get DATABASE_URL from Heroku.\n  {stderr}")
+        print(_format_heroku_cli_error(result.stderr))
         sys.exit(1)
     return url
 

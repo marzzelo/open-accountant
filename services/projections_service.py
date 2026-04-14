@@ -562,9 +562,10 @@ def _get_monthly_dividend_income(
     from_date: str,
     to_date: str,
 ) -> dict[str, float]:
-    """Return {YYYY-MM: total_dividend_income} from dividend accounts.
+    """Return {YYYY-MM: signed_net_dividend_income} from dividend accounts.
 
     Dividend income = credit_amount - debit_amount on dividend accounts (type_id=3).
+    Negative values represent losses or reversals booked against those accounts.
     """
     if not dividend_account_ids:
         return {}
@@ -592,7 +593,6 @@ def _get_monthly_dividend_income(
         SELECT month, SUM(credit_amount - debit_amount) AS value
         FROM div_legs
         GROUP BY month
-        HAVING SUM(credit_amount - debit_amount) > 0
         ORDER BY month""",
         (
             *dividend_account_ids,
@@ -727,6 +727,11 @@ def _aggregate(values: list[float], stat: str = "mean") -> float:
     return sum(values) / len(values)
 
 
+def _normalize_investment_stat(stat: str | None) -> str:
+    """Investment projections always use the historical mean."""
+    return "mean"
+
+
 def _estimate_investment_model(
     all_months: list[str],
     inv_bal_map: dict[str, float],
@@ -743,14 +748,23 @@ def _estimate_investment_model(
     Yield is interest / investment base for the month.
     Contribution rate is manual contribution / total income for the month.
     """
+    stat = _normalize_investment_stat(stat)
     interest_samples: list[dict] = []
     contribution_samples: list[dict] = []
     warnings: list[str] = []
 
     for i, m in enumerate(all_months):
-        contrib_val = contrib_map.get(m)
+        opening = inv_bal_map.get(all_months[i - 1]) if i > 0 else None
+        closing = inv_bal_map.get(m)
+        has_investment_context = opening is not None or closing is not None
+
+        contrib_val = contrib_map.get(m, 0.0)
         income_val = income_map.get(m)
-        if contrib_val is not None and income_val is not None and income_val > 0:
+        if (
+            income_val is not None
+            and income_val > 0
+            and (has_investment_context or m in contrib_map)
+        ):
             contribution_samples.append(
                 {
                     "amount": float(contrib_val),
@@ -759,14 +773,8 @@ def _estimate_investment_model(
                 }
             )
 
-        div_val = div_map.get(m)
-        if div_val is None or div_val <= 0:
-            continue
+        div_val = float(div_map.get(m, 0.0))
         # Compute base as average of opening and closing balance for this month
-        opening = None
-        if i > 0:
-            opening = inv_bal_map.get(all_months[i - 1])
-        closing = inv_bal_map.get(m)
         if closing is not None and opening is not None:
             base = (opening + closing) / 2
         elif closing is not None:
@@ -815,12 +823,6 @@ def _estimate_investment_model(
     contribution_amount = _aggregate(contribution_amounts, stat)
     yield_reference_base = _aggregate(yield_bases, stat)
     contribution_reference_income = _aggregate(contribution_incomes, stat)
-
-    # Warn if median zeroes out non-empty yield series
-    if stat == "median" and yield_rate == 0 and len(yields) > 0:
-        warnings.append("median_yield_zero")
-    if stat == "median" and contribution_rate == 0 and len(contribution_rates) > 0:
-        warnings.append("median_contribution_zero")
 
     return {
         "yield_rate": round(yield_rate, 8),
@@ -1027,6 +1029,7 @@ def get_projections(
     income_inflation_base: float | None = None,
     income_inflation_rate: float | None = None,
     investment_lookback_months: int | None = None,
+    investment_include_current_month: bool = False,
     investment_stat: str = "mean",
     investment_exclude_outliers: bool = True,
     investment_outlier_k: float = 1.5,
@@ -1042,8 +1045,10 @@ def get_projections(
     Returns a dict with: historical, regression, projected_months,
     baseline_projection, series_adjustment, current_balances, investment_model.
     """
+    investment_stat = _normalize_investment_stat(investment_stat)
     today = date.today()
     today_ym = _month_str(today.year, today.month)
+    current_partial_end = f"{today_ym}-{today.day:02d} 23:59:59"
 
     # History window: from (today - history_months) to today
     hist_y, hist_m = _add_months(today.year, today.month, -history_months)
@@ -1155,23 +1160,58 @@ def get_projections(
     current_non_inv_assets = current_assets - current_investment_balance
 
     inv_lookback = investment_lookback_months or history_months
-    inv_y, inv_m = _add_months(today.year, today.month, -inv_lookback)
-    inv_start = _month_str(inv_y, inv_m) + "-01 00:00:00"
-    inv_months = _months_range(_month_str(inv_y, inv_m), inv_lookback + 1)
+    inv_data_y, inv_data_m = _add_months(today.year, today.month, -inv_lookback)
+    inv_data_start_month = _month_str(inv_data_y, inv_data_m)
+    inv_data_start = inv_data_start_month + "-01 00:00:00"
+    if investment_include_current_month:
+        inv_model_y, inv_model_m = _add_months(
+            today.year, today.month, -(inv_lookback - 1)
+        )
+    else:
+        inv_model_y, inv_model_m = inv_data_y, inv_data_m
+    inv_months = _months_range(_month_str(inv_model_y, inv_model_m), inv_lookback)
+    detail_months = list(inv_months)
+    if today_ym not in detail_months:
+        detail_months.append(today_ym)
 
     inv_bal_map = _get_monthly_investment_balances(
-        conn, inv_ids, inv_start, history_end
+        conn, inv_ids, inv_data_start, current_partial_end
     )
-    div_map = _get_monthly_dividend_income(conn, div_ids, inv_start, history_end)
+    div_map = _get_monthly_dividend_income(
+        conn, div_ids, inv_data_start, current_partial_end
+    )
     contrib_map = _get_monthly_investment_contributions(
-        conn, inv_ids, div_ids, inv_start, history_end
+        conn, inv_ids, div_ids, inv_data_start, current_partial_end
     )
 
-    # Total income for the investment lookback period
-    inv_income_map_full, _ = _get_monthly_cashflow(conn, inv_start, history_end)
+    # Total income for the investment lookback/detail period.
+    inv_income_map_full, _ = _get_monthly_cashflow(
+        conn, inv_data_start, current_partial_end
+    )
+
+    if inv_accounts:
+        current_partial_balance = round(
+            sum(
+                compute_filtered_balance(
+                    conn,
+                    account["id"],
+                    account["type_id"],
+                    account["initial_balance"],
+                    inv_data_start,
+                    current_partial_end,
+                )
+                for account in inv_accounts
+            ),
+            4,
+        )
+        inv_bal_map[today_ym] = current_partial_balance
 
     # Historical investment balance sparse aligned with all_hist_months
-    hist_inv_sparse = [inv_bal_map.get(m, None) for m in all_hist_months]
+    model_months_set = set(inv_months)
+    hist_inv_sparse = [
+        inv_bal_map.get(m, None) if m in model_months_set else None
+        for m in all_hist_months
+    ]
 
     investment_model = _estimate_investment_model(
         inv_months,
@@ -1205,7 +1245,10 @@ def get_projections(
 
     # Compute per-month dividend totals aligned to all_hist_months for
     # excluding from general income (avoid double-counting).
-    div_income_aligned = {m: div_map.get(m, 0.0) for m in all_hist_months}
+    div_income_aligned = {
+        m: div_map.get(m, 0.0) if m in model_months_set else 0.0
+        for m in all_hist_months
+    }
 
     # ── Regressions ──
     # Use sparse regression directly on known data points to avoid distortion:
@@ -1514,30 +1557,24 @@ def get_projections(
 
     # ── Build investment detail table (historical + projected) ──
     _investment_detail: list[dict] = []
-    for i, m in enumerate(inv_months):
+    for m in detail_months:
         inv_balance = inv_bal_map.get(m)
         div_income = div_map.get(m, 0.0)
         contrib = contrib_map.get(m, 0.0)
         income_m = inv_income_map_full.get(m, 0.0)
-        opening_balance = inv_bal_map.get(inv_months[i - 1]) if i > 0 else None
-        if inv_balance is not None and opening_balance is not None:
-            interest_base_m = (opening_balance + inv_balance) / 2
-        elif inv_balance is not None:
-            interest_base_m = inv_balance
-        else:
-            interest_base_m = opening_balance
         _investment_detail.append(
             {
                 "month": m,
                 "is_projected": False,
+                "is_current_partial": m == today_ym,
                 "investment_balance": (
                     round(inv_balance, 4) if inv_balance is not None else None
                 ),
                 "interest_total": round(div_income, 4),
                 "interest_earned": round(div_income, 4),
                 "interest_pct_investments": (
-                    round(div_income / interest_base_m * 100, 4)
-                    if interest_base_m and interest_base_m > 0
+                    round(div_income / inv_balance * 100, 4)
+                    if inv_balance and inv_balance > 0
                     else None
                 ),
                 "manual_contribution": round(contrib, 4),
@@ -1704,6 +1741,7 @@ def get_projections(
             "contrib_excluded": investment_model["contrib_excluded"],
             "warnings": investment_model["warnings"],
             "stat": investment_stat,
+            "include_current_month": investment_include_current_month,
             "exclude_outliers": investment_exclude_outliers,
             "outlier_k": investment_outlier_k,
             "lookback_months": inv_lookback,

@@ -705,16 +705,14 @@ def test_aggregate_mean():
     assert projections_service._aggregate([2.0, 4.0, 6.0], "mean") == 4.0
 
 
-def test_aggregate_median_odd():
-    assert projections_service._aggregate([1.0, 3.0, 5.0], "median") == 3.0
-
-
-def test_aggregate_median_even():
-    assert projections_service._aggregate([1.0, 3.0, 5.0, 7.0], "median") == 4.0
-
-
 def test_aggregate_empty():
     assert projections_service._aggregate([], "mean") == 0.0
+
+
+def test_normalize_investment_stat_always_uses_mean():
+    assert projections_service._normalize_investment_stat("mean") == "mean"
+    assert projections_service._normalize_investment_stat("median") == "mean"
+    assert projections_service._normalize_investment_stat(None) == "mean"
 
 
 def test_project_investments_compound_growth():
@@ -781,7 +779,6 @@ def test_project_flow_from_settings_linear_respects_min_max_filter():
 def test_estimate_investment_model_basic():
     months = ["2024-01", "2024-02", "2024-03", "2024-04"]
     inv_bal = {
-        "2024-01": 10000.0,
         "2024-02": 10200.0,
         "2024-03": 10400.0,
         "2024-04": 10600.0,
@@ -789,7 +786,6 @@ def test_estimate_investment_model_basic():
     div_map = {"2024-02": 100.0, "2024-03": 100.0, "2024-04": 100.0}
     contrib_map = {"2024-02": 200.0, "2024-03": 200.0, "2024-04": 200.0}
     income_map = {
-        "2024-01": 5000.0,
         "2024-02": 5000.0,
         "2024-03": 5000.0,
         "2024-04": 5000.0,
@@ -814,11 +810,59 @@ def test_estimate_investment_model_basic():
     assert model["warnings"] == []
 
 
-def test_estimate_investment_model_median_yield_zero_warning():
-    # If most months have no dividends, median collapses to zero → expect warning
-    months = ["2024-01", "2024-02", "2024-03", "2024-04", "2024-05"]
-    inv_bal = {m: 10000.0 for m in months}
-    # Only one month has dividends, rest do not
+def test_estimate_investment_model_includes_zero_and_negative_months():
+    months = ["2024-01", "2024-02", "2024-03"]
+    inv_bal = {m: 100.0 for m in months}
+    div_map = {"2024-01": 10.0, "2024-03": -5.0}
+    contrib_map = {"2024-03": 30.0}
+    income_map = {m: 100.0 for m in months}
+
+    model = projections_service._estimate_investment_model(
+        months,
+        inv_bal,
+        div_map,
+        contrib_map,
+        income_map,
+        stat="mean",
+        exclude_outliers=False,
+        outlier_k=1.5,
+    )
+
+    assert model["sample_count"] == 3
+    assert model["yield_rate"] == pytest.approx((0.10 + 0.0 - 0.05) / 3.0, rel=1e-6)
+    assert model["interest_amount"] == pytest.approx(1.6667, rel=1e-6)
+    assert model["contrib_sample_count"] == 3
+    assert model["contribution_rate"] == pytest.approx(
+        (0.0 + 0.0 + 0.30) / 3.0, rel=1e-6
+    )
+    assert model["contribution_amount"] == pytest.approx(10.0, rel=1e-6)
+
+
+def test_estimate_investment_model_can_include_provisional_current_contribution():
+    months = ["2024-02", "2024-03", "2024-04"]
+    inv_bal = {m: 100.0 for m in months}
+    income_map = {m: 100.0 for m in months}
+
+    model = projections_service._estimate_investment_model(
+        months,
+        inv_bal,
+        {},
+        {"2024-04": 30.0},
+        income_map,
+        stat="mean",
+        exclude_outliers=False,
+        outlier_k=1.5,
+    )
+
+    assert model["yield_rate"] == 0.0
+    assert model["contrib_sample_count"] == 3
+    assert model["contribution_rate"] == pytest.approx(0.10, rel=1e-6)
+    assert model["contribution_amount"] == pytest.approx(10.0, rel=1e-6)
+
+
+def test_estimate_investment_model_normalizes_legacy_median_to_mean():
+    months = ["2024-03"]
+    inv_bal = {"2024-03": 10000.0}
     div_map = {"2024-03": 500.0}
     contrib_map = {}
     model = projections_service._estimate_investment_model(
@@ -826,15 +870,14 @@ def test_estimate_investment_model_median_yield_zero_warning():
         inv_bal,
         div_map,
         contrib_map,
-        {m: 10000.0 for m in months},
+        {"2024-03": 10000.0},
         stat="median",
         exclude_outliers=False,
         outlier_k=1.5,
     )
-    # Only 1 yield sample, median of [something] = that value → no zero warning
-    # But with 1 sample, median == that value, so no warning
     assert model["sample_count"] == 1
     assert model["yield_rate"] > 0
+    assert model["warnings"] == []
 
 
 def test_estimate_investment_model_no_data():
@@ -894,9 +937,17 @@ def test_resolve_investment_projection_inputs_defaults_and_overrides():
 # ── Investment integration test with DB ───────────────────────────────────────
 
 
-def test_investment_projection_integration(initialized_environment):
+def test_investment_projection_integration(initialized_environment, monkeypatch):
     """Full integration: create investment + dividend accounts, add transactions,
     and verify no double-counting in total assets."""
+
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 4, 15)
+
+    monkeypatch.setattr(projections_service, "date", FixedDate)
+
     with get_db() as conn:
         accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
         bank = accounts["Bank"]
@@ -937,6 +988,7 @@ def test_investment_projection_integration(initialized_environment):
                 original_amount=None,
                 fx_rate=None,
                 description="Salary",
+                date="2026-03-05 10:00:00",
             ),
         )
 
@@ -950,6 +1002,7 @@ def test_investment_projection_integration(initialized_environment):
                 original_amount=None,
                 fx_rate=None,
                 description="Transfer to brokerage",
+                date="2026-03-06 10:00:00",
             ),
         )
 
@@ -963,6 +1016,7 @@ def test_investment_projection_integration(initialized_environment):
                 original_amount=None,
                 fx_rate=None,
                 description="Quarterly dividend",
+                date="2026-03-07 10:00:00",
             ),
         )
 
@@ -976,6 +1030,7 @@ def test_investment_projection_integration(initialized_environment):
                 original_amount=None,
                 fx_rate=None,
                 description="Food",
+                date="2026-03-08 10:00:00",
             ),
         )
 
@@ -984,6 +1039,15 @@ def test_investment_projection_integration(initialized_environment):
             3,
             3,
             investment_stat="mean",
+            investment_exclude_outliers=False,
+        )
+
+    with get_db() as conn:
+        legacy_stat_result = projections_service.get_projections(
+            conn,
+            3,
+            3,
+            investment_stat="median",
             investment_exclude_outliers=False,
         )
 
@@ -1026,6 +1090,14 @@ def test_investment_projection_integration(initialized_environment):
     assert result["investment_model"]["default_contribution_amount"] >= 0.0
     assert result["investment_model"]["interest_slider"]["max"] > 0.0
     assert result["investment_model"]["contribution_slider"]["max"] > 0.0
+    assert result["investment_model"]["stat"] == "mean"
+    assert legacy_stat_result["investment_model"]["stat"] == "mean"
+    assert legacy_stat_result["investment_model"]["yield_rate"] == pytest.approx(
+        result["investment_model"]["yield_rate"], rel=1e-6
+    )
+    assert legacy_stat_result["investment_model"]["contribution_rate"] == pytest.approx(
+        result["investment_model"]["contribution_rate"], rel=1e-6
+    )
     assert any(
         row["interest_pct_investments"] is not None
         for row in result["investment_detail"]
@@ -1068,16 +1140,504 @@ def test_investment_projection_integration(initialized_environment):
         )
 
     assert inflation["baseline_projection"]["income"][0] == pytest.approx(
-        1100.0, rel=1e-4
+        1210.0, rel=1e-4
     )
     first_projected_detail = next(
         row for row in inflation["investment_detail"] if row["is_projected"]
     )
-    assert first_projected_detail["total_income"] == pytest.approx(1100.0, rel=1e-4)
+    assert first_projected_detail["total_income"] == pytest.approx(1210.0, rel=1e-4)
     assert (
         inflation["baseline_projection"]["assets"]
         != result["baseline_projection"]["assets"]
     )
+
+
+def test_historical_investment_detail_uses_displayed_balance_for_interest_pct(
+    initialized_environment, monkeypatch
+):
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 4, 15)
+
+    monkeypatch.setattr(projections_service, "date", FixedDate)
+
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+        bank = accounts["Bank"]
+
+        inv_account = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Projection Brokerage",
+                type_id=1,
+                subtype_id=3,
+                description="Investment account",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+        div_account = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Projection Dividends",
+                type_id=3,
+                subtype_id=10,
+                description="Dividend income",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=bank.id,
+                credit_account=accounts["Salary"].id,
+                amount=1000.0,
+                original_amount=None,
+                fx_rate=None,
+                description="February salary",
+                date="2026-02-05 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=inv_account.id,
+                credit_account=bank.id,
+                amount=1000.0,
+                original_amount=None,
+                fx_rate=None,
+                description="February investment contribution",
+                date="2026-02-06 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=bank.id,
+                credit_account=accounts["Salary"].id,
+                amount=1000.0,
+                original_amount=None,
+                fx_rate=None,
+                description="March salary",
+                date="2026-03-05 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=inv_account.id,
+                credit_account=bank.id,
+                amount=500.0,
+                original_amount=None,
+                fx_rate=None,
+                description="March investment contribution",
+                date="2026-03-06 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=inv_account.id,
+                credit_account=div_account.id,
+                amount=150.0,
+                original_amount=None,
+                fx_rate=None,
+                description="March dividend reinvested",
+                date="2026-03-07 10:00:00",
+            ),
+        )
+
+        result = projections_service.get_projections(
+            conn,
+            1,
+            3,
+            investment_stat="mean",
+            investment_exclude_outliers=False,
+        )
+
+    march_row = next(
+        row for row in result["investment_detail"] if row["month"] == "2026-03"
+    )
+
+    assert march_row["investment_balance"] == pytest.approx(1650.0, rel=1e-4)
+    assert march_row["interest_total"] == pytest.approx(150.0, rel=1e-4)
+    assert march_row["interest_pct_investments"] == pytest.approx(
+        150.0 / 1650.0 * 100.0,
+        rel=1e-4,
+    )
+
+
+def test_historical_investment_detail_keeps_negative_interest_months(
+    initialized_environment, monkeypatch
+):
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 4, 15)
+
+    monkeypatch.setattr(projections_service, "date", FixedDate)
+
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+        bank = accounts["Bank"]
+
+        inv_account = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Negative Brokerage",
+                type_id=1,
+                subtype_id=3,
+                description="Investment account",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+        div_account = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Negative Dividends",
+                type_id=3,
+                subtype_id=10,
+                description="Dividend income",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=bank.id,
+                credit_account=accounts["Salary"].id,
+                amount=1000.0,
+                original_amount=None,
+                fx_rate=None,
+                description="March salary",
+                date="2026-03-05 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=inv_account.id,
+                credit_account=bank.id,
+                amount=1000.0,
+                original_amount=None,
+                fx_rate=None,
+                description="March investment contribution",
+                date="2026-03-06 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=div_account.id,
+                credit_account=inv_account.id,
+                amount=50.0,
+                original_amount=None,
+                fx_rate=None,
+                description="March investment loss",
+                date="2026-03-07 10:00:00",
+            ),
+        )
+
+        result = projections_service.get_projections(
+            conn,
+            1,
+            3,
+            investment_stat="mean",
+            investment_exclude_outliers=False,
+        )
+
+    march_row = next(
+        row for row in result["investment_detail"] if row["month"] == "2026-03"
+    )
+
+    assert march_row["investment_balance"] == pytest.approx(950.0, rel=1e-4)
+    assert march_row["interest_total"] == pytest.approx(-50.0, rel=1e-4)
+    assert march_row["interest_pct_investments"] == pytest.approx(
+        -50.0 / 950.0 * 100.0,
+        rel=1e-4,
+    )
+
+
+def test_investment_lookback_excludes_current_month(
+    initialized_environment, monkeypatch
+):
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 4, 15)
+
+    monkeypatch.setattr(projections_service, "date", FixedDate)
+
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+        bank = accounts["Bank"]
+
+        inv_account = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Lookback Brokerage",
+                type_id=1,
+                subtype_id=3,
+                description="Investment account",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+        div_account = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Lookback Dividends",
+                type_id=3,
+                subtype_id=10,
+                description="Dividend income",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+
+        for month in (1, 2, 3, 4):
+            transactions_service.create_transaction(
+                conn,
+                TransactionIn(
+                    debit_account=bank.id,
+                    credit_account=accounts["Salary"].id,
+                    amount=1000.0,
+                    original_amount=None,
+                    fx_rate=None,
+                    description=f"Salary {month}",
+                    date=f"2026-{month:02d}-05 10:00:00",
+                ),
+            )
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=inv_account.id,
+                credit_account=bank.id,
+                amount=1000.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Initial investment",
+                date="2026-01-06 10:00:00",
+            ),
+        )
+
+        for month, amount in ((1, 100.0), (2, 100.0), (3, 100.0), (4, 1000.0)):
+            transactions_service.create_transaction(
+                conn,
+                TransactionIn(
+                    debit_account=inv_account.id,
+                    credit_account=div_account.id,
+                    amount=amount,
+                    original_amount=None,
+                    fx_rate=None,
+                    description=f"Dividend {month}",
+                    date=f"2026-{month:02d}-07 10:00:00",
+                ),
+            )
+
+        result = projections_service.get_projections(
+            conn,
+            1,
+            12,
+            investment_lookback_months=3,
+            investment_stat="mean",
+            investment_exclude_outliers=False,
+        )
+
+    historical_months = [
+        row["month"] for row in result["investment_detail"] if not row["is_projected"]
+    ]
+    current_row = next(
+        row for row in result["investment_detail"] if row["month"] == "2026-04"
+    )
+
+    assert historical_months == ["2026-01", "2026-02", "2026-03", "2026-04"]
+    assert current_row["is_current_partial"] is True
+    assert current_row["interest_total"] == pytest.approx(1000.0, rel=1e-4)
+    assert result["investment_model"]["default_interest_percent"] == pytest.approx(
+        (100.0 / 1100.0 * 100.0 + 100.0 / 1150.0 * 100.0 + 100.0 / 1250.0 * 100.0)
+        / 3.0,
+        rel=1e-4,
+    )
+    assert result["investment_model"]["include_current_month"] is False
+
+
+def test_investment_option_uses_current_contribution_as_provisional(
+    initialized_environment, monkeypatch
+):
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 4, 15)
+
+    monkeypatch.setattr(projections_service, "date", FixedDate)
+
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+        bank = accounts["Bank"]
+
+        inv_account = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Provisional Brokerage",
+                type_id=1,
+                subtype_id=3,
+                description="Investment account",
+                initial_balance=1000.0,
+                properties="{}",
+            ),
+        )
+        div_account = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Provisional Dividends",
+                type_id=3,
+                subtype_id=10,
+                description="Dividend income",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+
+        for month in (2, 3, 4):
+            transactions_service.create_transaction(
+                conn,
+                TransactionIn(
+                    debit_account=bank.id,
+                    credit_account=accounts["Salary"].id,
+                    amount=1000.0,
+                    original_amount=None,
+                    fx_rate=None,
+                    description=f"Salary {month}",
+                    date=f"2026-{month:02d}-05 10:00:00",
+                ),
+            )
+
+        for month, amount in ((2, 100.0), (3, 100.0), (4, 1000.0)):
+            transactions_service.create_transaction(
+                conn,
+                TransactionIn(
+                    debit_account=inv_account.id,
+                    credit_account=div_account.id,
+                    amount=amount,
+                    original_amount=None,
+                    fx_rate=None,
+                    description=f"Dividend {month}",
+                    date=f"2026-{month:02d}-07 10:00:00",
+                ),
+            )
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=inv_account.id,
+                credit_account=bank.id,
+                amount=300.0,
+                original_amount=None,
+                fx_rate=None,
+                description="April contribution",
+                date="2026-04-08 10:00:00",
+            ),
+        )
+
+        result = projections_service.get_projections(
+            conn,
+            1,
+            12,
+            investment_lookback_months=3,
+            investment_include_current_month=True,
+            investment_stat="mean",
+            investment_exclude_outliers=False,
+        )
+
+    historical_months = [
+        row["month"] for row in result["investment_detail"] if not row["is_projected"]
+    ]
+    april_row = next(
+        row for row in result["investment_detail"] if row["month"] == "2026-04"
+    )
+
+    assert historical_months == ["2026-02", "2026-03", "2026-04"]
+    assert april_row["is_current_partial"] is True
+    assert result["investment_model"]["include_current_month"] is True
+    assert result["investment_model"]["default_interest_percent"] == pytest.approx(
+        (100.0 / 1100.0 * 100.0 + 100.0 / 1150.0 * 100.0 + 1000.0 / 1850.0 * 100.0)
+        / 3.0,
+        rel=1e-4,
+    )
+    assert result["investment_model"]["default_contribution_percent"] == pytest.approx(
+        5.0,
+        rel=1e-4,
+    )
+
+
+def test_get_monthly_dividend_income_preserves_negative_months(initialized_environment):
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+
+        inv_account = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Lossy Brokerage",
+                type_id=1,
+                subtype_id=3,
+                description="Investment account",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+        div_account = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Lossy Dividends",
+                type_id=3,
+                subtype_id=10,
+                description="Dividend income",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=inv_account.id,
+                credit_account=div_account.id,
+                amount=40.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Positive dividend",
+                date="2026-03-10 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=div_account.id,
+                credit_account=inv_account.id,
+                amount=75.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Investment loss",
+                date="2026-03-20 10:00:00",
+            ),
+        )
+
+        div_map = projections_service._get_monthly_dividend_income(
+            conn,
+            [div_account.id],
+            "2026-03-01 00:00:00",
+            "2026-03-31 23:59:59",
+        )
+
+    assert div_map == {"2026-03": -35.0}
 
 
 def test_investment_account_identification(initialized_environment):

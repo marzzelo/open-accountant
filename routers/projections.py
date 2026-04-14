@@ -56,6 +56,7 @@ def get_projections(
     income_inflation_base: float | None = Query(None),
     income_inflation_rate: float | None = Query(None),
     investment_lookback_months: int = Query(None, ge=3, le=60),
+    investment_include_current_month: bool = Query(False),
     investment_stat: str = Query("mean", pattern=r"^(mean|median)$"),
     investment_exclude_outliers: bool = Query(True),
     investment_outlier_k: float = Query(1.5, ge=0.5, le=5.0),
@@ -64,6 +65,7 @@ def get_projections(
     investment_interest_override: float | None = Query(None),
     investment_contribution_override: float | None = Query(None),
 ):
+    investment_stat = projections_service._normalize_investment_stat(investment_stat)
     with get_db() as conn:
         return projections_service.get_projections(
             conn,
@@ -75,6 +77,7 @@ def get_projections(
             income_inflation_base=income_inflation_base,
             income_inflation_rate=income_inflation_rate,
             investment_lookback_months=investment_lookback_months,
+            investment_include_current_month=investment_include_current_month,
             investment_stat=investment_stat,
             investment_exclude_outliers=investment_exclude_outliers,
             investment_outlier_k=investment_outlier_k,
