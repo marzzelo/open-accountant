@@ -7,6 +7,7 @@ import pytest
 from database import get_db, init_db
 from models import (
     AccountIn,
+    ProjectionSeriesIn,
     AccountUpdate,
     SubtypeIn,
     SubtypeUpdate,
@@ -731,6 +732,14 @@ def test_project_investments_compound_growth():
     assert inv[0] == pytest.approx(1110.0, rel=1e-4)
     assert detail[0]["interest"] == pytest.approx(10.0, rel=1e-4)
     assert detail[0]["contribution"] == pytest.approx(100.0, rel=1e-4)
+    total_assets = [inv[i] + non_inv[i] for i in range(3)]
+    assert total_assets[0] == pytest.approx(2110.0, rel=1e-4)
+    assert total_assets[1] == pytest.approx(
+        total_assets[0] + 100.0 + detail[1]["interest"], rel=1e-4
+    )
+    assert total_assets[2] == pytest.approx(
+        total_assets[1] + 100.0 + detail[2]["interest"], rel=1e-4
+    )
 
 
 def test_project_investments_floors_at_zero():
@@ -1150,6 +1159,139 @@ def test_investment_projection_integration(initialized_environment, monkeypatch)
         inflation["baseline_projection"]["assets"]
         != result["baseline_projection"]["assets"]
     )
+
+
+def test_projected_assets_follow_previous_assets_plus_savings_plus_return(
+    initialized_environment, monkeypatch
+):
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 4, 15)
+
+    monkeypatch.setattr(projections_service, "date", FixedDate)
+
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+        bank = accounts["Bank"]
+
+        inv_account = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Projected Brokerage",
+                type_id=1,
+                subtype_id=3,
+                description="Investment account",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+        div_account = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Projected Dividends",
+                type_id=3,
+                subtype_id=10,
+                description="Dividend income",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=bank.id,
+                credit_account=accounts["Salary"].id,
+                amount=5000.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Salary",
+                date="2026-03-05 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=inv_account.id,
+                credit_account=bank.id,
+                amount=2000.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Transfer to brokerage",
+                date="2026-03-06 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=inv_account.id,
+                credit_account=div_account.id,
+                amount=100.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Quarterly dividend",
+                date="2026-03-07 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=accounts["Groceries"].id,
+                credit_account=bank.id,
+                amount=500.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Food",
+                date="2026-03-08 10:00:00",
+            ),
+        )
+
+        projections_service.create_series(
+            conn,
+            ProjectionSeriesIn(
+                name="Income boost",
+                type="income",
+                start_date="2026-05-01",
+                months=2,
+                monthly_amount=300.0,
+            ),
+        )
+
+        result = projections_service.get_projections(
+            conn,
+            3,
+            3,
+            investment_stat="mean",
+            investment_exclude_outliers=False,
+        )
+
+    displayed_savings = [
+        result["baseline_projection"]["savings"][i]
+        + result["series_adjustment"]["savings"][i]
+        for i in range(3)
+    ]
+    displayed_assets = [
+        result["baseline_projection"]["assets"][i]
+        + result["series_adjustment"]["assets"][i]
+        for i in range(3)
+    ]
+    projected_returns = [
+        row["interest_total"]
+        for row in result["investment_detail"]
+        if row["is_projected"]
+    ]
+
+    assert len(projected_returns) == 3
+    assert all(value >= 0.0 for value in projected_returns)
+
+    previous_assets = result["current_balances"]["total_assets"]
+    for i in range(3):
+        expected_assets = round(
+            previous_assets + displayed_savings[i] + projected_returns[i], 4
+        )
+        assert displayed_assets[i] == pytest.approx(expected_assets, rel=1e-4)
+        previous_assets = displayed_assets[i]
 
 
 def test_historical_investment_detail_uses_displayed_balance_for_interest_pct(

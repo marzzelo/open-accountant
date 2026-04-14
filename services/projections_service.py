@@ -981,8 +981,9 @@ def create_series(conn, data: ProjectionSeriesIn) -> dict:
            RETURNING id""",
         (data.name, data.type, data.start_date, data.months, data.monthly_amount),
     )
+    series_id = row.fetchone()["id"]
     conn.commit()
-    return get_series(conn, row.fetchone()["id"])
+    return get_series(conn, series_id)
 
 
 def update_series(conn, series_id: int, data: ProjectionSeriesUpdate) -> dict:

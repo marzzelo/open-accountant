@@ -363,11 +363,300 @@ function _renderSeriesTable() {
     </div>`;
 }
 
+function _roundProjectionValue(value, digits = 4) {
+  if (value == null || Number.isNaN(Number(value))) return 0;
+  const factor = 10 ** digits;
+  return Math.round(Number(value) * factor) / factor;
+}
+
+function _safeProjectionRatio(numerator, denominator) {
+  const num = Number(numerator);
+  const den = Number(denominator);
+  if (!Number.isFinite(num) || !Number.isFinite(den) || Math.abs(den) < 0.0000001) {
+    return null;
+  }
+  return num / den;
+}
+
+function _projectedValuesFromSeries(series, nHist, projMonths, fallback = []) {
+  return projMonths.map((_, index) => {
+    const value = Array.isArray(series) ? series[nHist + index] : undefined;
+    const fallbackValue = Array.isArray(fallback) ? fallback[index] : 0;
+    return _roundProjectionValue(value ?? fallbackValue);
+  });
+}
+
+function _buildProjectedAssetSeries(
+  currentAssets,
+  projectedSavings,
+  projectedReturns,
+  projectedContributions = []
+) {
+  let running = Number(currentAssets || 0);
+  return projectedSavings.map((savings, index) => {
+    running = _roundProjectionValue(
+      running
+      + Number(savings || 0)
+      + Number(projectedReturns[index] || 0)
+      + Number(projectedContributions[index] || 0)
+    );
+    return running;
+  });
+}
+
+function _deriveProjectionDisplayState() {
+  const projData = _projState.projData;
+  if (!projData) return null;
+
+  const histMonths = projData.historical_months || [];
+  const projMonths = projData.projected_months || [];
+  const allLabels = [...histMonths, ...projMonths];
+  const nHist = histMonths.length;
+
+  const incomeResult = _buildProjectionDatasets(
+    'income',
+    histMonths,
+    projMonths,
+    projData,
+    PROJ_COLORS.income,
+    true,
+    _projState.trendSettings.income
+  );
+  const expensesResult = _buildProjectionDatasets(
+    'expenses',
+    histMonths,
+    projMonths,
+    projData,
+    PROJ_COLORS.expenses,
+    true,
+    _projState.trendSettings.expenses
+  );
+
+  const incProj = incomeResult._raw.projFull || [];
+  const expProj = expensesResult._raw.projFull || [];
+  const incTrend = incomeResult._raw.trendData || null;
+  const expTrend = expensesResult._raw.trendData || null;
+
+  const baselineIncomeProjected = _projectedValuesFromSeries(
+    incTrend,
+    nHist,
+    projMonths,
+    projData.baseline_projection?.income || []
+  );
+  const baselineExpenseProjected = _projectedValuesFromSeries(
+    expTrend,
+    nHist,
+    projMonths,
+    projData.baseline_projection?.expenses || []
+  );
+  const scenarioIncomeProjected = _projectedValuesFromSeries(
+    incProj,
+    nHist,
+    projMonths,
+    projData.baseline_projection?.income || []
+  );
+  const scenarioExpenseProjected = _projectedValuesFromSeries(
+    expProj,
+    nHist,
+    projMonths,
+    projData.baseline_projection?.expenses || []
+  );
+
+  const baselineSavingsProjected = projMonths.map((_, index) =>
+    _roundProjectionValue(
+      Number(baselineIncomeProjected[index] || 0)
+      - Number(baselineExpenseProjected[index] || 0)
+    )
+  );
+  const scenarioSavingsProjected = projMonths.map((_, index) =>
+    _roundProjectionValue(
+      Number(scenarioIncomeProjected[index] || 0)
+      - Number(scenarioExpenseProjected[index] || 0)
+    )
+  );
+
+  const projectedReturns = (projData.investment_detail || [])
+    .filter(row => row.is_projected)
+    .map(row => _roundProjectionValue(row.interest_total || 0));
+  const projectedContributions = (projData.investment_detail || [])
+    .filter(row => row.is_projected)
+    .map(row => _roundProjectionValue(row.manual_contribution || 0));
+
+  const currentAssets = Number(projData.current_balances?.total_assets || 0);
+
+  return {
+    projData,
+    histMonths,
+    projMonths,
+    allLabels,
+    nHist,
+    incomeResult,
+    expensesResult,
+    incProj,
+    expProj,
+    incTrend,
+    expTrend,
+    baselineIncomeProjected,
+    baselineExpenseProjected,
+    scenarioIncomeProjected,
+    scenarioExpenseProjected,
+    baselineSavingsProjected,
+    scenarioSavingsProjected,
+    projectedReturns,
+    projectedContributions,
+    baselineAssetsProjected: _buildProjectedAssetSeries(
+      currentAssets,
+      baselineSavingsProjected,
+      projectedReturns,
+      projectedContributions
+    ),
+    scenarioAssetsProjected: _buildProjectedAssetSeries(
+      currentAssets,
+      scenarioSavingsProjected,
+      projectedReturns,
+      projectedContributions
+    ),
+  };
+}
+
+function _buildProjectedHealthPoint(
+  month,
+  assets,
+  liabilities,
+  currentAssets,
+  quickAssets,
+  currentLiabilities,
+  essentialExpense
+) {
+  const currentRatio = _safeProjectionRatio(currentAssets, currentLiabilities);
+  const quickRatio = _safeProjectionRatio(quickAssets, currentLiabilities);
+  const runwayMonths = essentialExpense > 0
+    ? _safeProjectionRatio(quickAssets, essentialExpense)
+    : null;
+
+  return {
+    month,
+    assets: _roundProjectionValue(assets),
+    liabilities: _roundProjectionValue(liabilities),
+    net_worth: _roundProjectionValue(Number(assets || 0) - Number(liabilities || 0)),
+    current_assets: _roundProjectionValue(currentAssets),
+    quick_assets: _roundProjectionValue(quickAssets),
+    current_liabilities: _roundProjectionValue(currentLiabilities),
+    current_ratio: currentRatio == null ? null : _roundProjectionValue(currentRatio),
+    quick_ratio: quickRatio == null ? null : _roundProjectionValue(quickRatio),
+    monthly_essential_expense: _roundProjectionValue(essentialExpense),
+    runway_months: runwayMonths == null ? null : _roundProjectionValue(runwayMonths),
+  };
+}
+
+function _deriveDisplayedHealthSummary(displayState) {
+  const projData = _projState.projData;
+  const backendHealth = projData?.health;
+  if (!projData || !backendHealth) return null;
+
+  const currentBackend = backendHealth.current || {};
+  const assumptions = backendHealth.assumptions || {};
+  const currentBalances = projData.current_balances || {};
+  const currentAssetsTotal = Number(currentBalances.total_assets || 0);
+  const currentLiabilitiesTotal = Number(currentBalances.total_liabilities || 0);
+  const currentInvestments = Number(currentBalances.total_investments || 0);
+  const currentNonInvestmentAssets = currentAssetsTotal - currentInvestments;
+  const currentAssetsBucket = Number(currentBackend.current_assets || 0);
+  const currentQuickAssets = Number(currentBackend.quick_assets || 0);
+  const currentLiabilityShare = Number(assumptions.current_liability_share || 0);
+  const essentialExpenseShare = Number(assumptions.essential_expense_share || 0);
+  const projectedInvestments = projData.baseline_projection?.investments || [];
+  const baselineLiabilities = projData.baseline_projection?.liabilities || [];
+  const scenarioLiabilityAdjustments = projData.series_adjustment?.liabilities || [];
+  const scenarioLiabilities = displayState.projMonths.map((_, index) =>
+    _roundProjectionValue(
+      Number(baselineLiabilities[index] || 0)
+      + Number(scenarioLiabilityAdjustments[index] || 0)
+    )
+  );
+
+  const current = {
+    ...currentBackend,
+    assets: _roundProjectionValue(currentAssetsTotal),
+    liabilities: _roundProjectionValue(currentLiabilitiesTotal),
+    net_worth: _roundProjectionValue(currentBackend.net_worth),
+    current_assets: _roundProjectionValue(currentAssetsBucket),
+    quick_assets: _roundProjectionValue(currentQuickAssets),
+    current_liabilities: _roundProjectionValue(currentBackend.current_liabilities || 0),
+    monthly_essential_expense: _roundProjectionValue(currentBackend.monthly_essential_expense || 0),
+  };
+
+  const buildEndPoint = (assetsSeries, expenseSeries, liabilitiesSeries) => {
+    if (!displayState.projMonths.length) return current;
+
+    const lastIndex = displayState.projMonths.length - 1;
+    const totalAssets = Number(assetsSeries[lastIndex] || currentAssetsTotal);
+    const totalLiabilities = Number(liabilitiesSeries[lastIndex] || 0);
+    const projectedInvestmentsEnd = Number(projectedInvestments[lastIndex] || currentInvestments);
+    const projectedNonInvestmentAssets = totalAssets - projectedInvestmentsEnd;
+    const projectedNonInvestmentGrowth = Math.max(
+      0,
+      projectedNonInvestmentAssets - currentNonInvestmentAssets
+    );
+    const currentAssetsEnd = currentAssetsBucket + projectedNonInvestmentGrowth;
+    const quickAssetsEnd = currentQuickAssets + projectedNonInvestmentGrowth;
+    const currentLiabilitiesEnd = totalLiabilities * currentLiabilityShare;
+    const essentialExpenseEnd = Math.max(
+      0,
+      Number(expenseSeries[lastIndex] || 0) * essentialExpenseShare
+    );
+
+    return _buildProjectedHealthPoint(
+      displayState.projMonths[lastIndex],
+      totalAssets,
+      totalLiabilities,
+      currentAssetsEnd,
+      quickAssetsEnd,
+      currentLiabilitiesEnd,
+      essentialExpenseEnd
+    );
+  };
+
+  const baseline = buildEndPoint(
+    displayState.baselineAssetsProjected,
+    displayState.baselineExpenseProjected,
+    baselineLiabilities
+  );
+  const scenario = buildEndPoint(
+    displayState.scenarioAssetsProjected,
+    displayState.scenarioExpenseProjected,
+    scenarioLiabilities
+  );
+
+  const deltaValue = (scenarioValue, baselineValue) => (
+    scenarioValue == null || baselineValue == null
+      ? null
+      : _roundProjectionValue(Number(scenarioValue) - Number(baselineValue))
+  );
+
+  return {
+    current,
+    baseline_end: baseline,
+    scenario_end: scenario,
+    delta_end: {
+      month: displayState.projMonths[displayState.projMonths.length - 1] || current.month,
+      net_worth: deltaValue(scenario.net_worth, baseline.net_worth),
+      runway_months: deltaValue(scenario.runway_months, baseline.runway_months),
+      current_ratio: deltaValue(scenario.current_ratio, baseline.current_ratio),
+      quick_ratio: deltaValue(scenario.quick_ratio, baseline.quick_ratio),
+    },
+    assumptions,
+  };
+}
+
 function _renderHealthSummary() {
   const container = document.getElementById('proj-health-summary');
   if (!container) return;
 
-  const health = _projState.projData?.health;
+  const displayState = _deriveProjectionDisplayState();
+  const health = displayState
+    ? _deriveDisplayedHealthSummary(displayState)
+    : _projState.projData?.health;
   if (!health) {
     container.innerHTML = '';
     return;
@@ -971,23 +1260,29 @@ function _renderCharts() {
     return (inc != null && exp != null) ? Math.round((inc - exp) * 100) / 100 : null;
   });
 
-  // Assets = non-investment assets + projected investments
-  // Backend computes the joint iteration for projected months (contribution_rate model).
+  // Assets must stay aligned with the displayed savings line. Income/expense
+  // trend settings can be adjusted in the frontend, so the charted asset curve
+  // needs to evolve from the previous projected assets plus displayed savings
+  // plus projected investment return for each future month.
   const currentAssets = projData.current_balances?.total_assets ?? 0;
-  const assetBaseline = projData.baseline_projection?.assets || [];
   const n_hist = histMonths.length;
-  let cumSavings = 0;
+  const projectedReturns = (projData.investment_detail || [])
+    .filter(row => row.is_projected)
+    .map(row => Number(row.interest_total || 0));
+  const projectedContributions = (projData.investment_detail || [])
+    .filter(row => row.is_projected)
+    .map(row => Number(row.manual_contribution || 0));
+  let projectedAssetsRunning = currentAssets;
   const assetsProjFull = allLabels.map((_, i) => {
     const projIdx = i - n_hist;
-    // For projected months, use the backend's pre-computed values
-    if (projIdx >= 0 && projIdx < assetBaseline.length) {
-      return Math.round(assetBaseline[projIdx] * 100) / 100;
+    if (projIdx >= 0 && projIdx < projMonths.length) {
+      const displayedSavings = savingsProjFull[i] ?? 0;
+      const projectedReturn = projectedReturns[projIdx] ?? 0;
+      const projectedContribution = projectedContributions[projIdx] ?? 0;
+      projectedAssetsRunning += displayedSavings + projectedReturn + projectedContribution;
+      return Math.round(projectedAssetsRunning * 100) / 100;
     }
-    // For historical months, reconstruct from trend
-    const s = savingsProjFull[i];
-    if (s == null) return null;
-    cumSavings += s;
-    return Math.round((currentAssets + cumSavings) * 100) / 100;
+    return null;
   });
 
   // ── Combined chart: income/expenses/savings (left) + assets + investments (right) ───────
