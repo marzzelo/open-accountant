@@ -408,6 +408,12 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
     assert stats.summary["quick_ratio"] == pytest.approx(1550.0 / 300.0, rel=1e-4)
     assert stats.summary["monthly_essential_expense"] == 250.0
     assert stats.summary["runway_months"] == pytest.approx(1550.0 / 250.0, rel=1e-4)
+    assert stats.summary["recent_months_count"] == 1
+    assert stats.summary["avg_monthly_income_recent"] == 1200.0
+    assert stats.summary["avg_monthly_expense_recent"] == 250.0
+    assert stats.summary["total_runway_months"] == pytest.approx(
+        1750.0 / 250.0, rel=1e-4
+    )
     assert stats.summary["top_asset_name"] == "Bank"
     assert stats.summary["top_asset_share"] == pytest.approx(1550.0 / 1750.0, rel=1e-4)
     assert stats.summary["top_expense_name"] == expense_account.subtype_name

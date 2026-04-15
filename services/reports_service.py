@@ -641,6 +641,18 @@ def get_stats(
         _safe_ratio(top_expense["amount"], total_expense) if top_expense else None
     )
     observed_months = max(len(monthly_cashflow), 1)
+    recent_cashflow = monthly_cashflow[-6:]
+    recent_months_count = len(recent_cashflow)
+    avg_monthly_income_recent = (
+        sum(row["ingresos"] for row in recent_cashflow) / recent_months_count
+        if recent_months_count
+        else None
+    )
+    avg_monthly_expense_recent = (
+        sum(row["gastos"] for row in recent_cashflow) / recent_months_count
+        if recent_months_count
+        else None
+    )
     runway_expense_basis = "essential" if essential_expense_total > 0 else "total"
     runway_expense_total = (
         essential_expense_total if essential_expense_total > 0 else total_expense
@@ -651,6 +663,11 @@ def get_stats(
     runway_months = (
         _safe_ratio(quick_assets, monthly_essential_expense)
         if monthly_essential_expense
+        else None
+    )
+    total_runway_months = (
+        _safe_ratio(total_assets, avg_monthly_expense_recent)
+        if avg_monthly_expense_recent
         else None
     )
 
@@ -664,6 +681,9 @@ def get_stats(
         "monthly_volatility": round(_std_dev(monthly_nets), 4),
         "negative_months": len([value for value in monthly_nets if value < 0]),
         "savings_rate": _round_or_none(savings_rate),
+        "recent_months_count": recent_months_count,
+        "avg_monthly_income_recent": _round_or_none(avg_monthly_income_recent),
+        "avg_monthly_expense_recent": _round_or_none(avg_monthly_expense_recent),
         "total_assets": round(total_assets, 4),
         "total_liabilities": round(total_liabilities, 4),
         "net_worth": round(total_assets - total_liabilities, 4),
@@ -675,6 +695,7 @@ def get_stats(
         "quick_ratio": _round_or_none(quick_ratio),
         "monthly_essential_expense": _round_or_none(monthly_essential_expense),
         "runway_months": _round_or_none(runway_months),
+        "total_runway_months": _round_or_none(total_runway_months),
         "runway_basis": runway_expense_basis,
         "top_asset_name": top_asset["account"] if top_asset else None,
         "top_asset_share": _round_or_none(top_asset_share),

@@ -802,6 +802,8 @@ def test_stats_net_expense_subtypes_ignore_fully_reversed_movements(client):
     assert stats["monthly_cashflow"][0]["gastos"] == 0.0
     assert "summary" in stats
     assert stats["summary"]["top_expense_share"] is None
+    assert "total_runway_months" in stats["summary"]
+    assert "avg_monthly_income_recent" in stats["summary"]
     assert "net_worth_evolution" in stats
 
 

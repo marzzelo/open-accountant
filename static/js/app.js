@@ -768,6 +768,7 @@ const View = {
         case 'balance':  await Reports.balance(); break;
         case 'journal':  await Reports.journal(); break;
         case 'ledger':   await Reports.ledger();  break;
+        case 'indicadores': await Charts.panel(); break;
         case 'stats':    await Charts.stats();    break;
         case 'proyecciones': await Projections.render(); break;
         case 'subtypes':  await Reports.subtypes();  break;

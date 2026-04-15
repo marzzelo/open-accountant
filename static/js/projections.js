@@ -1116,9 +1116,6 @@ function _buildPageShell() {
       <!-- Trend settings panel (income, expenses & investments) -->
       <div id="proj-trend-panel"></div>
 
-      <!-- Health summary -->
-      <div id="proj-health-summary"></div>
-
       <!-- Series table -->
       <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
         <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('proj.series.table_title')}</h3>
