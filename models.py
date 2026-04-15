@@ -250,7 +250,7 @@ class StatsData(BaseModel):
     income_by_subtype: list[dict]  # {subtype, amount}
     asset_composition: list[dict]  # {account, balance}
     top_accounts: list[dict]  # {account, volume, tx_count}
-    balance_evolution: list[dict]  # {month, account_id, account_name, balance}
+    balance_evolution: list[dict]  # {month, account_id, account_name, subtype_name, balance}
     net_worth_evolution: list[dict]  # {month, assets, liabilities, net_worth}
 
 

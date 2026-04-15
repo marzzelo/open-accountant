@@ -600,6 +600,7 @@ def get_stats(
                     "month": month,
                     "account_id": account["id"],
                     "account_name": account["name"],
+                    "subtype_name": account["subtype_name"],
                     "balance": balance,
                 }
             )

@@ -186,6 +186,51 @@ function _buildDoughnutChart(canvasId, items, labelKey, valueKey, tooltipLabel, 
   });
 }
 
+function _buildAssetEvolutionBuckets(balanceEvolution = []) {
+  const monthMap = new Map();
+  const months = [];
+  const bucketOrder = [];
+  const bucketTotals = new Map();
+
+  for (const row of balanceEvolution) {
+    const month = row.month;
+    const bucket = String(row.subtype_name || '').trim() || 'Sin subtipo';
+    if (!bucket || !month) continue;
+
+    if (!bucketOrder.includes(bucket)) {
+      bucketOrder.push(bucket);
+      monthMap.forEach(values => {
+        values[bucket] = 0;
+      });
+    }
+
+    if (!monthMap.has(month)) {
+      monthMap.set(month, Object.fromEntries(bucketOrder.map(key => [key, 0])));
+      months.push(month);
+    }
+    const value = Math.max(0, _num(row.balance));
+    monthMap.get(month)[bucket] += value;
+    bucketTotals.set(bucket, (bucketTotals.get(bucket) || 0) + value);
+  }
+
+  const sortedBucketOrder = [...bucketOrder].sort((left, right) => {
+    const totalDiff = (bucketTotals.get(right) || 0) - (bucketTotals.get(left) || 0);
+    if (totalDiff !== 0) return totalDiff;
+    return left.localeCompare(right);
+  });
+
+  return {
+    months,
+    bucketOrder: sortedBucketOrder,
+    series: Object.fromEntries(
+      sortedBucketOrder.map(bucket => [
+        bucket,
+        months.map(month => monthMap.get(month)?.[bucket] || 0),
+      ])
+    ),
+  };
+}
+
 function _buildProjectionQueryFromPrefs(prefs = {}) {
   const horizon = typeof prefs.proj_horizon === 'number' ? prefs.proj_horizon : 12;
   const historyMonths = typeof prefs.proj_history_months === 'number' ? prefs.proj_history_months : 12;
@@ -238,13 +283,13 @@ function _statsChartsMarkup() {
     <div class="overflow-y-auto flex-1">
     <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-5 xl:px-4 py-6">
     ${typeof Reports !== 'undefined' ? Reports._tagFilterBar() : ''}
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-5" id="stats-grid">
-      <div class="xl:col-span-2 bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.monthly_cashflow')}</h3><canvas id="ch-cashflow" height="200"></canvas></div>
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-5" id="stats-grid">
+      <div class="xl:col-span-3 bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.monthly_cashflow')}</h3><canvas id="ch-cashflow" height="140"></canvas></div>
       <div class="bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.expense_by_type')}</h3><canvas id="ch-expense-breakdown" height="200"></canvas></div>
       <div class="bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.income_by_type')}</h3><canvas id="ch-income-breakdown" height="200"></canvas></div>
       <div class="bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.asset_composition')}</h3><canvas id="ch-asset-pie" height="200"></canvas></div>
-      <div class="bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.top_accounts')}</h3><canvas id="ch-top-accounts" height="200"></canvas></div>
-      <div class="xl:col-span-2 bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.net_worth_evolution')}</h3><canvas id="ch-net-worth" height="200"></canvas></div>
+      <div class="xl:col-span-3 bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.asset_evolution')}</h3><canvas id="ch-asset-evolution" height="180"></canvas></div>
+      <div class="xl:col-span-3 bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.net_worth_evolution')}</h3><canvas id="ch-net-worth" height="150"></canvas></div>
     </div></div></div>`;
 }
 
@@ -254,7 +299,7 @@ function _renderStatsCharts(data) {
   const expenseBreakdown = _topBreakdown(data.expenses_by_subtype || [], 'subtype', 'amount');
   const incomeBreakdown = _topBreakdown(data.income_by_subtype || [], 'subtype', 'amount');
   const assetComposition = data.asset_composition || [];
-  const topAccounts = (data.top_accounts || []).filter(item => String(item.account || '').trim().toUpperCase() !== 'CAPITAL');
+  const balanceEvolution = data.balance_evolution || [];
   const netWorthEvolution = data.net_worth_evolution || [];
   const defaults = { color: '#c9d1d9', borderColor: '#30363d', plugins: { legend: { labels: { color: '#8b949e', font: { size: 11 } } }, tooltip: { backgroundColor: '#21262d', borderColor: '#30363d', borderWidth: 1, titleColor: '#e6edf3', bodyColor: '#c9d1d9', callbacks: { label: ctx => ` ${fmt(ctx.parsed.y ?? ctx.parsed)}` } } }, scales: { x: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#30363d33' } }, y: { ticks: { color: '#8b949e', font: { size: 10 }, callback: v => '$ ' + v.toLocaleString('en-US') }, grid: { color: '#30363d66' } } } };
 
@@ -262,7 +307,62 @@ function _renderStatsCharts(data) {
     const labels = monthlyCashflow.map(row => row.month);
     const netValues = monthlyCashflow.map(row => _num(row.neto));
     const movingAverage = _rollingAverage(netValues, 3);
-    _charts.cashflow = new Chart(document.getElementById('ch-cashflow'), { type: 'bar', data: { labels, datasets: [ { label: t('chart.income'), data: monthlyCashflow.map(row => row.ingresos), backgroundColor: '#66bb6a88', borderColor: '#66bb6a', borderWidth: 1, borderRadius: 8 }, { label: t('chart.expense'), data: monthlyCashflow.map(row => row.gastos), backgroundColor: '#ef535088', borderColor: '#ef5350', borderWidth: 1, borderRadius: 8 }, { label: t('chart.net'), data: netValues, type: 'line', borderColor: '#ffd54f', backgroundColor: 'transparent', borderWidth: 2, tension: 0.4, pointRadius: 4, pointBackgroundColor: netValues.map(value => value < 0 ? '#ef5350' : '#ffd54f'), pointBorderColor: netValues.map(value => value < 0 ? '#ef5350' : '#ffd54f'), fill: false, yAxisID: 'y' }, { label: t('stats.moving_average'), data: movingAverage, type: 'line', borderColor: '#4fc3f7', backgroundColor: 'transparent', borderWidth: 2, borderDash: [6, 4], tension: 0.25, pointRadius: 0, fill: false, yAxisID: 'y' } ] }, options: { ...defaults, responsive: true } });
+    _charts.cashflow = new Chart(document.getElementById('ch-cashflow'), {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: t('chart.income'),
+            data: monthlyCashflow.map(row => row.ingresos),
+            borderColor: '#66bb6a',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            tension: 0,
+            pointRadius: 3,
+            fill: false,
+            yAxisID: 'y',
+          },
+          {
+            label: t('chart.expense'),
+            data: monthlyCashflow.map(row => row.gastos),
+            borderColor: '#ef5350',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            tension: 0,
+            pointRadius: 3,
+            fill: false,
+            yAxisID: 'y',
+          },
+          {
+            label: t('chart.net'),
+            data: netValues,
+            borderColor: '#ffd54f',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            tension: 0,
+            pointRadius: 4,
+            pointBackgroundColor: netValues.map(value => value < 0 ? '#ef5350' : '#ffd54f'),
+            pointBorderColor: netValues.map(value => value < 0 ? '#ef5350' : '#ffd54f'),
+            fill: false,
+            yAxisID: 'y',
+          },
+          {
+            label: t('stats.moving_average'),
+            data: movingAverage,
+            borderColor: '#4fc3f7',
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            borderDash: [6, 4],
+            tension: 0.25,
+            pointRadius: 0,
+            fill: false,
+            yAxisID: 'y',
+          },
+        ],
+      },
+      options: { ...defaults, responsive: true },
+    });
   } else {
     _replaceWithEmpty('ch-cashflow');
   }
@@ -286,10 +386,67 @@ function _renderStatsCharts(data) {
     _replaceWithEmpty('ch-asset-pie');
   }
 
-  if (topAccounts.length > 0) {
-    _buildDoughnutChart('ch-top-accounts', topAccounts, 'account', 'volume', item => `${item.account}: ${fmt(item.volume)} • ${item.tx_count} ${t('stats.tx_count')}`, ['#4fc3f7', '#90caf9', '#7986cb', '#4db6ac', '#80cbc4', '#66bb6a', '#ffd54f', '#ff8a65']);
+  const assetBuckets = _buildAssetEvolutionBuckets(balanceEvolution);
+  if (assetBuckets.months.length > 0) {
+    const palette = [
+      ['#ff9800', '#ff980044'],
+      ['#4fc3f7', '#4fc3f744'],
+      ['#66bb6a', '#66bb6a44'],
+      ['#ce93d8', '#ce93d844'],
+      ['#ffd54f', '#ffd54f44'],
+      ['#ef5350', '#ef535044'],
+      ['#7986cb', '#7986cb44'],
+      ['#4db6ac', '#4db6ac44'],
+      ['#90caf9', '#90caf944'],
+      ['#a5d6a7', '#a5d6a744'],
+    ];
+    _charts.assetEvolution = new Chart(document.getElementById('ch-asset-evolution'), {
+      type: 'line',
+      data: {
+        labels: assetBuckets.months,
+        datasets: assetBuckets.bucketOrder.map((bucket, index) => {
+          const [borderColor, backgroundColor] = palette[index % palette.length];
+          return {
+            label: bucket,
+            data: assetBuckets.series[bucket],
+            borderColor,
+            backgroundColor,
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0,
+            fill: true,
+            stack: 'assets',
+          };
+        }),
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#8b949e', font: { size: 11 } } },
+          tooltip: {
+            backgroundColor: '#21262d',
+            borderColor: '#30363d',
+            borderWidth: 1,
+            titleColor: '#e6edf3',
+            bodyColor: '#c9d1d9',
+            callbacks: {
+              label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.raw)}`,
+            },
+          },
+        },
+        scales: {
+          x: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#30363d33' } },
+          y: {
+            stacked: true,
+            ticks: { color: '#8b949e', font: { size: 10 }, callback: v => '$ ' + Number(v).toLocaleString('en-US') },
+            grid: { color: '#30363d66' },
+          },
+        },
+      },
+    });
   } else {
-    _replaceWithEmpty('ch-top-accounts');
+    _replaceWithEmpty('ch-asset-evolution');
   }
 
   if (netWorthEvolution.length > 0) {
