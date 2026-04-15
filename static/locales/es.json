@@ -85,6 +85,7 @@
   "stats.liability_evolution": "Evolución del Pasivo",
   "stats.net_worth_evolution": "Evolución del Patrimonio Neto",
   "stats.other": "Otros",
+  "stats.y_axis_from_zero": "Eje Y desde cero",
   "stats.moving_average": "Promedio móvil 3m",
   "stats.tx_count": "mov.",
   "stats.kpi.savings_rate": "Tasa de ahorro",

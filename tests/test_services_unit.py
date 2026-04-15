@@ -487,7 +487,9 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
     assert stats.summary["top_expense_share"] == 1.0
     assert sum(row["amount"] for row in stats.income_evolution) == pytest.approx(1200.0)
     assert sum(row["amount"] for row in stats.expense_evolution) == pytest.approx(250.0)
-    assert sum(row["balance"] for row in stats.liability_evolution) == pytest.approx(800.0)
+    assert sum(row["balance"] for row in stats.liability_evolution) == pytest.approx(
+        800.0
+    )
     assert refreshed_accounts["Bank"].properties["liquidity_profile"] == "quick"
     assert (
         refreshed_accounts["Bond Ladder"].properties["liquidity_profile"]
@@ -505,6 +507,136 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
         1550.0 / 300.0, rel=1e-4
     )
     assert projections["health"]["delta_end"]["net_worth"] == 0.0
+
+
+def test_reports_service_stats_income_evolution_preserves_negative_subtype_months(
+    initialized_environment,
+):
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+        bank = accounts["Bank"]
+        salary = accounts["Salary"]
+        dividends = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Negative Dividends",
+                type_id=3,
+                subtype_id=10,
+                description="Dividend income",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=bank.id,
+                credit_account=salary.id,
+                amount=100.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Salary inflow",
+                date="2026-03-05 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=bank.id,
+                credit_account=dividends.id,
+                amount=40.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Dividend payment",
+                date="2026-03-10 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=dividends.id,
+                credit_account=bank.id,
+                amount=75.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Dividend reversal",
+                date="2026-03-20 10:00:00",
+            ),
+        )
+
+        stats = reports_service.get_stats(conn, "2026-03-01", "2026-03-31")
+
+    assert stats.summary["total_income"] == pytest.approx(65.0)
+    assert stats.monthly_cashflow == [
+        {
+            "month": "2026-03",
+            "ingresos": 65.0,
+            "gastos": 0.0,
+            "neto": 65.0,
+        }
+    ]
+    march_income = {row["subtype"]: row["amount"] for row in stats.income_evolution}
+    assert march_income == {
+        salary.subtype_name: pytest.approx(100.0),
+        dividends.subtype_name: pytest.approx(-35.0),
+    }
+
+
+def test_reports_service_stats_liability_evolution_preserves_negative_balances(
+    initialized_environment,
+):
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+        bank = accounts["Bank"]
+        credit_card = accounts["Credit Card"]
+        backup_card = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Backup Card",
+                type_id=2,
+                subtype_id=credit_card.subtype_id,
+                description="Second card",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=bank.id,
+                credit_account=credit_card.id,
+                amount=300.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Card spending",
+                date="2026-03-05 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=backup_card.id,
+                credit_account=bank.id,
+                amount=50.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Card overpayment",
+                date="2026-03-20 10:00:00",
+            ),
+        )
+
+        stats = reports_service.get_stats(conn, "2026-03-01", "2026-03-31")
+
+    assert stats.summary["total_liabilities"] == pytest.approx(250.0)
+    march_liability_balances = {
+        row["account_name"]: row["balance"] for row in stats.liability_evolution
+    }
+    assert march_liability_balances == {
+        credit_card.name: pytest.approx(300.0),
+        backup_card.name: pytest.approx(-50.0),
+    }
 
 
 def test_projection_series_adjustments_accept_date_start_dates():

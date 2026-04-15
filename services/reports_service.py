@@ -114,8 +114,8 @@ def _monthly_subtype_evolution(
                 SUM(signed_amount) AS amount
          FROM subtype_legs
          GROUP BY month, subtype
-         HAVING SUM(signed_amount) > 0
-         ORDER BY month, amount DESC, subtype""",
+          HAVING ABS(SUM(signed_amount)) >= 0.005
+           ORDER BY month, ABS(SUM(signed_amount)) DESC, subtype""",
         (
             debit_sign,
             type_id,

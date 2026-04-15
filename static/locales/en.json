@@ -85,6 +85,7 @@
   "stats.liability_evolution": "Liability Evolution",
   "stats.net_worth_evolution": "Net Worth Evolution",
   "stats.other": "Other",
+  "stats.y_axis_from_zero": "Y axis from zero",
   "stats.moving_average": "3m Moving Average",
   "stats.tx_count": "tx",
   "stats.kpi.savings_rate": "Savings rate",
