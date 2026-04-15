@@ -72,6 +72,69 @@ def _tag_csv(tags) -> str:
     return ", ".join(tag.name for tag in tags)
 
 
+def _monthly_subtype_evolution(
+    conn,
+    *,
+    type_id: int,
+    from_dt: str,
+    to_dt: str,
+    tag_filter: str,
+    tag_params: list[int],
+    month_expr: str,
+) -> list[dict]:
+    if type_id == 3:
+        debit_sign, credit_sign = -1, 1
+    elif type_id == 4:
+        debit_sign, credit_sign = 1, -1
+    else:
+        raise ValueError("Unsupported type_id for subtype evolution")
+
+    rows = conn.execute(
+        f"""WITH subtype_legs AS (
+             SELECT {month_expr} AS month,
+                    COALESCE(s.name, 'Sin subtipo') AS subtype,
+                    ? * t.amount AS signed_amount
+             FROM transactions t
+             JOIN accounts a ON t.debit_account = a.id
+             LEFT JOIN subtypes s ON a.subtype_id = s.id
+             WHERE a.type_id = ? AND t.date BETWEEN ? AND ?{tag_filter}
+
+             UNION ALL
+
+             SELECT {month_expr} AS month,
+                    COALESCE(s.name, 'Sin subtipo') AS subtype,
+                    ? * t.amount AS signed_amount
+             FROM transactions t
+             JOIN accounts a ON t.credit_account = a.id
+             LEFT JOIN subtypes s ON a.subtype_id = s.id
+             WHERE a.type_id = ? AND t.date BETWEEN ? AND ?{tag_filter}
+         )
+         SELECT month,
+                subtype,
+                SUM(signed_amount) AS amount
+         FROM subtype_legs
+         GROUP BY month, subtype
+         HAVING SUM(signed_amount) > 0
+         ORDER BY month, amount DESC, subtype""",
+        (
+            debit_sign,
+            type_id,
+            from_dt,
+            to_dt,
+            *tag_params,
+            credit_sign,
+            type_id,
+            from_dt,
+            to_dt,
+            *tag_params,
+        ),
+    ).fetchall()
+    return [
+        {"month": row["month"], "subtype": row["subtype"], "amount": row["amount"]}
+        for row in rows
+    ]
+
+
 def _financial_rows(conn, type_id: int):
     order_sql = ci_order_sql(conn, "a.name")
     return conn.execute(
@@ -466,6 +529,24 @@ def get_stats(
     income_by_subtype = [
         {"subtype": row["subtype"], "amount": row["amount"]} for row in inc_rows
     ]
+    income_evolution = _monthly_subtype_evolution(
+        conn,
+        type_id=3,
+        from_dt=from_dt,
+        to_dt=to_dt,
+        tag_filter=tag_filter,
+        tag_params=tag_params,
+        month_expr=month_expr,
+    )
+    expense_evolution = _monthly_subtype_evolution(
+        conn,
+        type_id=4,
+        from_dt=from_dt,
+        to_dt=to_dt,
+        tag_filter=tag_filter,
+        tag_params=tag_params,
+        month_expr=month_expr,
+    )
 
     asset_accounts = _financial_rows(conn, 1)
     liability_accounts = _financial_rows(conn, 2)
@@ -578,6 +659,7 @@ def get_stats(
     months = [row["month"] for row in months_rows]
 
     balance_evolution = []
+    liability_evolution = []
     net_worth_evolution = []
     for month in months:
         month_end = end_of_month_datetime(month)
@@ -606,7 +688,7 @@ def get_stats(
             )
 
         for account in liability_accounts:
-            month_liabilities += compute_filtered_balance(
+            balance = compute_filtered_balance(
                 conn,
                 account["id"],
                 account["type_id"],
@@ -614,6 +696,16 @@ def get_stats(
                 from_dt,
                 month_end,
                 tag_ids,
+            )
+            month_liabilities += balance
+            liability_evolution.append(
+                {
+                    "month": month,
+                    "account_id": account["id"],
+                    "account_name": account["name"],
+                    "subtype_name": account["subtype_name"],
+                    "balance": balance,
+                }
             )
 
         net_worth_evolution.append(
@@ -712,5 +804,8 @@ def get_stats(
         asset_composition=asset_composition,
         top_accounts=top_accounts,
         balance_evolution=balance_evolution,
+        income_evolution=income_evolution,
+        expense_evolution=expense_evolution,
+        liability_evolution=liability_evolution,
         net_worth_evolution=net_worth_evolution,
     )

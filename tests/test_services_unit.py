@@ -485,6 +485,9 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
     assert stats.summary["top_asset_share"] == pytest.approx(1550.0 / 1750.0, rel=1e-4)
     assert stats.summary["top_expense_name"] == expense_account.subtype_name
     assert stats.summary["top_expense_share"] == 1.0
+    assert sum(row["amount"] for row in stats.income_evolution) == pytest.approx(1200.0)
+    assert sum(row["amount"] for row in stats.expense_evolution) == pytest.approx(250.0)
+    assert sum(row["balance"] for row in stats.liability_evolution) == pytest.approx(800.0)
     assert refreshed_accounts["Bank"].properties["liquidity_profile"] == "quick"
     assert (
         refreshed_accounts["Bond Ladder"].properties["liquidity_profile"]

@@ -187,14 +187,28 @@ function _buildDoughnutChart(canvasId, items, labelKey, valueKey, tooltipLabel, 
 }
 
 function _buildAssetEvolutionBuckets(balanceEvolution = []) {
+  return _buildSubtypeEvolutionBuckets(balanceEvolution, {
+    bucketKey: 'subtype_name',
+    valueKey: 'balance',
+    valueTransform: value => Math.max(0, _num(value)),
+  });
+}
+
+function _buildSubtypeEvolutionBuckets(rows = [], {
+  bucketKey = 'subtype',
+  valueKey = 'amount',
+  valueTransform = value => _num(value),
+  maxBuckets = null,
+  otherLabel = null,
+} = {}) {
   const monthMap = new Map();
   const months = [];
   const bucketOrder = [];
   const bucketTotals = new Map();
 
-  for (const row of balanceEvolution) {
+  for (const row of rows) {
     const month = row.month;
-    const bucket = String(row.subtype_name || '').trim() || 'Sin subtipo';
+    const bucket = String(row[bucketKey] || '').trim() || 'Sin subtipo';
     if (!bucket || !month) continue;
 
     if (!bucketOrder.includes(bucket)) {
@@ -208,16 +222,34 @@ function _buildAssetEvolutionBuckets(balanceEvolution = []) {
       monthMap.set(month, Object.fromEntries(bucketOrder.map(key => [key, 0])));
       months.push(month);
     }
-    const value = Math.max(0, _num(row.balance));
+    const value = valueTransform(row[valueKey]);
+    if (value <= 0) continue;
     monthMap.get(month)[bucket] += value;
     bucketTotals.set(bucket, (bucketTotals.get(bucket) || 0) + value);
   }
 
-  const sortedBucketOrder = [...bucketOrder].sort((left, right) => {
+  let sortedBucketOrder = [...bucketOrder].sort((left, right) => {
     const totalDiff = (bucketTotals.get(right) || 0) - (bucketTotals.get(left) || 0);
     if (totalDiff !== 0) return totalDiff;
     return left.localeCompare(right);
   });
+
+  if (maxBuckets && sortedBucketOrder.length > maxBuckets) {
+    const primaryBuckets = sortedBucketOrder.slice(0, maxBuckets);
+    const overflowBuckets = sortedBucketOrder.slice(maxBuckets);
+    const otherBucket = otherLabel || t('stats.other');
+
+    for (const month of months) {
+      const monthValues = monthMap.get(month);
+      monthValues[otherBucket] = overflowBuckets.reduce((sum, bucket) => sum + _num(monthValues[bucket]), 0);
+    }
+
+    bucketTotals.set(
+      otherBucket,
+      overflowBuckets.reduce((sum, bucket) => sum + (bucketTotals.get(bucket) || 0), 0)
+    );
+    sortedBucketOrder = [...primaryBuckets, otherBucket];
+  }
 
   return {
     months,
@@ -229,6 +261,102 @@ function _buildAssetEvolutionBuckets(balanceEvolution = []) {
       ])
     ),
   };
+}
+
+function _buildMonthlyTotals(months = [], rows = [], valueKey) {
+  const totalsByMonth = new Map(rows.map(row => [row.month, _num(row[valueKey])]))
+  return months.map(month => totalsByMonth.get(month) || 0);
+}
+
+function _renderStackedEvolutionChart({
+  chartKey,
+  canvasId,
+  months,
+  bucketOrder,
+  series,
+  totalSeries,
+  totalLabel,
+  totalColor = '#e6edf3',
+  stackKey,
+}) {
+  if (!months.length || !bucketOrder.length) {
+    _replaceWithEmpty(canvasId);
+    return;
+  }
+
+  const palette = [
+    ['#ff9800', '#ff980044'],
+    ['#4fc3f7', '#4fc3f744'],
+    ['#66bb6a', '#66bb6a44'],
+    ['#ce93d8', '#ce93d844'],
+    ['#ffd54f', '#ffd54f44'],
+    ['#ef5350', '#ef535044'],
+    ['#7986cb', '#7986cb44'],
+    ['#4db6ac', '#4db6ac44'],
+    ['#90caf9', '#90caf944'],
+    ['#a5d6a7', '#a5d6a744'],
+  ];
+
+  _charts[chartKey] = new Chart(document.getElementById(canvasId), {
+    type: 'line',
+    data: {
+      labels: months,
+      datasets: [
+        ...bucketOrder.map((bucket, index) => {
+          const [borderColor, backgroundColor] = palette[index % palette.length];
+          return {
+            label: bucket,
+            data: series[bucket],
+            borderColor,
+            backgroundColor,
+            borderWidth: 2,
+            pointRadius: 0,
+            tension: 0,
+            fill: true,
+            stack: stackKey,
+            order: 2,
+          };
+        }),
+        {
+          label: totalLabel,
+          data: totalSeries,
+          borderColor: totalColor,
+          backgroundColor: 'transparent',
+          borderWidth: 2.5,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          tension: 0,
+          fill: false,
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#8b949e', font: { size: 11 } } },
+        tooltip: {
+          backgroundColor: '#21262d',
+          borderColor: '#30363d',
+          borderWidth: 1,
+          titleColor: '#e6edf3',
+          bodyColor: '#c9d1d9',
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.raw)}`,
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#30363d33' } },
+        y: {
+          stacked: true,
+          ticks: { color: '#8b949e', font: { size: 10 }, callback: v => '$ ' + Number(v).toLocaleString('en-US') },
+          grid: { color: '#30363d66' },
+        },
+      },
+    },
+  });
 }
 
 function _buildProjectionQueryFromPrefs(prefs = {}) {
@@ -289,7 +417,9 @@ function _statsChartsMarkup() {
       <div class="bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.income_by_type')}</h3><canvas id="ch-income-breakdown" height="200"></canvas></div>
       <div class="bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.asset_composition')}</h3><canvas id="ch-asset-pie" height="200"></canvas></div>
       <div class="xl:col-span-3 bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.asset_evolution')}</h3><canvas id="ch-asset-evolution" height="180"></canvas></div>
-      <div class="xl:col-span-3 bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.net_worth_evolution')}</h3><canvas id="ch-net-worth" height="150"></canvas></div>
+      <div class="xl:col-span-3 bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.income_evolution')}</h3><canvas id="ch-income-evolution" height="180"></canvas></div>
+      <div class="xl:col-span-3 bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.expense_evolution')}</h3><canvas id="ch-expense-evolution" height="180"></canvas></div>
+      <div class="xl:col-span-3 bg-dark-800 border border-dark-600 rounded-xl p-4"><h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3">${t('stats.liability_evolution')}</h3><canvas id="ch-liability-evolution" height="180"></canvas></div>
     </div></div></div>`;
 }
 
@@ -300,6 +430,9 @@ function _renderStatsCharts(data) {
   const incomeBreakdown = _topBreakdown(data.income_by_subtype || [], 'subtype', 'amount');
   const assetComposition = data.asset_composition || [];
   const balanceEvolution = data.balance_evolution || [];
+  const incomeEvolution = data.income_evolution || [];
+  const expenseEvolution = data.expense_evolution || [];
+  const liabilityEvolution = data.liability_evolution || [];
   const netWorthEvolution = data.net_worth_evolution || [];
   const defaults = { color: '#c9d1d9', borderColor: '#30363d', plugins: { legend: { labels: { color: '#8b949e', font: { size: 11 } } }, tooltip: { backgroundColor: '#21262d', borderColor: '#30363d', borderWidth: 1, titleColor: '#e6edf3', bodyColor: '#c9d1d9', callbacks: { label: ctx => ` ${fmt(ctx.parsed.y ?? ctx.parsed)}` } } }, scales: { x: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#30363d33' } }, y: { ticks: { color: '#8b949e', font: { size: 10 }, callback: v => '$ ' + v.toLocaleString('en-US') }, grid: { color: '#30363d66' } } } };
 
@@ -388,71 +521,74 @@ function _renderStatsCharts(data) {
 
   const assetBuckets = _buildAssetEvolutionBuckets(balanceEvolution);
   if (assetBuckets.months.length > 0) {
-    const palette = [
-      ['#ff9800', '#ff980044'],
-      ['#4fc3f7', '#4fc3f744'],
-      ['#66bb6a', '#66bb6a44'],
-      ['#ce93d8', '#ce93d844'],
-      ['#ffd54f', '#ffd54f44'],
-      ['#ef5350', '#ef535044'],
-      ['#7986cb', '#7986cb44'],
-      ['#4db6ac', '#4db6ac44'],
-      ['#90caf9', '#90caf944'],
-      ['#a5d6a7', '#a5d6a744'],
-    ];
-    _charts.assetEvolution = new Chart(document.getElementById('ch-asset-evolution'), {
-      type: 'line',
-      data: {
-        labels: assetBuckets.months,
-        datasets: assetBuckets.bucketOrder.map((bucket, index) => {
-          const [borderColor, backgroundColor] = palette[index % palette.length];
-          return {
-            label: bucket,
-            data: assetBuckets.series[bucket],
-            borderColor,
-            backgroundColor,
-            borderWidth: 2,
-            pointRadius: 0,
-            tension: 0,
-            fill: true,
-            stack: 'assets',
-          };
-        }),
-      },
-      options: {
-        responsive: true,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          legend: { labels: { color: '#8b949e', font: { size: 11 } } },
-          tooltip: {
-            backgroundColor: '#21262d',
-            borderColor: '#30363d',
-            borderWidth: 1,
-            titleColor: '#e6edf3',
-            bodyColor: '#c9d1d9',
-            callbacks: {
-              label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.raw)}`,
-            },
-          },
-        },
-        scales: {
-          x: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#30363d33' } },
-          y: {
-            stacked: true,
-            ticks: { color: '#8b949e', font: { size: 10 }, callback: v => '$ ' + Number(v).toLocaleString('en-US') },
-            grid: { color: '#30363d66' },
-          },
-        },
-      },
+    _renderStackedEvolutionChart({
+      chartKey: 'assetEvolution',
+      canvasId: 'ch-asset-evolution',
+      months: assetBuckets.months,
+      bucketOrder: assetBuckets.bucketOrder,
+      series: assetBuckets.series,
+      totalSeries: _buildMonthlyTotals(assetBuckets.months, netWorthEvolution, 'assets'),
+      totalLabel: t('report.total_assets'),
+      totalColor: '#e6edf3',
+      stackKey: 'assets',
     });
   } else {
     _replaceWithEmpty('ch-asset-evolution');
   }
 
-  if (netWorthEvolution.length > 0) {
-    _charts.netWorth = new Chart(document.getElementById('ch-net-worth'), { type: 'line', data: { labels: netWorthEvolution.map(row => row.month), datasets: [ { label: t('report.total_assets'), data: netWorthEvolution.map(row => row.assets), borderColor: '#4fc3f7', backgroundColor: '#4fc3f722', borderWidth: 2, tension: 0.35, fill: false, pointRadius: 2, yAxisID: 'y' }, { label: t('report.total_liab'), data: netWorthEvolution.map(row => row.liabilities), borderColor: '#ef5350', backgroundColor: '#ef535022', borderWidth: 2, tension: 0.35, fill: false, pointRadius: 2, yAxisID: 'y1' }, { label: t('stats.kpi.net_worth'), data: netWorthEvolution.map(row => row.net_worth), borderColor: '#ffd54f', backgroundColor: '#ffd54f22', borderWidth: 2, tension: 0.35, fill: false, pointRadius: 3, yAxisID: 'y' } ] }, options: { responsive: true, plugins: { legend: { labels: { color: '#8b949e', font: { size: 10 }, boxWidth: 12 } }, tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.raw)}` } } }, scales: { x: { ticks: { color: '#8b949e', font: { size: 9 } }, grid: { color: '#30363d33' } }, y: { ticks: { color: '#8b949e', font: { size: 9 }, callback: v => '$ ' + (v / 1000).toFixed(0) + 'k' }, grid: { color: '#30363d44' } }, y1: { position: 'right', ticks: { color: '#ef9a9a', font: { size: 9 }, callback: v => '$ ' + (v / 1000).toFixed(0) + 'k' }, grid: { drawOnChartArea: false } } } } });
+  const incomeBuckets = _buildSubtypeEvolutionBuckets(incomeEvolution, { bucketKey: 'subtype', valueKey: 'amount' });
+  if (incomeBuckets.months.length > 0) {
+    _renderStackedEvolutionChart({
+      chartKey: 'incomeEvolution',
+      canvasId: 'ch-income-evolution',
+      months: incomeBuckets.months,
+      bucketOrder: incomeBuckets.bucketOrder,
+      series: incomeBuckets.series,
+      totalSeries: _buildMonthlyTotals(incomeBuckets.months, monthlyCashflow, 'ingresos'),
+      totalLabel: t('report.total_income'),
+      totalColor: '#dce775',
+      stackKey: 'income',
+    });
   } else {
-    _replaceWithEmpty('ch-net-worth');
+    _replaceWithEmpty('ch-income-evolution');
+  }
+
+  const expenseBuckets = _buildSubtypeEvolutionBuckets(expenseEvolution, { bucketKey: 'subtype', valueKey: 'amount', maxBuckets: 6, otherLabel: t('stats.other') });
+  if (expenseBuckets.months.length > 0) {
+    _renderStackedEvolutionChart({
+      chartKey: 'expenseEvolution',
+      canvasId: 'ch-expense-evolution',
+      months: expenseBuckets.months,
+      bucketOrder: expenseBuckets.bucketOrder,
+      series: expenseBuckets.series,
+      totalSeries: _buildMonthlyTotals(expenseBuckets.months, monthlyCashflow, 'gastos'),
+      totalLabel: t('report.total_expense'),
+      totalColor: '#ffcc80',
+      stackKey: 'expense',
+    });
+  } else {
+    _replaceWithEmpty('ch-expense-evolution');
+  }
+
+  const liabilityBuckets = _buildSubtypeEvolutionBuckets(liabilityEvolution, {
+    bucketKey: 'subtype_name',
+    valueKey: 'balance',
+    valueTransform: value => Math.max(0, _num(value)),
+  });
+  if (liabilityBuckets.months.length > 0) {
+    _renderStackedEvolutionChart({
+      chartKey: 'liabilityEvolution',
+      canvasId: 'ch-liability-evolution',
+      months: liabilityBuckets.months,
+      bucketOrder: liabilityBuckets.bucketOrder,
+      series: liabilityBuckets.series,
+      totalSeries: _buildMonthlyTotals(liabilityBuckets.months, netWorthEvolution, 'liabilities'),
+      totalLabel: t('report.total_liab'),
+      totalColor: '#ffb4ab',
+      stackKey: 'liabilities',
+    });
+  } else {
+    _replaceWithEmpty('ch-liability-evolution');
   }
 }
 
