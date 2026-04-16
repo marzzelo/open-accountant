@@ -999,6 +999,7 @@ def test_project_investments_compound_growth():
         0.01,  # yield_rate
         0.1,  # contribution_rate (10% of projected income)
         [1000.0, 1000.0, 1000.0],  # projected income
+        [0.0, 0.0, 0.0],  # projected expenses
         [100.0, 100.0, 100.0],  # baseline_savings
         3,
     )
@@ -1019,7 +1020,7 @@ def test_project_investments_compound_growth():
 
 def test_project_investments_floors_at_zero():
     inv, non_inv, detail = projections_service._project_investments(
-        50.0, 1000.0, 0.0, 0.0, [0.0, 0.0, 0.0], [-200.0, -200.0, -200.0], 3
+        50.0, 1000.0, 0.0, 0.0, [0.0, 0.0, 0.0], [200.0, 200.0, 200.0], [-200.0, -200.0, -200.0], 3
     )
     # With zero rate and zero contribution_rate, inv stays at 50, non_inv shrinks
     assert inv[0] == pytest.approx(50.0, rel=1e-4)
@@ -1028,7 +1029,7 @@ def test_project_investments_floors_at_zero():
 
 def test_project_investments_zero_rate_contribution_only():
     inv, non_inv, detail = projections_service._project_investments(
-        0.0, 10000.0, 0.0, 0.05, [10000.0, 10000.0], [500.0, 500.0], 2
+        0.0, 10000.0, 0.0, 0.05, [10000.0, 10000.0], [0.0, 0.0], [500.0, 500.0], 2
     )
     # Period 0: income=10000, contrib=500, inv=0+0+500=500, non_inv stays flat
     assert inv[0] == pytest.approx(500.0, rel=1e-4)

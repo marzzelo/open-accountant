@@ -1381,9 +1381,12 @@ def get_projections(
     ]
 
     # ── Investment projection (joint iteration) ──
+    # Scenario: includes all series (income/expense/investment/rescue)
     baseline_investments: list[float] = []
     baseline_non_inv_assets: list[float] = []
     _proj_detail: list[dict] = []
+    # True baseline: without any series adjustments
+    true_baseline_investments: list[float] = []
     if has_investments:
         baseline_investments, baseline_non_inv_assets, _proj_detail = (
             _project_investments(
@@ -1398,8 +1401,21 @@ def get_projections(
                 investment_adj=adj["investments"],
             )
         )
+        true_baseline_investments, _, _ = (
+            _project_investments(
+                current_investment_balance,
+                current_non_inv_assets,
+                investment_projection_inputs["applied_yield_rate"],
+                investment_projection_inputs["applied_contribution_rate"],
+                baseline_income,
+                baseline_expenses,
+                baseline_savings,
+                horizon,
+            )
+        )
     else:
         baseline_investments = [round(current_investment_balance, 4)] * horizon
+        true_baseline_investments = list(baseline_investments)
         cum_non_inv_savings = 0.0
         for i in range(horizon):
             cum_non_inv_savings += scenario_savings[i]
@@ -1780,7 +1796,7 @@ def get_projections(
             "savings": baseline_savings,
             "assets": baseline_assets,
             "liabilities": baseline_liabilities,
-            "investments": baseline_investments,
+            "investments": true_baseline_investments,
         },
         "series_adjustment": adj,
         "current_balances": {
