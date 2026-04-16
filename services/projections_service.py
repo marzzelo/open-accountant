@@ -859,11 +859,16 @@ def _project_investments(
     projected_expenses: list[float],
     baseline_savings: list[float],
     horizon: int,
+    investment_adj: list[float] | None = None,
 ) -> tuple[list[float], list[float], list[dict]]:
     """Project investment and non-investment assets jointly.
 
     contribution_rate is the fraction of net result (income - expenses)
     contributed to investments each period.
+    investment_adj: per-period net investment series adjustment
+      (positive = invest from savings, negative = rescue back to savings).
+      Capped so savings don't go negative (investment) or investments
+      don't go negative (rescue).
     Returns (investments, non_inv_assets, detail).
     """
     investments: list[float] = []
@@ -871,6 +876,7 @@ def _project_investments(
     detail: list[dict] = []
     inv_bal = current_investment_balance
     non_inv_bal = current_non_inv_assets
+    _inv_adj = investment_adj or [0.0] * horizon
     for i in range(horizon):
         opening_investment_balance = inv_bal
         projected_income_i = max(
@@ -882,8 +888,22 @@ def _project_investments(
         net_result_i = max(0.0, projected_income_i - projected_expense_i)
         contribution = contribution_rate * net_result_i
         interest = inv_bal * yield_rate
-        inv_bal = max(0.0, inv_bal + interest + contribution)
-        non_inv_savings = baseline_savings[i] - contribution
+
+        # Apply investment/rescue series adjustment
+        raw_adj = _inv_adj[i] if i < len(_inv_adj) else 0.0
+        if raw_adj > 0:
+            # Investment: cap to available non-invested assets after savings
+            available = max(0.0, non_inv_bal + baseline_savings[i] - contribution)
+            series_transfer = min(raw_adj, available)
+        elif raw_adj < 0:
+            # Rescue: cap to current investment balance (after interest + contribution)
+            available_inv = max(0.0, inv_bal + interest + contribution)
+            series_transfer = -min(-raw_adj, available_inv)
+        else:
+            series_transfer = 0.0
+
+        inv_bal = max(0.0, inv_bal + interest + contribution + series_transfer)
+        non_inv_savings = baseline_savings[i] - contribution - series_transfer
         non_inv_bal = max(0.0, non_inv_bal + non_inv_savings)
         investments.append(round(inv_bal, 4))
         non_inv_assets.append(round(non_inv_bal, 4))
@@ -893,6 +913,7 @@ def _project_investments(
                 "interest": round(interest, 4),
                 "interest_total": round(interest, 4),
                 "contribution": round(contribution, 4),
+                "series_transfer": round(series_transfer, 4),
                 "projected_income": round(projected_income_i, 4),
                 "projected_expense": round(projected_expense_i, 4),
                 "net_result": round(net_result_i, 4),
@@ -1374,6 +1395,7 @@ def get_projections(
                 scenario_expenses,
                 scenario_savings,
                 horizon,
+                investment_adj=adj["investments"],
             )
         )
     else:

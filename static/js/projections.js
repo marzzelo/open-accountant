@@ -542,7 +542,9 @@ function _deriveProjectionDisplayState() {
     .map(row => _roundProjectionValue(row.interest_total || 0));
   const projectedContributions = (projData.investment_detail || [])
     .filter(row => row.is_projected)
-    .map(row => _roundProjectionValue(row.manual_contribution || 0));
+    .map(row => _roundProjectionValue(
+      (row.manual_contribution || 0) + (row.series_transfer || 0)
+    ));
 
   const currentAssets = Number(projData.current_balances?.total_assets || 0);
   const currentInvestments = Number(projData.current_balances?.total_investments || 0);
@@ -563,29 +565,15 @@ function _deriveProjectionDisplayState() {
   // Build scenario investments + non-invested assets jointly.
   // If non-invested assets would go negative, reduce investments (rescue)
   // so that non-invested assets floor at zero.
-  const investmentSeriesAdj = projData.series_adjustment?.investments || [];
   const scenarioInvestmentsProjected = [];
   const scenarioNonInvestedAssetsProjected = [];
   {
     let invRunning = currentInvestments;
     for (let i = 0; i < projMonths.length; i++) {
-      // Naive investment balance (interest + contribution)
+      // Investment balance (interest + contribution + series transfers already included)
       let naiveInv = _roundProjectionValue(
         invRunning + Number(projectedReturns[i] || 0) + Number(projectedContributions[i] || 0)
       );
-      // Apply investment/rescue series adjustment with capping
-      const seriesInvAdj = Number(investmentSeriesAdj[i] || 0);
-      if (seriesInvAdj > 0) {
-        // Investment: cap to available savings (non-invested assets)
-        const totalAssetsBefore = Number(scenarioAssetsProjected[i] || 0);
-        const nonInvBefore = _roundProjectionValue(totalAssetsBefore - naiveInv);
-        const cappedInv = Math.min(seriesInvAdj, Math.max(0, nonInvBefore));
-        naiveInv = _roundProjectionValue(naiveInv + cappedInv);
-      } else if (seriesInvAdj < 0) {
-        // Rescue: cap to available investments
-        const cappedRescue = Math.min(-seriesInvAdj, Math.max(0, naiveInv));
-        naiveInv = _roundProjectionValue(naiveInv - cappedRescue);
-      }
       const totalAssets = Number(scenarioAssetsProjected[i] || 0);
       let nonInv = _roundProjectionValue(totalAssets - naiveInv);
       let inv = naiveInv;
