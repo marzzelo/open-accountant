@@ -142,23 +142,51 @@ function _updateInvestmentSliderValue(field, value) {
 
 function _getInvestmentSliderMeta(field) {
   const model = _projState.projData?.investment_model;
-  if (field === 'interestPct') {
-    return {
-      slider: model?.interest_slider || { min: 0, max: 1, step: 0.01 },
-      fallback: _projState.investmentOverrides.interestPct ?? model?.default_interest_percent ?? 0,
-    };
-  }
+  const isInterestField = field === 'interestPct';
+  const defaultValue = isInterestField
+    ? (model?.default_interest_percent ?? 0)
+    : (model?.default_contribution_percent ?? 0);
+  const overrideValue = _projState.investmentOverrides[field];
+
   return {
-    slider: model?.contribution_slider || { min: 0, max: 1, step: 0.01 },
-    fallback: _projState.investmentOverrides.contributionPct ?? model?.default_contribution_percent ?? 0,
+    slider: isInterestField
+      ? (model?.interest_slider || { min: 0, max: 1, step: 0.01 })
+      : (model?.contribution_slider || { min: 0, max: 1, step: 0.01 }),
+    defaultValue,
+    currentValue: overrideValue ?? defaultValue,
+    hasOverride: overrideValue != null,
   };
 }
 
-function _scheduleInvestmentRecalc() {
+function _normalizeInvestmentOverride(value) {
+  if (value == null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function _investmentOverridePrefs() {
+  return {
+    proj_investment_interest_pct_override: _projState.investmentOverrides.interestPct,
+    proj_investment_contribution_pct_override: _projState.investmentOverrides.contributionPct,
+  };
+}
+
+function _persistInvestmentOverrides() {
+  _saveProjPrefs(_investmentOverridePrefs());
+}
+
+function _clearInvestmentRecalcSchedule() {
   if (_projState.investmentOverrides.debounceId) {
     window.clearTimeout(_projState.investmentOverrides.debounceId);
+    _projState.investmentOverrides.debounceId = null;
   }
+}
+
+function _scheduleInvestmentRecalc() {
+  _clearInvestmentRecalcSchedule();
   _projState.investmentOverrides.debounceId = window.setTimeout(() => {
+    _projState.investmentOverrides.debounceId = null;
+    _persistInvestmentOverrides();
     _loadData();
   }, 180);
 }
@@ -1147,12 +1175,17 @@ function _buildPageShell() {
 // ── Preferences persistence ───────────────────────────────────────────────────
 
 function _saveProjPrefs(patch) {
-  API.put('/settings/preferences', patch).catch(() => {});
+  const request = (typeof Preferences !== 'undefined' && typeof Preferences.save === 'function')
+    ? Preferences.save(patch)
+    : API.put('/settings/preferences', patch);
+  Promise.resolve(request).catch(() => {});
 }
 
 async function _loadProjPrefs() {
   try {
-    const prefs = await API.get('/settings/preferences');
+    const prefs = (typeof State !== 'undefined' && Object.keys(State.userPreferences || {}).length > 0)
+      ? State.userPreferences
+      : await API.get('/settings/preferences');
     if (typeof prefs.proj_horizon === 'number') _projState.horizon = prefs.proj_horizon;
     if (typeof prefs.proj_history_months === 'number') _projState.historyMonths = prefs.proj_history_months;
     if (prefs.proj_trend_income   && typeof prefs.proj_trend_income   === 'object')
@@ -1161,6 +1194,16 @@ async function _loadProjPrefs() {
       Object.assign(_projState.trendSettings.expenses, prefs.proj_trend_expenses);
     if (prefs.proj_trend_investments && typeof prefs.proj_trend_investments === 'object')
       Object.assign(_projState.trendSettings.investments, prefs.proj_trend_investments);
+    _projState.investmentOverrides.interestPct = _normalizeInvestmentOverride(
+      Object.prototype.hasOwnProperty.call(prefs, 'proj_investment_interest_pct_override')
+        ? prefs.proj_investment_interest_pct_override
+        : null
+    );
+    _projState.investmentOverrides.contributionPct = _normalizeInvestmentOverride(
+      Object.prototype.hasOwnProperty.call(prefs, 'proj_investment_contribution_pct_override')
+        ? prefs.proj_investment_contribution_pct_override
+        : null
+    );
     delete _projState.trendSettings.investments.statistic;
   } catch {}
 }
@@ -1470,22 +1513,23 @@ function _renderInvestmentSliders() {
 
   container.style.display = '';
 
-  const interestSlider = model.interest_slider || { min: 0, max: 1, step: 0.01 };
-  const contributionSlider = model.contribution_slider || { min: 0, max: 1, step: 0.01 };
-  const hasInterestOverride = _projState.investmentOverrides.interestPct != null;
-  const hasContributionOverride = _projState.investmentOverrides.contributionPct != null;
-  const interestRaw = hasInterestOverride
-    ? _projState.investmentOverrides.interestPct
-    : (model.default_interest_percent ?? 0);
-  const contributionRaw = hasContributionOverride
-    ? _projState.investmentOverrides.contributionPct
-    : (model.default_contribution_percent ?? 0);
-  const interestValue = _clamp(interestRaw, interestSlider.min, interestSlider.max);
-  const contributionValue = _clamp(contributionRaw, contributionSlider.min, contributionSlider.max);
-  if (hasInterestOverride) _projState.investmentOverrides.interestPct = interestValue;
-  if (hasContributionOverride) _projState.investmentOverrides.contributionPct = contributionValue;
+  const interestMeta = _getInvestmentSliderMeta('interestPct');
+  const contributionMeta = _getInvestmentSliderMeta('contributionPct');
+  const interestValue = _clamp(interestMeta.currentValue, interestMeta.slider.min, interestMeta.slider.max);
+  const contributionValue = _clamp(contributionMeta.currentValue, contributionMeta.slider.min, contributionMeta.slider.max);
+  if (interestMeta.hasOverride) _projState.investmentOverrides.interestPct = interestValue;
+  if (contributionMeta.hasOverride) _projState.investmentOverrides.contributionPct = contributionValue;
 
-  const sliderCard = ({ field, label, value, slider, defaultValue }) => `
+  const sliderCard = ({ field, label, value, slider, defaultValue, hasOverride }) => {
+    const restoreLabel = escapeHtml(t('proj.slider.restore'));
+    const restoreAttrs = hasOverride
+      ? ''
+      : 'disabled';
+    const restoreClasses = hasOverride
+      ? 'text-dark-300 hover:text-blue-300 hover:bg-dark-600'
+      : 'text-dark-600 opacity-60 cursor-not-allowed';
+
+    return `
     <div class="space-y-2">
       <div class="flex items-center justify-between gap-3">
         <div>
@@ -1515,12 +1559,19 @@ function _renderInvestmentSliders() {
                  class="w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-100 text-sm px-2 py-1.5 text-right focus:outline-none focus:border-blue-500">
           <span class="text-xs text-dark-400">%</span>
         </label>
+        <button type="button"
+                onclick="Projections._restoreInvestmentSliderAverage('${field}')"
+                class="tbtn text-[11px] px-2 py-1.5 shrink-0 ${restoreClasses}"
+                title="${restoreLabel}"
+                aria-label="${restoreLabel}"
+                ${restoreAttrs}>↺</button>
       </div>
       <div class="flex items-center justify-between text-[10px] text-dark-500">
         <span>${_fmtSliderPct(slider.min)}</span>
         <span>${_fmtSliderPct(slider.max)}</span>
       </div>
     </div>`;
+  };
 
   body.innerHTML = `
     <div class="space-y-4">
@@ -1529,15 +1580,17 @@ function _renderInvestmentSliders() {
           field: 'interestPct',
           label: t('proj.slider.interest'),
           value: interestValue,
-          slider: interestSlider,
-          defaultValue: model.default_interest_percent ?? 0,
+          slider: interestMeta.slider,
+          defaultValue: interestMeta.defaultValue,
+          hasOverride: interestMeta.hasOverride,
         })}
         ${sliderCard({
           field: 'contributionPct',
           label: t('proj.slider.contribution'),
           value: contributionValue,
-          slider: contributionSlider,
-          defaultValue: model.default_contribution_percent ?? 0,
+          slider: contributionMeta.slider,
+          defaultValue: contributionMeta.defaultValue,
+          hasOverride: contributionMeta.hasOverride,
         })}
       </div>
       <p class="text-[11px] text-dark-500 leading-snug">${t('proj.slider.hint')}</p>
@@ -1705,10 +1758,10 @@ const Projections = {
   },
 
   _onInvestmentSliderFieldChange(field, value) {
-    const { slider, fallback } = _getInvestmentSliderMeta(field);
+    const { slider, currentValue } = _getInvestmentSliderMeta(field);
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) {
-      _updateInvestmentSliderValue(field, fallback);
+      _updateInvestmentSliderValue(field, currentValue);
       return;
     }
 
@@ -1716,6 +1769,17 @@ const Projections = {
     _projState.investmentOverrides[field] = rounded;
     _updateInvestmentSliderValue(field, rounded);
     _scheduleInvestmentRecalc();
+  },
+
+  _restoreInvestmentSliderAverage(field) {
+    const { slider, defaultValue, hasOverride } = _getInvestmentSliderMeta(field);
+    if (!hasOverride) return;
+
+    _clearInvestmentRecalcSchedule();
+    _projState.investmentOverrides[field] = null;
+    _updateInvestmentSliderValue(field, _clamp(defaultValue, slider.min, slider.max));
+    _persistInvestmentOverrides();
+    _loadData();
   },
 
   // ── Series dialog ───────────────────────────────────────────────────────────

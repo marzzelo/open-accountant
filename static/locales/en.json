@@ -534,6 +534,7 @@
   "proj.slider.interest": "Average monthly interest (%)",
   "proj.slider.contribution": "Average manual contribution (%)",
   "proj.slider.default_value": "Calculated average",
+  "proj.slider.restore": "Use calculated average",
   "proj.slider.hint": "The sliders show historical average percentages: investment yield and manual contribution over income. Moving them recalculates every projection.",
   "proj.detail.table_title": "Investment detail",
   "proj.detail.col_month": "Month",
