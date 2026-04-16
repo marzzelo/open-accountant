@@ -1266,13 +1266,18 @@ def get_projections(
         investment_projection_inputs["default_interest_percent"],
         investment_model.get("yield_rate_samples_pct", []),
     )
+    # Force interest slider range to -50..50
+    interest_slider["min"] = -50.0
+    interest_slider["max"] = 50.0
+    interest_slider["step"] = _slider_step(-50.0, 50.0)
     contribution_slider = _build_slider_config(
         investment_projection_inputs["default_contribution_percent"],
         investment_model.get("contribution_rate_samples_pct", []),
     )
-    # Clamp contribution slider to 0-100% range
-    contribution_slider["min"] = max(0.0, contribution_slider["min"])
-    contribution_slider["max"] = min(100.0, contribution_slider["max"])
+    # Force contribution slider range to 0..100
+    contribution_slider["min"] = 0.0
+    contribution_slider["max"] = 100.0
+    contribution_slider["step"] = _slider_step(0.0, 100.0)
 
     has_investments = len(inv_ids) > 0 and current_investment_balance > 0
 
