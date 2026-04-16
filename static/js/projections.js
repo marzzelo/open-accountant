@@ -1366,7 +1366,7 @@ function _renderCharts() {
       type: 'scatter',
       data,
       parsing: false,
-      pointRadius: 3,
+      pointRadius: 2,
       pointBackgroundColor: color,
       pointBorderColor: color,
       showLine: false,
@@ -1381,8 +1381,8 @@ function _renderCharts() {
       data,
       parsing: false,
       pointStyle: 'crossRot',
-      pointRadius: 7,
-      pointHoverRadius: 7,
+      pointRadius: 5,
+      pointHoverRadius: 5,
       pointBorderWidth: 2.5,
       pointBackgroundColor: 'transparent',
       pointBorderColor: '#ef4444',
@@ -1414,7 +1414,7 @@ function _renderCharts() {
       borderColor: color,
       backgroundColor: color + '14',
       borderWidth: 2,
-      pointRadius: 2,
+      pointRadius: 1,
       fill: 'origin',
       tension: 0.3,
       order: yId === 'y2' ? 0 : 1,
@@ -1426,7 +1426,7 @@ function _renderCharts() {
       label,
       type: 'line',
       data,
-      borderColor: color + 'bb',
+      borderColor: color + '77',
       backgroundColor: 'transparent',
       borderWidth: 2,
       borderDash: [10, 5],
@@ -1454,6 +1454,9 @@ function _renderCharts() {
       : [];
     const baselineAssetsFull = displayState
       ? Array(histMonths.length).fill(null).concat(displayState.baselineAssetsProjected)
+      : [];
+    const baselineInvestmentsFull = displayState
+      ? Array(histMonths.length).fill(null).concat(displayState.baselineInvestmentsProjected)
       : [];
     const baselineNonInvestedAssetsFull = displayState
       ? Array(histMonths.length).fill(null).concat(displayState.baselineNonInvestedAssetsProjected)
@@ -1502,10 +1505,11 @@ function _renderCharts() {
       projLine(scenarioLabel(t('proj.chart.assets')),   PROJ_COLORS.assets,   assetsProjFull,  'y2'),
 
       ...(hasInvestments ? [
+        ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.investments')), PROJ_COLORS.investments, baselineInvestmentsFull, 'y2')] : []),
         ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.non_invested_assets')), PROJ_COLORS.nonInvestedAssets, baselineNonInvestedAssetsFull, 'y2')] : []),
         projLine(scenarioLabel(t('proj.chart.non_invested_assets')), PROJ_COLORS.nonInvestedAssets, nonInvestedAssetsProjFull, 'y2'),
         scatter(PROJ_COLORS.investments, invScatter, 'y2'),
-        projLine(t('proj.chart.investments'), PROJ_COLORS.investments, invProjFull, 'y2'),
+        projLine(scenarioLabel(t('proj.chart.investments')), PROJ_COLORS.investments, invProjFull, 'y2'),
       ] : []),
     ];
 
