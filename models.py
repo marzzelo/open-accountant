@@ -265,6 +265,7 @@ class ProjectionSeriesIn(BaseModel):
     type: str = Field(..., pattern=r"^(income|expense)$")
     start_date: str  # "YYYY-MM-DD"
     months: int = Field(..., ge=1)
+    enabled: bool = True
     monthly_amount: float = Field(..., gt=0)
 
 
@@ -273,6 +274,7 @@ class ProjectionSeriesUpdate(BaseModel):
     type: Optional[str] = Field(None, pattern=r"^(income|expense)$")
     start_date: Optional[str] = None
     months: Optional[int] = Field(None, ge=1)
+    enabled: Optional[bool] = None
     monthly_amount: Optional[float] = Field(None, gt=0)
 
 
@@ -282,5 +284,6 @@ class ProjectionSeriesOut(BaseModel):
     type: str
     start_date: str
     months: int
+    enabled: bool
     monthly_amount: float
     created_at: str

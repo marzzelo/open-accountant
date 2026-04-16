@@ -905,6 +905,8 @@ def _compute_series_adjustments(
     expense_adj = [0.0] * n
 
     for s in series_list:
+        if not bool(s.get("enabled", True)):
+            continue
         start_ym = _series_start_month(s["start_date"])
         sy, sm = _parse_month(start_ym)
         for i, pm in enumerate(projected_months):
@@ -951,6 +953,7 @@ def _row_to_dict(row) -> dict:
         "type": row["type"],
         "start_date": str(serialize_temporal_value(row["start_date"])),
         "months": row["months"],
+        "enabled": bool(row["enabled"]),
         "monthly_amount": row["monthly_amount"],
         "created_at": str(serialize_temporal_value(row["created_at"])),
     }
@@ -976,10 +979,17 @@ def get_series(conn, series_id: int) -> dict:
 
 def create_series(conn, data: ProjectionSeriesIn) -> dict:
     row = conn.execute(
-        """INSERT INTO projection_series (name, type, start_date, months, monthly_amount)
-           VALUES (?, ?, ?, ?, ?)
+        """INSERT INTO projection_series (name, type, start_date, months, enabled, monthly_amount)
+           VALUES (?, ?, ?, ?, ?, ?)
            RETURNING id""",
-        (data.name, data.type, data.start_date, data.months, data.monthly_amount),
+        (
+            data.name,
+            data.type,
+            data.start_date,
+            data.months,
+            data.enabled,
+            data.monthly_amount,
+        ),
     )
     series_id = row.fetchone()["id"]
     conn.commit()

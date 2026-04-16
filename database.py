@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS projection_series (
     type           TEXT NOT NULL CHECK(type IN ('income','expense')),
     start_date     TEXT NOT NULL,
     months         INTEGER NOT NULL CHECK(months >= 1),
+    enabled        INTEGER NOT NULL DEFAULT 1,
     monthly_amount REAL NOT NULL CHECK(monthly_amount > 0),
     created_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -240,6 +241,7 @@ CREATE TABLE IF NOT EXISTS oacc_projection_series (
     type           TEXT NOT NULL CHECK(type IN ('income', 'expense')),
     start_date     DATE NOT NULL,
     months         INTEGER NOT NULL CHECK(months >= 1),
+    enabled        BOOLEAN NOT NULL DEFAULT TRUE,
     monthly_amount DOUBLE PRECISION NOT NULL CHECK(monthly_amount > 0),
     created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -633,11 +635,29 @@ def _reset_postgres_sequence(conn, table_name: str, column_name: str = "id"):
     )
 
 
+def _ensure_projection_series_enabled_column(conn):
+    columns = set(table_columns(conn, "projection_series"))
+    if "enabled" in columns:
+        return
+
+    if backend_name(conn) == "postgresql":
+        actual_name = _prefixed_table_name("projection_series")
+        conn.execute(
+            f'ALTER TABLE "{actual_name}" ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE'
+        )
+        return
+
+    conn.execute(
+        "ALTER TABLE projection_series ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1"
+    )
+
+
 def init_db():
     schema = POSTGRES_SCHEMA if backend_name() == "postgresql" else SQLITE_SCHEMA
     with get_db() as conn:
         conn.executescript(schema)
         _ensure_postgres_identity_column(conn, "subtypes")
+        _ensure_projection_series_enabled_column(conn)
         for type_id, type_name in SEED_TYPES:
             conn.execute(
                 "INSERT INTO types (id, name) VALUES (?, ?) ON CONFLICT(id) DO NOTHING",

@@ -11,6 +11,7 @@ from database import get_db, init_db
 from models import (
     AccountIn,
     ProjectionSeriesIn,
+    ProjectionSeriesUpdate,
     AccountUpdate,
     SubtypeIn,
     SubtypeUpdate,
@@ -659,6 +660,72 @@ def test_projection_series_adjustments_accept_date_start_dates():
     assert adjustments["savings"] == [-2000000.0, 0.0, 0.0]
     assert adjustments["assets"] == [-2000000.0, -2000000.0, -2000000.0]
     assert adjustments["liabilities"] == [2000000.0, 2000000.0, 2000000.0]
+
+
+def test_projection_series_adjustments_keep_signs_and_skip_disabled_series():
+    adjustments = projections_service._compute_series_adjustments(
+        [
+            {
+                "id": 1,
+                "name": "bonus",
+                "type": "income",
+                "start_date": "2026-07-01",
+                "months": 2,
+                "enabled": True,
+                "monthly_amount": 1000.0,
+            },
+            {
+                "id": 2,
+                "name": "rent",
+                "type": "expense",
+                "start_date": "2026-07-01",
+                "months": 2,
+                "enabled": True,
+                "monthly_amount": 400.0,
+            },
+            {
+                "id": 3,
+                "name": "ignored",
+                "type": "income",
+                "start_date": "2026-07-01",
+                "months": 2,
+                "enabled": False,
+                "monthly_amount": 999.0,
+            },
+        ],
+        ["2026-07", "2026-08", "2026-09"],
+    )
+
+    assert adjustments["income"] == [1000.0, 1000.0, 0.0]
+    assert adjustments["expenses"] == [400.0, 400.0, 0.0]
+    assert adjustments["savings"] == [600.0, 600.0, 0.0]
+    assert adjustments["assets"] == [600.0, 1200.0, 1200.0]
+    assert adjustments["liabilities"] == [400.0, 800.0, 800.0]
+
+
+def test_projection_series_service_persists_enabled_state(initialized_environment):
+    with get_db() as conn:
+        created = projections_service.create_series(
+            conn,
+            ProjectionSeriesIn(
+                name="Rent",
+                type="expense",
+                start_date="2026-07-01",
+                months=6,
+                enabled=False,
+                monthly_amount=500.0,
+            ),
+        )
+
+        assert created["enabled"] is False
+
+        updated = projections_service.update_series(
+            conn,
+            created["id"],
+            ProjectionSeriesUpdate(enabled=True),
+        )
+
+    assert updated["enabled"] is True
 
 
 def test_tags_service_crud_assignment_and_report_filters(initialized_environment):

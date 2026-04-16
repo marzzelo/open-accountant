@@ -77,11 +77,16 @@ function _parseMonth(m) {
 
 function _monthActive(series, monthStr) {
   // Returns true if monthStr (YYYY-MM) falls within the series date range
+  if (series.enabled === false) return false;
   const start = series.start_date.slice(0, 7); // YYYY-MM
   const { y: sy, mo: sm } = _parseMonth(start);
   const { y: my, mo: mm } = _parseMonth(monthStr);
   const idx = (my - sy) * 12 + (mm - sm);
   return idx >= 0 && idx < series.months;
+}
+
+function _hasActiveSeries() {
+  return _projState.series.some(series => series.enabled !== false);
 }
 
 function _getLastKnownValue(metric, projData) {
@@ -295,6 +300,7 @@ function _renderSeriesTable() {
   const expenseTotals = new Array(projMonths.length).fill(0);
 
   const rows = series.map(s => {
+    const enabled = s.enabled !== false;
     const typeBadge = s.type === 'income'
       ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-ingreso/20 text-ingreso">${t('proj.series.type_income')}</span>`
       : `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gasto/20 text-gasto">${t('proj.series.type_expense')}</span>`;
@@ -309,7 +315,7 @@ function _renderSeriesTable() {
       return `<td class="px-2 py-1 text-right text-xs text-dark-600">—</td>`;
     }).join('');
 
-    return `<tr class="border-t border-dark-700 hover:bg-dark-700/30">
+    return `<tr class="border-t border-dark-700 hover:bg-dark-700/30 ${enabled ? '' : 'opacity-60'}">
       <td class="sticky left-0 z-10 bg-dark-800 px-3 py-2 min-w-[180px]">
         <div class="flex items-center gap-2">
           <span class="text-sm text-dark-200 truncate max-w-[120px]" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span>
@@ -318,6 +324,13 @@ function _renderSeriesTable() {
       </td>
       <td class="px-2 py-1 text-right">
         <div class="flex items-center justify-end gap-1">
+          <label class="inline-flex items-center gap-1.5 text-[11px] text-dark-400 mr-1" title="${escapeHtml(t('proj.series.enabled'))}">
+            <input type="checkbox"
+                   class="h-3.5 w-3.5 rounded border-dark-500 bg-dark-700 text-blue-500 focus:ring-blue-500/40"
+                   ${enabled ? 'checked' : ''}
+                   onchange="Projections.toggleSeriesEnabled(${s.id}, this.checked)">
+            <span>${t('proj.series.enabled_short')}</span>
+          </label>
           <button onclick="Projections.openSeriesDialog(${s.id})"
                   class="text-dark-400 hover:text-dark-200 text-xs px-1.5 py-0.5 rounded hover:bg-dark-600">✏️</button>
           <button onclick="Projections.deleteSeries(${s.id})"
@@ -486,6 +499,7 @@ function _deriveProjectionDisplayState() {
     .map(row => _roundProjectionValue(row.manual_contribution || 0));
 
   const currentAssets = Number(projData.current_balances?.total_assets || 0);
+  const hasActiveSeries = _hasActiveSeries();
 
   return {
     projData,
@@ -517,6 +531,7 @@ function _deriveProjectionDisplayState() {
       scenarioSavingsProjected,
       projectedReturns,
     ),
+    hasActiveSeries,
   };
 }
 
@@ -1239,6 +1254,8 @@ function _renderCharts() {
   const expProj  = expensesResult._raw.projFull;
   const incTrend = incomeResult._raw.trendData;
   const expTrend = expensesResult._raw.trendData;
+  const displayState = _deriveProjectionDisplayState();
+  const hasActiveSeries = Boolean(displayState?.hasActiveSeries);
 
   const incHistMap = {}, expHistMap = {}, assetsHistMap = {};
   (projData.historical.income   || []).forEach(p => { incHistMap[p.month]    = p.value; });
@@ -1357,6 +1374,40 @@ function _renderCharts() {
       yAxisID: yId,
     });
 
+    const baselineLine = (label, color, data, yId) => ({
+      label,
+      type: 'line',
+      data,
+      borderColor: color + 'bb',
+      backgroundColor: 'transparent',
+      borderWidth: 2,
+      borderDash: [10, 5],
+      pointRadius: 0,
+      fill: false,
+      tension: 0.25,
+      order: yId === 'y2' ? 1 : 2,
+      spanGaps: false,
+      yAxisID: yId,
+    });
+
+    const scenarioLabel = label => hasActiveSeries
+      ? `${label} (${t('proj.chart.with_series')})`
+      : label;
+    const baselineLabel = label => `${label} (${t('proj.chart.without_series')})`;
+
+    const baselineIncomeFull = displayState
+      ? Array(histMonths.length).fill(null).concat(displayState.baselineIncomeProjected)
+      : [];
+    const baselineExpensesFull = displayState
+      ? Array(histMonths.length).fill(null).concat(displayState.baselineExpenseProjected)
+      : [];
+    const baselineSavingsFull = displayState
+      ? Array(histMonths.length).fill(null).concat(displayState.baselineSavingsProjected)
+      : [];
+    const baselineAssetsFull = displayState
+      ? Array(histMonths.length).fill(null).concat(displayState.baselineAssetsProjected)
+      : [];
+
     const incScatter  = pickScatterData(incomeResult);
     const incOutliers = pickScatterData(incomeResult, 'crossRot');
     const expScatter  = pickScatterData(expensesResult);
@@ -1379,19 +1430,23 @@ function _renderCharts() {
       scatter(PROJ_COLORS.income,   incScatter,   'y'),
       ...(incOutliers.length ? [outlierMarks(t('proj.chart.income'), incOutliers, 'y')] : []),
       ...(incTrend ? [trendLine(PROJ_COLORS.income,   incTrend,         'y')] : []),
-      projLine(t('proj.chart.income'),   PROJ_COLORS.income,   incProj,         'y'),
+      ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.income')), PROJ_COLORS.income, baselineIncomeFull, 'y')] : []),
+      projLine(scenarioLabel(t('proj.chart.income')),   PROJ_COLORS.income,   incProj,         'y'),
 
       scatter(PROJ_COLORS.expenses, expScatter,   'y'),
       ...(expOutliers.length ? [outlierMarks(t('proj.chart.expenses'), expOutliers, 'y')] : []),
       ...(expTrend ? [trendLine(PROJ_COLORS.expenses, expTrend,         'y')] : []),
-      projLine(t('proj.chart.expenses'), PROJ_COLORS.expenses, expProj,         'y'),
+      ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.expenses')), PROJ_COLORS.expenses, baselineExpensesFull, 'y')] : []),
+      projLine(scenarioLabel(t('proj.chart.expenses')), PROJ_COLORS.expenses, expProj,         'y'),
 
       scatter(PROJ_COLORS.savings,  savScatter,   'y'),
       ...(savingsTrendData ? [trendLine(PROJ_COLORS.savings, savingsTrendData, 'y')] : []),
-      projLine(t('proj.chart.savings'),  PROJ_COLORS.savings,  savingsProjFull, 'y'),
+      ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.savings')), PROJ_COLORS.savings, baselineSavingsFull, 'y')] : []),
+      projLine(scenarioLabel(t('proj.chart.savings')),  PROJ_COLORS.savings,  savingsProjFull, 'y'),
 
       scatter(PROJ_COLORS.assets,   assetScatter, 'y2'),
-      projLine(t('proj.chart.assets'),   PROJ_COLORS.assets,   assetsProjFull,  'y2'),
+      ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.assets')), PROJ_COLORS.assets, baselineAssetsFull, 'y2')] : []),
+      projLine(scenarioLabel(t('proj.chart.assets')),   PROJ_COLORS.assets,   assetsProjFull,  'y2'),
 
       ...(hasInvestments ? [
         scatter(PROJ_COLORS.investments, invScatter, 'y2'),
@@ -1800,6 +1855,20 @@ const Projections = {
       await _loadData();
     } catch (e) {
       Toast.show(e.message, 'err');
+    }
+  },
+
+  async toggleSeriesEnabled(id, enabled) {
+    const series = _projState.series.find(item => item.id === id);
+    if (!series || series.enabled === enabled) return;
+
+    try {
+      await API.put(`/projections/series/${id}`, { enabled });
+      Toast.show(enabled ? t('proj.series.enabled_on') : t('proj.series.enabled_off'));
+      await _loadData();
+    } catch (e) {
+      Toast.show(e.message, 'err');
+      await _loadData();
     }
   },
 };
