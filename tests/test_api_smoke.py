@@ -337,6 +337,10 @@ def test_init_db_bootstraps_single_database_schema(isolated_paths):
         tx_columns = {
             row[1] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()
         }
+        projection_series_columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(projection_series)").fetchall()
+        }
 
     assert {
         "settings",
@@ -354,6 +358,35 @@ def test_init_db_bootstraps_single_database_schema(isolated_paths):
         "fx_rate",
         "fx_source",
     } <= tx_columns
+    assert "enabled" in projection_series_columns
+
+
+def test_projection_series_can_be_toggled_via_api(client):
+    create_response = client.post(
+        "/api/projections/series",
+        json={
+            "name": "Bonus",
+            "type": "income",
+            "start_date": "2026-07-01",
+            "months": 3,
+            "monthly_amount": 300.0,
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["enabled"] is True
+
+    disable_response = client.put(
+        f"/api/projections/series/{created['id']}",
+        json={"enabled": False},
+    )
+    assert disable_response.status_code == 200
+    assert disable_response.json()["enabled"] is False
+
+    list_response = client.get("/api/projections/series")
+    assert list_response.status_code == 200
+    listed = next(item for item in list_response.json() if item["id"] == created["id"])
+    assert listed["enabled"] is False
 
 
 def test_reports_and_csv_export_work_for_basic_journal_flow(client):

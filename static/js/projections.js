@@ -35,6 +35,7 @@ const PROJ_COLORS = {
   assets:      '#4fc3f7',
   liabilities: '#ce93d8',
   investments: '#ff9800',
+  nonInvestedAssets: '#26a69a',
 };
 
 function _fmtProjRatio(value) {
@@ -77,11 +78,16 @@ function _parseMonth(m) {
 
 function _monthActive(series, monthStr) {
   // Returns true if monthStr (YYYY-MM) falls within the series date range
+  if (series.enabled === false) return false;
   const start = series.start_date.slice(0, 7); // YYYY-MM
   const { y: sy, mo: sm } = _parseMonth(start);
   const { y: my, mo: mm } = _parseMonth(monthStr);
   const idx = (my - sy) * 12 + (mm - sm);
   return idx >= 0 && idx < series.months;
+}
+
+function _hasActiveSeries() {
+  return _projState.series.some(series => series.enabled !== false);
 }
 
 function _getLastKnownValue(metric, projData) {
@@ -321,23 +327,37 @@ function _renderSeriesTable() {
   // Income and expense totals per projected month
   const incomeTotals = new Array(projMonths.length).fill(0);
   const expenseTotals = new Array(projMonths.length).fill(0);
+  const investmentTotals = new Array(projMonths.length).fill(0);
+  const rescueTotals = new Array(projMonths.length).fill(0);
+
+  const _seriesTypeBadge = (type) => {
+    const map = {
+      income:     { css: 'bg-ingreso/20 text-ingreso', key: 'proj.series.type_income' },
+      expense:    { css: 'bg-gasto/20 text-gasto',     key: 'proj.series.type_expense' },
+      investment: { css: 'bg-orange-500/20 text-orange-400', key: 'proj.series.type_investment' },
+      rescue:     { css: 'bg-cyan-500/20 text-cyan-400',     key: 'proj.series.type_rescue' },
+    };
+    const m = map[type] || map.expense;
+    return `<span class="text-[10px] px-1.5 py-0.5 rounded ${m.css}">${t(m.key)}</span>`;
+  };
 
   const rows = series.map(s => {
-    const typeBadge = s.type === 'income'
-      ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-ingreso/20 text-ingreso">${t('proj.series.type_income')}</span>`
-      : `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gasto/20 text-gasto">${t('proj.series.type_expense')}</span>`;
+    const enabled = s.enabled !== false;
+    const typeBadge = _seriesTypeBadge(s.type);
 
     const cells = projMonths.map((m, i) => {
       const active = _monthActive(s, m);
       if (active) {
         if (s.type === 'income') incomeTotals[i] += s.monthly_amount;
-        else expenseTotals[i] += s.monthly_amount;
+        else if (s.type === 'expense') expenseTotals[i] += s.monthly_amount;
+        else if (s.type === 'investment') investmentTotals[i] += s.monthly_amount;
+        else if (s.type === 'rescue') rescueTotals[i] += s.monthly_amount;
         return `<td class="px-2 py-1 text-right text-xs text-dark-200 whitespace-nowrap">${fmt(s.monthly_amount)}</td>`;
       }
       return `<td class="px-2 py-1 text-right text-xs text-dark-600">—</td>`;
     }).join('');
 
-    return `<tr class="border-t border-dark-700 hover:bg-dark-700/30">
+    return `<tr class="border-t border-dark-700 hover:bg-dark-700/30 ${enabled ? '' : 'opacity-60'}">
       <td class="sticky left-0 z-10 bg-dark-800 px-3 py-2 min-w-[180px]">
         <div class="flex items-center gap-2">
           <span class="text-sm text-dark-200 truncate max-w-[120px]" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</span>
@@ -346,6 +366,13 @@ function _renderSeriesTable() {
       </td>
       <td class="px-2 py-1 text-right">
         <div class="flex items-center justify-end gap-1">
+          <label class="inline-flex items-center gap-1.5 text-[11px] text-dark-400 mr-1" title="${escapeHtml(t('proj.series.enabled'))}">
+            <input type="checkbox"
+                   class="h-3.5 w-3.5 rounded border-dark-500 bg-dark-700 text-blue-500 focus:ring-blue-500/40"
+                   ${enabled ? 'checked' : ''}
+                   onchange="Projections.toggleSeriesEnabled(${s.id}, this.checked)">
+            <span>${t('proj.series.enabled_short')}</span>
+          </label>
           <button onclick="Projections.openSeriesDialog(${s.id})"
                   class="text-dark-400 hover:text-dark-200 text-xs px-1.5 py-0.5 rounded hover:bg-dark-600">✏️</button>
           <button onclick="Projections.deleteSeries(${s.id})"
@@ -362,6 +389,12 @@ function _renderSeriesTable() {
   ).join('');
   const expenseTotalCells = expenseTotals.map(v =>
     `<td class="px-2 py-1.5 text-right text-xs font-medium text-gasto whitespace-nowrap">${v > 0 ? fmt(v) : '—'}</td>`
+  ).join('');
+  const investmentTotalCells = investmentTotals.map(v =>
+    `<td class="px-2 py-1.5 text-right text-xs font-medium text-orange-400 whitespace-nowrap">${v > 0 ? fmt(v) : '—'}</td>`
+  ).join('');
+  const rescueTotalCells = rescueTotals.map(v =>
+    `<td class="px-2 py-1.5 text-right text-xs font-medium text-cyan-400 whitespace-nowrap">${v > 0 ? fmt(v) : '—'}</td>`
   ).join('');
 
   container.innerHTML = `
@@ -385,6 +418,16 @@ function _renderSeriesTable() {
             <td class="sticky left-0 z-10 bg-dark-700/50 px-3 py-1.5 text-xs font-semibold text-gasto">${t('proj.series.col.expense_total')}</td>
             <td></td>
             ${expenseTotalCells}
+          </tr>
+          <tr class="border-t border-dark-600 bg-dark-700/20">
+            <td class="sticky left-0 z-10 bg-dark-700/50 px-3 py-1.5 text-xs font-semibold text-orange-400">${t('proj.series.col.investment_total')}</td>
+            <td></td>
+            ${investmentTotalCells}
+          </tr>
+          <tr class="border-t border-dark-600 bg-dark-700/20">
+            <td class="sticky left-0 z-10 bg-dark-700/50 px-3 py-1.5 text-xs font-semibold text-cyan-400">${t('proj.series.col.rescue_total')}</td>
+            <td></td>
+            ${rescueTotalCells}
           </tr>
         </tbody>
       </table>
@@ -430,6 +473,22 @@ function _buildProjectedAssetSeries(
       running
       + Number(savings || 0)
       + Number(projectedReturns[index] || 0)
+    );
+    return running;
+  });
+}
+
+function _buildProjectedInvestmentSeries(
+  currentInvestments,
+  projectedReturns,
+  projectedContributions,
+) {
+  let running = Number(currentInvestments || 0);
+  return projectedReturns.map((interest, index) => {
+    running = _roundProjectionValue(
+      running
+      + Number(interest || 0)
+      + Number(projectedContributions[index] || 0)
     );
     return running;
   });
@@ -511,9 +570,59 @@ function _deriveProjectionDisplayState() {
     .map(row => _roundProjectionValue(row.interest_total || 0));
   const projectedContributions = (projData.investment_detail || [])
     .filter(row => row.is_projected)
-    .map(row => _roundProjectionValue(row.manual_contribution || 0));
+    .map(row => _roundProjectionValue(
+      (row.manual_contribution || 0) + (row.series_transfer || 0)
+    ));
+
+  const baselineReturns = (projData.baseline_projection?.returns || [])
+    .map(value => _roundProjectionValue(value));
 
   const currentAssets = Number(projData.current_balances?.total_assets || 0);
+  const currentInvestments = Number(projData.current_balances?.total_investments || 0);
+  const hasActiveSeries = _hasActiveSeries();
+
+  const baselineAssetsProjected = _buildProjectedAssetSeries(
+    currentAssets,
+    baselineSavingsProjected,
+    baselineReturns,
+  );
+  const scenarioAssetsProjected = _buildProjectedAssetSeries(
+    currentAssets,
+    scenarioSavingsProjected,
+    projectedReturns,
+  );
+  const baselineInvestmentsProjected = (projData.baseline_projection?.investments || [])
+    .map(value => _roundProjectionValue(value));
+  // Build scenario investments + non-invested assets jointly.
+  // If non-invested assets would go negative, reduce investments (rescue)
+  // so that non-invested assets floor at zero.
+  const scenarioInvestmentsProjected = [];
+  const scenarioNonInvestedAssetsProjected = [];
+  {
+    let invRunning = currentInvestments;
+    for (let i = 0; i < projMonths.length; i++) {
+      // Investment balance (interest + contribution + series transfers already included)
+      let naiveInv = _roundProjectionValue(
+        invRunning + Number(projectedReturns[i] || 0) + Number(projectedContributions[i] || 0)
+      );
+      const totalAssets = Number(scenarioAssetsProjected[i] || 0);
+      let nonInv = _roundProjectionValue(totalAssets - naiveInv);
+      let inv = naiveInv;
+      if (nonInv < 0) {
+        // Rescue: reduce investments so non-invested = 0
+        inv = _roundProjectionValue(inv + nonInv); // inv -= |nonInv|
+        if (inv < 0) inv = 0;
+        nonInv = _roundProjectionValue(totalAssets - inv);
+        if (nonInv < 0) nonInv = 0;
+      }
+      scenarioInvestmentsProjected.push(inv);
+      scenarioNonInvestedAssetsProjected.push(nonInv);
+      invRunning = inv;
+    }
+  }
+  const baselineNonInvestedAssetsProjected = baselineAssetsProjected.map((value, index) =>
+    _roundProjectionValue(Number(value || 0) - Number(baselineInvestmentsProjected[index] || 0))
+  );
 
   return {
     projData,
@@ -535,16 +644,13 @@ function _deriveProjectionDisplayState() {
     scenarioSavingsProjected,
     projectedReturns,
     projectedContributions,
-    baselineAssetsProjected: _buildProjectedAssetSeries(
-      currentAssets,
-      baselineSavingsProjected,
-      projectedReturns,
-    ),
-    scenarioAssetsProjected: _buildProjectedAssetSeries(
-      currentAssets,
-      scenarioSavingsProjected,
-      projectedReturns,
-    ),
+    baselineAssetsProjected,
+    scenarioAssetsProjected,
+    baselineInvestmentsProjected,
+    scenarioInvestmentsProjected,
+    baselineNonInvestedAssetsProjected,
+    scenarioNonInvestedAssetsProjected,
+    hasActiveSeries,
   };
 }
 
@@ -1154,7 +1260,7 @@ function _buildPageShell() {
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-5" id="proj-charts-grid">
         <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 lg:col-span-2">
           <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3" id="proj-chart-combined-title">${t('proj.chart.combined')}</h3>
-          <canvas id="ch-proj-combined" height="220"></canvas>
+          <canvas id="ch-proj-combined" height="180"></canvas>
         </div>
       </div>
 
@@ -1226,6 +1332,16 @@ async function _loadData() {
     if (incomeMax != null) projUrl += `&income_trend_max=${encodeURIComponent(incomeMax)}`;
     if (incomeInflationBase != null) projUrl += `&income_inflation_base=${encodeURIComponent(incomeInflationBase)}`;
     if (incomeInflationRate != null) projUrl += `&income_inflation_rate=${encodeURIComponent(incomeInflationRate)}`;
+    const expenses = _projState.trendSettings.expenses;
+    projUrl += `&expense_trend_mode=${encodeURIComponent(expenses.mode || 'linear')}`;
+    const expenseMin = expenses.minVal !== '' ? _parseTrendSettingNumber(expenses.minVal, 'minVal') : null;
+    const expenseMax = expenses.maxVal !== '' ? _parseTrendSettingNumber(expenses.maxVal, 'maxVal') : null;
+    const expenseInflationBase = expenses.inflationBase !== '' ? _parseTrendSettingNumber(expenses.inflationBase, 'inflationBase') : null;
+    const expenseInflationRate = expenses.inflationRate !== '' ? _parseTrendSettingNumber(expenses.inflationRate, 'inflationRate') : null;
+    if (expenseMin != null) projUrl += `&expense_trend_min=${encodeURIComponent(expenseMin)}`;
+    if (expenseMax != null) projUrl += `&expense_trend_max=${encodeURIComponent(expenseMax)}`;
+    if (expenseInflationBase != null) projUrl += `&expense_inflation_base=${encodeURIComponent(expenseInflationBase)}`;
+    if (expenseInflationRate != null) projUrl += `&expense_inflation_rate=${encodeURIComponent(expenseInflationRate)}`;
     if (inv.lookbackMonths != null) projUrl += `&investment_lookback_months=${inv.lookbackMonths}`;
     projUrl += `&investment_include_current_month=${inv.includeCurrentMonth === true}`;
     projUrl += `&investment_exclude_outliers=${inv.excludeOutliers !== false}`;
@@ -1282,6 +1398,8 @@ function _renderCharts() {
   const expProj  = expensesResult._raw.projFull;
   const incTrend = incomeResult._raw.trendData;
   const expTrend = expensesResult._raw.trendData;
+  const displayState = _deriveProjectionDisplayState();
+  const hasActiveSeries = Boolean(displayState?.hasActiveSeries);
 
   const incHistMap = {}, expHistMap = {}, assetsHistMap = {};
   (projData.historical.income   || []).forEach(p => { incHistMap[p.month]    = p.value; });
@@ -1344,7 +1462,7 @@ function _renderCharts() {
       type: 'scatter',
       data,
       parsing: false,
-      pointRadius: 3,
+      pointRadius: 2,
       pointBackgroundColor: color,
       pointBorderColor: color,
       showLine: false,
@@ -1359,8 +1477,8 @@ function _renderCharts() {
       data,
       parsing: false,
       pointStyle: 'crossRot',
-      pointRadius: 7,
-      pointHoverRadius: 7,
+      pointRadius: 5,
+      pointHoverRadius: 5,
       pointBorderWidth: 2.5,
       pointBackgroundColor: 'transparent',
       pointBorderColor: '#ef4444',
@@ -1377,7 +1495,11 @@ function _renderCharts() {
       backgroundColor: 'transparent',
       borderWidth: 1.5,
       borderDash: [6, 4],
-      pointRadius: 0,
+      pointRadius: 1.5,
+      pointHoverRadius: 2.5,
+      pointBackgroundColor: color + '88',
+      pointBorderColor: color + '88',
+      pointBorderWidth: 0,
       fill: false,
       tension: 0,
       order: 3,
@@ -1392,7 +1514,7 @@ function _renderCharts() {
       borderColor: color,
       backgroundColor: color + '14',
       borderWidth: 2,
-      pointRadius: 2,
+      pointRadius: 1,
       fill: 'origin',
       tension: 0.3,
       order: yId === 'y2' ? 0 : 1,
@@ -1400,45 +1522,123 @@ function _renderCharts() {
       yAxisID: yId,
     });
 
+    const baselineLine = (label, color, data, yId) => ({
+      label,
+      type: 'line',
+      data,
+      borderColor: color + '77',
+      backgroundColor: 'transparent',
+      borderWidth: 2,
+      borderDash: [10, 5],
+      pointRadius: 1.75,
+      pointHoverRadius: 2.75,
+      pointBackgroundColor: color + 'aa',
+      pointBorderColor: color + 'aa',
+      pointBorderWidth: 0,
+      fill: false,
+      tension: 0.25,
+      order: yId === 'y2' ? 1 : 2,
+      spanGaps: false,
+      yAxisID: yId,
+    });
+
+    const mergedDashedProjection = (trendData, projectedTail) => {
+      const historical = Array.from({ length: histMonths.length }, (_, index) => {
+        const value = Array.isArray(trendData) ? trendData[index] : null;
+        return value == null ? null : Math.round(Number(value) * 100) / 100;
+      });
+      return historical.concat(projectedTail);
+    };
+
+    const mergedHistoricalProjection = (historicalMap, projectedTail) => {
+      const historical = histMonths.map(month => {
+        const value = historicalMap?.[month];
+        return value == null ? null : Math.round(Number(value) * 100) / 100;
+      });
+      return historical.concat(projectedTail);
+    };
+
+    const scenarioLabel = label => hasActiveSeries
+      ? `${label} (${t('proj.chart.with_series')})`
+      : label;
+    const baselineLabel = label => `${label} (${t('proj.chart.without_series')})`;
+
     const incScatter  = pickScatterData(incomeResult);
     const incOutliers = pickScatterData(incomeResult, 'crossRot');
     const expScatter  = pickScatterData(expensesResult);
     const expOutliers = pickScatterData(expensesResult, 'crossRot');
     const savScatter  = histMonths.filter(m => incHistMap[m]  != null && expHistMap[m] != null)
                                   .map(m => ({ x: m, y: Math.round((incHistMap[m] - expHistMap[m]) * 100) / 100 }));
+    const savHistMap = Object.fromEntries(
+      histMonths
+        .filter(m => incHistMap[m] != null && expHistMap[m] != null)
+        .map(m => [m, Math.round((incHistMap[m] - expHistMap[m]) * 100) / 100])
+    );
     const assetScatter = histMonths.filter(m => assetsHistMap[m] != null).map(m => ({ x: m, y: assetsHistMap[m] }));
 
     // ── Investment data for combined chart ──
     const invHistMap = {};
     (projData.historical.investments || []).forEach(p => { invHistMap[p.month] = p.value; });
+    const nonInvestedAssetsHistMap = Object.fromEntries(
+      histMonths
+        .filter(m => assetsHistMap[m] != null && invHistMap[m] != null)
+        .map(m => [m, Math.round((assetsHistMap[m] - invHistMap[m]) * 100) / 100])
+    );
     const invScatter = histMonths.filter(m => invHistMap[m] != null).map(m => ({ x: m, y: invHistMap[m] }));
-    const invBaseline = projData.baseline_projection.investments || [];
     const invProjFull = Array(histMonths.length).fill(null).concat(
-      invBaseline.map(v => Math.round(v * 100) / 100)
+      (displayState?.scenarioInvestmentsProjected || []).map(v => Math.round(v * 100) / 100)
+    );
+    const nonInvestedAssetsProjFull = Array(histMonths.length).fill(null).concat(
+      (displayState?.scenarioNonInvestedAssetsProjected || []).map(v => Math.round(v * 100) / 100)
     );
     const hasInvestments = projData.investment_model?.enabled === true;
+    const baselineIncomeFull = displayState
+      ? mergedDashedProjection(incTrend, displayState.baselineIncomeProjected)
+      : [];
+    const baselineExpensesFull = displayState
+      ? mergedDashedProjection(expTrend, displayState.baselineExpenseProjected)
+      : [];
+    const baselineSavingsFull = displayState
+      ? mergedDashedProjection(savingsTrendData, displayState.baselineSavingsProjected)
+      : [];
+    const baselineAssetsFull = displayState
+      ? mergedHistoricalProjection(assetsHistMap, displayState.baselineAssetsProjected)
+      : [];
+    const baselineInvestmentsFull = displayState
+      ? mergedHistoricalProjection(invHistMap, displayState.baselineInvestmentsProjected)
+      : [];
+    const baselineNonInvestedAssetsFull = displayState
+      ? mergedHistoricalProjection(nonInvestedAssetsHistMap, displayState.baselineNonInvestedAssetsProjected)
+      : [];
 
     const datasets = [
       scatter(PROJ_COLORS.income,   incScatter,   'y'),
       ...(incOutliers.length ? [outlierMarks(t('proj.chart.income'), incOutliers, 'y')] : []),
-      ...(incTrend ? [trendLine(PROJ_COLORS.income,   incTrend,         'y')] : []),
-      projLine(t('proj.chart.income'),   PROJ_COLORS.income,   incProj,         'y'),
+      ...(!hasActiveSeries && incTrend ? [trendLine(PROJ_COLORS.income, incTrend, 'y')] : []),
+      ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.income')), PROJ_COLORS.income, baselineIncomeFull, 'y')] : []),
+      projLine(scenarioLabel(t('proj.chart.income')),   PROJ_COLORS.income,   incProj,         'y'),
 
       scatter(PROJ_COLORS.expenses, expScatter,   'y'),
       ...(expOutliers.length ? [outlierMarks(t('proj.chart.expenses'), expOutliers, 'y')] : []),
-      ...(expTrend ? [trendLine(PROJ_COLORS.expenses, expTrend,         'y')] : []),
-      projLine(t('proj.chart.expenses'), PROJ_COLORS.expenses, expProj,         'y'),
+      ...(!hasActiveSeries && expTrend ? [trendLine(PROJ_COLORS.expenses, expTrend, 'y')] : []),
+      ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.expenses')), PROJ_COLORS.expenses, baselineExpensesFull, 'y')] : []),
+      projLine(scenarioLabel(t('proj.chart.expenses')), PROJ_COLORS.expenses, expProj,         'y'),
 
       scatter(PROJ_COLORS.savings,  savScatter,   'y'),
-      ...(savingsTrendData ? [trendLine(PROJ_COLORS.savings, savingsTrendData, 'y')] : []),
-      projLine(t('proj.chart.savings'),  PROJ_COLORS.savings,  savingsProjFull, 'y'),
+      ...(!hasActiveSeries && savingsTrendData ? [trendLine(PROJ_COLORS.savings, savingsTrendData, 'y')] : []),
+      ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.savings')), PROJ_COLORS.savings, baselineSavingsFull, 'y')] : []),
+      projLine(scenarioLabel(t('proj.chart.savings')),  PROJ_COLORS.savings,  savingsProjFull, 'y'),
 
       scatter(PROJ_COLORS.assets,   assetScatter, 'y2'),
-      projLine(t('proj.chart.assets'),   PROJ_COLORS.assets,   assetsProjFull,  'y2'),
+      ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.assets')), PROJ_COLORS.assets, baselineAssetsFull, 'y2')] : []),
+      projLine(scenarioLabel(t('proj.chart.assets')),   PROJ_COLORS.assets,   assetsProjFull,  'y2'),
 
       ...(hasInvestments ? [
+        ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.investments')), PROJ_COLORS.investments, baselineInvestmentsFull, 'y2')] : []),
+        ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.non_invested_assets')), PROJ_COLORS.nonInvestedAssets, baselineNonInvestedAssetsFull, 'y2')] : []),
+        projLine(scenarioLabel(t('proj.chart.non_invested_assets')), PROJ_COLORS.nonInvestedAssets, nonInvestedAssetsProjFull, 'y2'),
         scatter(PROJ_COLORS.investments, invScatter, 'y2'),
-        projLine(t('proj.chart.investments'), PROJ_COLORS.investments, invProjFull, 'y2'),
+        projLine(scenarioLabel(t('proj.chart.investments')), PROJ_COLORS.investments, invProjFull, 'y2'),
       ] : []),
     ];
 
@@ -1634,12 +1834,14 @@ function _renderInvestmentDetailTable() {
       : (row.is_current_partial ? ` <span class="text-[9px] text-amber-400 uppercase tracking-wide">${escapeHtml(t('proj.detail.partial_badge'))}</span>` : '');
     return `<tr class="${cls} ${bgCls} border-b border-dark-700 hover:bg-dark-700/40">
       <td class="px-3 py-1.5 whitespace-nowrap text-xs">${escapeHtml(row.month)}${monthBadge}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.total_income)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.total_expense)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.net_result)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.contribution_pct_result)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.manual_contribution)}</td>
       <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.investment_balance)}</td>
       <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.interest_pct_investments)}</td>
-      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.manual_contribution)}</td>
-      <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.contribution_pct_income)}</td>
-      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.total_income)}</td>
-      <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.interest_pct_income)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.dividends)}</td>
     </tr>`;
   }).join('');
 
@@ -1649,12 +1851,14 @@ function _renderInvestmentDetailTable() {
         <thead>
           <tr class="text-[10px] text-dark-400 uppercase tracking-wide border-b border-dark-600">
             <th class="px-3 py-2">${t('proj.detail.col_month')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_total_income')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_total_expense')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_net_result')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_contribution_pct_result')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_contribution')}</th>
             <th class="px-3 py-2 text-right">${t('proj.detail.col_investment_balance')}</th>
             <th class="px-3 py-2 text-right">${t('proj.detail.col_interest')}</th>
-            <th class="px-3 py-2 text-right">${t('proj.detail.col_contribution')}</th>
-            <th class="px-3 py-2 text-right">${t('proj.detail.col_contribution_pct')}</th>
-            <th class="px-3 py-2 text-right">${t('proj.detail.col_total_income')}</th>
-            <th class="px-3 py-2 text-right">${t('proj.detail.col_interest_pct_income')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_dividends')}</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -1710,7 +1914,7 @@ const Projections = {
     }
     _saveProjPrefs({ [`proj_trend_${metricKey}`]: _projState.trendSettings[metricKey] });
     _renderTrendPanel();
-    if (metricKey === 'income') _loadData();
+    if (metricKey === 'income' || metricKey === 'expenses') _loadData();
     else _renderCharts();
   },
 
@@ -1725,7 +1929,7 @@ const Projections = {
     _projState.trendSettings[metricKey][field] = normalized.normalized;
     _saveProjPrefs({ [`proj_trend_${metricKey}`]: _projState.trendSettings[metricKey] });
     _renderTrendPanel();
-    if (metricKey === 'income') _loadData();
+    if (metricKey === 'income' || metricKey === 'expenses') _loadData();
     else _renderCharts();
   },
 
@@ -1802,6 +2006,8 @@ const Projections = {
                  class="w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-200 text-sm px-3 py-2 focus:outline-none focus:border-blue-500">
                 <option value="income" ${existing?.type === 'income' ? 'selected' : ''}>${t('proj.series.type_income')}</option>
                 <option value="expense" ${existing?.type === 'expense' ? 'selected' : ''}>${t('proj.series.type_expense')}</option>
+                <option value="investment" ${existing?.type === 'investment' ? 'selected' : ''}>${t('proj.series.type_investment')}</option>
+                <option value="rescue" ${existing?.type === 'rescue' ? 'selected' : ''}>${t('proj.series.type_rescue')}</option>
               </select>`),
           T.group(t('proj.series.start_date'),
               `<input type="month" id="ps-start" value="${startVal}"
@@ -1864,6 +2070,20 @@ const Projections = {
       await _loadData();
     } catch (e) {
       Toast.show(e.message, 'err');
+    }
+  },
+
+  async toggleSeriesEnabled(id, enabled) {
+    const series = _projState.series.find(item => item.id === id);
+    if (!series || series.enabled === enabled) return;
+
+    try {
+      await API.put(`/projections/series/${id}`, { enabled });
+      Toast.show(enabled ? t('proj.series.enabled_on') : t('proj.series.enabled_off'));
+      await _loadData();
+    } catch (e) {
+      Toast.show(e.message, 'err');
+      await _loadData();
     }
   },
 };

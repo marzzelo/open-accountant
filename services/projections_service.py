@@ -739,6 +739,7 @@ def _estimate_investment_model(
     contrib_map: dict[str, float],
     income_map: dict[str, float],
     *,
+    expense_map: dict[str, float] | None = None,
     stat: str = "mean",
     exclude_outliers: bool = True,
     outlier_k: float = 1.5,
@@ -746,8 +747,10 @@ def _estimate_investment_model(
     """Estimate monthly yield and contribution rates from trailing data.
 
     Yield is interest / investment base for the month.
-    Contribution rate is manual contribution / total income for the month.
+    Contribution rate is manual contribution / net result (income - expenses).
     """
+    if expense_map is None:
+        expense_map = {}
     stat = _normalize_investment_stat(stat)
     interest_samples: list[dict] = []
     contribution_samples: list[dict] = []
@@ -760,16 +763,18 @@ def _estimate_investment_model(
 
         contrib_val = contrib_map.get(m, 0.0)
         income_val = income_map.get(m)
+        expense_val = expense_map.get(m, 0.0)
+        result_val = (income_val - expense_val) if income_val is not None else None
         if (
-            income_val is not None
-            and income_val > 0
+            result_val is not None
+            and result_val > 0
             and (has_investment_context or m in contrib_map)
         ):
             contribution_samples.append(
                 {
                     "amount": float(contrib_val),
-                    "rate": float(contrib_val) / float(income_val),
-                    "income": float(income_val),
+                    "rate": float(contrib_val) / float(result_val),
+                    "income": float(result_val),
                 }
             )
 
@@ -851,28 +856,54 @@ def _project_investments(
     yield_rate: float,
     contribution_rate: float,
     projected_income: list[float],
+    projected_expenses: list[float],
     baseline_savings: list[float],
     horizon: int,
+    investment_adj: list[float] | None = None,
 ) -> tuple[list[float], list[float], list[dict]]:
     """Project investment and non-investment assets jointly.
 
-    contribution_rate is the fraction of projected income contributed to
-    investments each period. Returns (investments, non_inv_assets, detail).
+    contribution_rate is the fraction of net result (income - expenses)
+    contributed to investments each period.
+    investment_adj: per-period net investment series adjustment
+      (positive = invest from savings, negative = rescue back to savings).
+      Capped so savings don't go negative (investment) or investments
+      don't go negative (rescue).
+    Returns (investments, non_inv_assets, detail).
     """
     investments: list[float] = []
     non_inv_assets: list[float] = []
     detail: list[dict] = []
     inv_bal = current_investment_balance
     non_inv_bal = current_non_inv_assets
+    _inv_adj = investment_adj or [0.0] * horizon
     for i in range(horizon):
         opening_investment_balance = inv_bal
         projected_income_i = max(
             0.0, projected_income[i] if i < len(projected_income) else 0.0
         )
-        contribution = contribution_rate * projected_income_i
+        projected_expense_i = max(
+            0.0, projected_expenses[i] if i < len(projected_expenses) else 0.0
+        )
+        net_result_i = max(0.0, projected_income_i - projected_expense_i)
+        contribution = contribution_rate * net_result_i
         interest = inv_bal * yield_rate
-        inv_bal = max(0.0, inv_bal + interest + contribution)
-        non_inv_savings = baseline_savings[i] - contribution
+
+        # Apply investment/rescue series adjustment
+        raw_adj = _inv_adj[i] if i < len(_inv_adj) else 0.0
+        if raw_adj > 0:
+            # Investment: cap to available non-invested assets after savings
+            available = max(0.0, non_inv_bal + baseline_savings[i] - contribution)
+            series_transfer = min(raw_adj, available)
+        elif raw_adj < 0:
+            # Rescue: cap to current investment balance (after interest + contribution)
+            available_inv = max(0.0, inv_bal + interest + contribution)
+            series_transfer = -min(-raw_adj, available_inv)
+        else:
+            series_transfer = 0.0
+
+        inv_bal = max(0.0, inv_bal + interest + contribution + series_transfer)
+        non_inv_savings = baseline_savings[i] - contribution - series_transfer
         non_inv_bal = max(0.0, non_inv_bal + non_inv_savings)
         investments.append(round(inv_bal, 4))
         non_inv_assets.append(round(non_inv_bal, 4))
@@ -882,7 +913,10 @@ def _project_investments(
                 "interest": round(interest, 4),
                 "interest_total": round(interest, 4),
                 "contribution": round(contribution, 4),
+                "series_transfer": round(series_transfer, 4),
                 "projected_income": round(projected_income_i, 4),
+                "projected_expense": round(projected_expense_i, 4),
+                "net_result": round(net_result_i, 4),
             }
         )
     return investments, non_inv_assets, detail
@@ -903,8 +937,11 @@ def _compute_series_adjustments(
     n = len(projected_months)
     income_adj = [0.0] * n
     expense_adj = [0.0] * n
+    investment_adj = [0.0] * n  # positive = invest, negative = rescue
 
     for s in series_list:
+        if not bool(s.get("enabled", True)):
+            continue
         start_ym = _series_start_month(s["start_date"])
         sy, sm = _parse_month(start_ym)
         for i, pm in enumerate(projected_months):
@@ -913,8 +950,12 @@ def _compute_series_adjustments(
             if 0 <= month_idx < s["months"]:
                 if s["type"] == "income":
                     income_adj[i] += s["monthly_amount"]
-                else:
+                elif s["type"] == "expense":
                     expense_adj[i] += s["monthly_amount"]
+                elif s["type"] == "investment":
+                    investment_adj[i] += s["monthly_amount"]
+                elif s["type"] == "rescue":
+                    investment_adj[i] -= s["monthly_amount"]
 
     savings_adj = [income_adj[i] - expense_adj[i] for i in range(n)]
 
@@ -938,6 +979,7 @@ def _compute_series_adjustments(
         "savings": savings_adj,
         "assets": assets_adj,
         "liabilities": liabilities_adj,
+        "investments": investment_adj,
     }
 
 
@@ -951,6 +993,7 @@ def _row_to_dict(row) -> dict:
         "type": row["type"],
         "start_date": str(serialize_temporal_value(row["start_date"])),
         "months": row["months"],
+        "enabled": bool(row["enabled"]),
         "monthly_amount": row["monthly_amount"],
         "created_at": str(serialize_temporal_value(row["created_at"])),
     }
@@ -976,10 +1019,17 @@ def get_series(conn, series_id: int) -> dict:
 
 def create_series(conn, data: ProjectionSeriesIn) -> dict:
     row = conn.execute(
-        """INSERT INTO projection_series (name, type, start_date, months, monthly_amount)
-           VALUES (?, ?, ?, ?, ?)
+        """INSERT INTO projection_series (name, type, start_date, months, enabled, monthly_amount)
+           VALUES (?, ?, ?, ?, ?, ?)
            RETURNING id""",
-        (data.name, data.type, data.start_date, data.months, data.monthly_amount),
+        (
+            data.name,
+            data.type,
+            data.start_date,
+            data.months,
+            data.enabled,
+            data.monthly_amount,
+        ),
     )
     series_id = row.fetchone()["id"]
     conn.commit()
@@ -1029,6 +1079,11 @@ def get_projections(
     income_trend_max: float | None = None,
     income_inflation_base: float | None = None,
     income_inflation_rate: float | None = None,
+    expense_trend_mode: str = "linear",
+    expense_trend_min: float | None = None,
+    expense_trend_max: float | None = None,
+    expense_inflation_base: float | None = None,
+    expense_inflation_rate: float | None = None,
     investment_lookback_months: int | None = None,
     investment_include_current_month: bool = False,
     investment_stat: str = "mean",
@@ -1186,7 +1241,7 @@ def get_projections(
     )
 
     # Total income for the investment lookback/detail period.
-    inv_income_map_full, _ = _get_monthly_cashflow(
+    inv_income_map_full, inv_expense_map_full = _get_monthly_cashflow(
         conn, inv_data_start, current_partial_end
     )
 
@@ -1220,6 +1275,7 @@ def get_projections(
         div_map,
         contrib_map,
         inv_income_map_full,
+        expense_map=inv_expense_map_full,
         stat=investment_stat,
         exclude_outliers=investment_exclude_outliers,
         outlier_k=investment_outlier_k,
@@ -1237,10 +1293,18 @@ def get_projections(
         investment_projection_inputs["default_interest_percent"],
         investment_model.get("yield_rate_samples_pct", []),
     )
+    # Force interest slider range to -50..50
+    interest_slider["min"] = -50.0
+    interest_slider["max"] = 50.0
+    interest_slider["step"] = _slider_step(-50.0, 50.0)
     contribution_slider = _build_slider_config(
         investment_projection_inputs["default_contribution_percent"],
         investment_model.get("contribution_rate_samples_pct", []),
     )
+    # Force contribution slider range to 0..100
+    contribution_slider["min"] = 0.0
+    contribution_slider["max"] = 100.0
+    contribution_slider["step"] = _slider_step(0.0, 100.0)
 
     has_investments = len(inv_ids) > 0 and current_investment_balance > 0
 
@@ -1288,15 +1352,43 @@ def get_projections(
         inflation_base=income_inflation_base,
         inflation_rate=income_inflation_rate,
     )
-    baseline_expenses = _project(reg_expenses[0], reg_expenses[1], n_hist, horizon)
+    baseline_expenses = _project_flow_from_settings(
+        sparse_expenses,
+        n_hist,
+        horizon,
+        mode=expense_trend_mode,
+        min_val=expense_trend_min,
+        max_val=expense_trend_max,
+        inflation_base=expense_inflation_base,
+        inflation_rate=expense_inflation_rate,
+    )
     baseline_savings = [
         round(baseline_income[i] - baseline_expenses[i], 4) for i in range(horizon)
     ]
 
+    # ── Series adjustments (computed early so investments reflect them) ──
+    series_list = list_series(conn)
+    adj = _compute_series_adjustments(series_list, projected_months)
+
+    scenario_income = [
+        round(baseline_income[i] + adj["income"][i], 4) for i in range(horizon)
+    ]
+    scenario_expenses = [
+        round(baseline_expenses[i] + adj["expenses"][i], 4) for i in range(horizon)
+    ]
+    scenario_savings = [
+        round(scenario_income[i] - scenario_expenses[i], 4) for i in range(horizon)
+    ]
+
     # ── Investment projection (joint iteration) ──
+    # Scenario: includes all series (income/expense/investment/rescue)
     baseline_investments: list[float] = []
     baseline_non_inv_assets: list[float] = []
     _proj_detail: list[dict] = []
+    # True baseline: without any series adjustments
+    true_baseline_investments: list[float] = []
+    true_baseline_non_inv_assets: list[float] = []
+    true_baseline_detail: list[dict] = []
     if has_investments:
         baseline_investments, baseline_non_inv_assets, _proj_detail = (
             _project_investments(
@@ -1304,16 +1396,33 @@ def get_projections(
                 current_non_inv_assets,
                 investment_projection_inputs["applied_yield_rate"],
                 investment_projection_inputs["applied_contribution_rate"],
-                baseline_income,
-                baseline_savings,
+                scenario_income,
+                scenario_expenses,
+                scenario_savings,
                 horizon,
+                investment_adj=adj["investments"],
             )
+        )
+        (
+            true_baseline_investments,
+            true_baseline_non_inv_assets,
+            true_baseline_detail,
+        ) = _project_investments(
+            current_investment_balance,
+            current_non_inv_assets,
+            investment_projection_inputs["applied_yield_rate"],
+            investment_projection_inputs["applied_contribution_rate"],
+            baseline_income,
+            baseline_expenses,
+            baseline_savings,
+            horizon,
         )
     else:
         baseline_investments = [round(current_investment_balance, 4)] * horizon
+        true_baseline_investments = list(baseline_investments)
         cum_non_inv_savings = 0.0
         for i in range(horizon):
-            cum_non_inv_savings += baseline_savings[i]
+            cum_non_inv_savings += scenario_savings[i]
             val = max(0.0, current_non_inv_assets + cum_non_inv_savings)
             baseline_non_inv_assets.append(round(val, 4))
             _proj_detail.append(
@@ -1323,14 +1432,33 @@ def get_projections(
                     "interest_total": 0.0,
                     "contribution": 0.0,
                     "projected_income": round(
-                        baseline_income[i] if i < len(baseline_income) else 0.0, 4
+                        scenario_income[i] if i < len(scenario_income) else 0.0, 4
+                    ),
+                    "projected_expense": round(
+                        scenario_expenses[i] if i < len(scenario_expenses) else 0.0, 4
+                    ),
+                    "net_result": round(
+                        max(
+                            0.0,
+                            (scenario_income[i] if i < len(scenario_income) else 0.0)
+                            - (
+                                scenario_expenses[i]
+                                if i < len(scenario_expenses)
+                                else 0.0
+                            ),
+                        ),
+                        4,
                     ),
                 }
             )
 
     # Total assets = non-investment assets + projected investments
+    # Use true baseline (without series) for the baseline projection.
+    true_baseline_non_inv = (
+        true_baseline_non_inv_assets if has_investments else baseline_non_inv_assets
+    )
     baseline_assets = [
-        round(baseline_non_inv_assets[i] + baseline_investments[i], 4)
+        round(true_baseline_non_inv[i] + true_baseline_investments[i], 4)
         for i in range(horizon)
     ]
 
@@ -1339,10 +1467,6 @@ def get_projections(
     for i in range(horizon):
         val = round(max(0.0, reg_liabilities[1] + reg_liabilities[0] * (n_hist + i)), 4)
         baseline_liabilities.append(val)
-
-    # ── Series adjustments ──
-    series_list = list_series(conn)
-    adj = _compute_series_adjustments(series_list, projected_months)
 
     observed_hist_months = max(
         len([m for m in all_hist_months if m in income_map or m in expense_map]), 1
@@ -1356,7 +1480,11 @@ def get_projections(
         round(baseline_assets[i] - baseline_liabilities[i], 4) for i in range(horizon)
     ]
     scenario_assets = [
-        round(baseline_assets[i] + adj["assets"][i], 4) for i in range(horizon)
+        round(baseline_non_inv_assets[i] + baseline_investments[i], 4)
+        for i in range(horizon)
+    ]
+    adj["assets"] = [
+        round(scenario_assets[i] - baseline_assets[i], 4) for i in range(horizon)
     ]
     scenario_liabilities = [
         round(baseline_liabilities[i] + adj["liabilities"][i], 4)
@@ -1381,7 +1509,7 @@ def get_projections(
     baseline_current_assets = [
         round(
             current_assets_only
-            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets),
+            + max(0.0, true_baseline_non_inv[i] - current_non_inv_assets),
             4,
         )
         for i in range(horizon)
@@ -1389,16 +1517,14 @@ def get_projections(
     scenario_current_assets = [
         round(
             current_assets_only
-            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets)
-            + adj["assets"][i],
+            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets),
             4,
         )
         for i in range(horizon)
     ]
     baseline_quick_assets = [
         round(
-            quick_assets
-            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets),
+            quick_assets + max(0.0, true_baseline_non_inv[i] - current_non_inv_assets),
             4,
         )
         for i in range(horizon)
@@ -1406,8 +1532,7 @@ def get_projections(
     scenario_quick_assets = [
         round(
             quick_assets
-            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets)
-            + adj["assets"][i],
+            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets),
             4,
         )
         for i in range(horizon)
@@ -1563,6 +1688,14 @@ def get_projections(
         div_income = div_map.get(m, 0.0)
         contrib = contrib_map.get(m, 0.0)
         income_m = inv_income_map_full.get(m, 0.0)
+        expense_m = inv_expense_map_full.get(m, 0.0)
+        result_m = income_m - expense_m
+        contribution_pct_income = (
+            round(contrib / income_m * 100, 4) if income_m and income_m > 0 else None
+        )
+        interest_pct_income = (
+            round(div_income / income_m * 100, 4) if income_m and income_m > 0 else None
+        )
         _investment_detail.append(
             {
                 "month": m,
@@ -1579,25 +1712,39 @@ def get_projections(
                     else None
                 ),
                 "manual_contribution": round(contrib, 4),
-                "contribution_pct_income": (
-                    round(contrib / income_m * 100, 4)
-                    if income_m and income_m > 0
-                    else None
+                "contribution_pct_income": contribution_pct_income,
+                "contribution_pct_result": (
+                    round(contrib / result_m * 100, 4) if result_m > 0 else None
                 ),
                 "total_income": round(income_m, 4),
-                "interest_pct_income": (
-                    round(div_income / income_m * 100, 4)
-                    if income_m and income_m > 0
-                    else None
-                ),
+                "total_expense": round(expense_m, 4),
+                "net_result": round(result_m, 4),
+                "interest_pct_income": interest_pct_income,
+                "dividends": round(div_income, 4),
             }
         )
     for i, m in enumerate(projected_months):
         detail_i = _proj_detail[i] if i < len(_proj_detail) else {}
-        proj_income_i = baseline_income[i] if i < len(baseline_income) else 0
+        proj_income_i = detail_i.get(
+            "projected_income", scenario_income[i] if i < len(scenario_income) else 0
+        )
+        proj_expense_i = detail_i.get(
+            "projected_expense",
+            scenario_expenses[i] if i < len(scenario_expenses) else 0,
+        )
+        net_result_i = detail_i.get(
+            "net_result", max(0.0, proj_income_i - proj_expense_i)
+        )
         interest_i = detail_i.get("interest_total", detail_i.get("interest", 0))
         contrib_i = detail_i.get("contribution", 0)
+        series_transfer_i = detail_i.get("series_transfer", 0)
         opening_investment_balance = detail_i.get("opening_investment_balance", 0)
+        contribution_pct_income = (
+            round(contrib_i / proj_income_i * 100, 4) if proj_income_i > 0 else None
+        )
+        interest_pct_income = (
+            round(interest_i / proj_income_i * 100, 4) if proj_income_i > 0 else None
+        )
         _investment_detail.append(
             {
                 "month": m,
@@ -1613,17 +1760,18 @@ def get_projections(
                     else 0.0
                 ),
                 "manual_contribution": round(contrib_i, 4),
-                "contribution_pct_income": (
-                    round(contrib_i / proj_income_i * 100, 4)
-                    if proj_income_i > 0
+                "series_transfer": round(series_transfer_i, 4),
+                "contribution_pct_income": contribution_pct_income,
+                "contribution_pct_result": (
+                    round(contrib_i / net_result_i * 100, 4)
+                    if net_result_i > 0
                     else None
                 ),
                 "total_income": round(proj_income_i, 4),
-                "interest_pct_income": (
-                    round(interest_i / proj_income_i * 100, 4)
-                    if proj_income_i > 0
-                    else None
-                ),
+                "total_expense": round(proj_expense_i, 4),
+                "net_result": round(net_result_i, 4),
+                "interest_pct_income": interest_pct_income,
+                "dividends": round(interest_i, 4),
             }
         )
 
@@ -1689,7 +1837,15 @@ def get_projections(
             "savings": baseline_savings,
             "assets": baseline_assets,
             "liabilities": baseline_liabilities,
-            "investments": baseline_investments,
+            "investments": true_baseline_investments,
+            "returns": [
+                round(d.get("interest_total", 0.0), 4)
+                for d in (
+                    true_baseline_detail
+                    if has_investments
+                    else [{"interest_total": 0.0}] * horizon
+                )
+            ],
         },
         "series_adjustment": adj,
         "current_balances": {
