@@ -501,6 +501,7 @@
   "proj.chart.expenses": "Expenses",
   "proj.chart.savings": "Savings",
   "proj.chart.assets": "Assets (projected)",
+  "proj.chart.non_invested_assets": "Non-invested assets",
   "proj.chart.liabilities": "Liabilities (projected)",
   "proj.chart.outliers": "Outliers (excluded)",
   "proj.chart.combined": "Projected Income · Expenses · Savings · Assets",

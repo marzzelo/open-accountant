@@ -35,6 +35,7 @@ const PROJ_COLORS = {
   assets:      '#4fc3f7',
   liabilities: '#ce93d8',
   investments: '#ff9800',
+  nonInvestedAssets: '#26a69a',
 };
 
 function _fmtProjRatio(value) {
@@ -420,6 +421,22 @@ function _buildProjectedAssetSeries(
   });
 }
 
+function _buildProjectedInvestmentSeries(
+  currentInvestments,
+  projectedReturns,
+  projectedContributions,
+) {
+  let running = Number(currentInvestments || 0);
+  return projectedReturns.map((interest, index) => {
+    running = _roundProjectionValue(
+      running
+      + Number(interest || 0)
+      + Number(projectedContributions[index] || 0)
+    );
+    return running;
+  });
+}
+
 function _deriveProjectionDisplayState() {
   const projData = _projState.projData;
   if (!projData) return null;
@@ -499,7 +516,32 @@ function _deriveProjectionDisplayState() {
     .map(row => _roundProjectionValue(row.manual_contribution || 0));
 
   const currentAssets = Number(projData.current_balances?.total_assets || 0);
+  const currentInvestments = Number(projData.current_balances?.total_investments || 0);
   const hasActiveSeries = _hasActiveSeries();
+
+  const baselineAssetsProjected = _buildProjectedAssetSeries(
+    currentAssets,
+    baselineSavingsProjected,
+    projectedReturns,
+  );
+  const scenarioAssetsProjected = _buildProjectedAssetSeries(
+    currentAssets,
+    scenarioSavingsProjected,
+    projectedReturns,
+  );
+  const baselineInvestmentsProjected = (projData.baseline_projection?.investments || [])
+    .map(value => _roundProjectionValue(value));
+  const scenarioInvestmentsProjected = _buildProjectedInvestmentSeries(
+    currentInvestments,
+    projectedReturns,
+    projectedContributions,
+  );
+  const baselineNonInvestedAssetsProjected = baselineAssetsProjected.map((value, index) =>
+    _roundProjectionValue(Number(value || 0) - Number(baselineInvestmentsProjected[index] || 0))
+  );
+  const scenarioNonInvestedAssetsProjected = scenarioAssetsProjected.map((value, index) =>
+    _roundProjectionValue(Number(value || 0) - Number(scenarioInvestmentsProjected[index] || 0))
+  );
 
   return {
     projData,
@@ -521,16 +563,12 @@ function _deriveProjectionDisplayState() {
     scenarioSavingsProjected,
     projectedReturns,
     projectedContributions,
-    baselineAssetsProjected: _buildProjectedAssetSeries(
-      currentAssets,
-      baselineSavingsProjected,
-      projectedReturns,
-    ),
-    scenarioAssetsProjected: _buildProjectedAssetSeries(
-      currentAssets,
-      scenarioSavingsProjected,
-      projectedReturns,
-    ),
+    baselineAssetsProjected,
+    scenarioAssetsProjected,
+    baselineInvestmentsProjected,
+    scenarioInvestmentsProjected,
+    baselineNonInvestedAssetsProjected,
+    scenarioNonInvestedAssetsProjected,
     hasActiveSeries,
   };
 }
@@ -1417,6 +1455,9 @@ function _renderCharts() {
     const baselineAssetsFull = displayState
       ? Array(histMonths.length).fill(null).concat(displayState.baselineAssetsProjected)
       : [];
+    const baselineNonInvestedAssetsFull = displayState
+      ? Array(histMonths.length).fill(null).concat(displayState.baselineNonInvestedAssetsProjected)
+      : [];
 
     const incScatter  = pickScatterData(incomeResult);
     const incOutliers = pickScatterData(incomeResult, 'crossRot');
@@ -1430,9 +1471,11 @@ function _renderCharts() {
     const invHistMap = {};
     (projData.historical.investments || []).forEach(p => { invHistMap[p.month] = p.value; });
     const invScatter = histMonths.filter(m => invHistMap[m] != null).map(m => ({ x: m, y: invHistMap[m] }));
-    const invBaseline = projData.baseline_projection.investments || [];
     const invProjFull = Array(histMonths.length).fill(null).concat(
-      invBaseline.map(v => Math.round(v * 100) / 100)
+      (displayState?.scenarioInvestmentsProjected || []).map(v => Math.round(v * 100) / 100)
+    );
+    const nonInvestedAssetsProjFull = Array(histMonths.length).fill(null).concat(
+      (displayState?.scenarioNonInvestedAssetsProjected || []).map(v => Math.round(v * 100) / 100)
     );
     const hasInvestments = projData.investment_model?.enabled === true;
 
@@ -1459,6 +1502,8 @@ function _renderCharts() {
       projLine(scenarioLabel(t('proj.chart.assets')),   PROJ_COLORS.assets,   assetsProjFull,  'y2'),
 
       ...(hasInvestments ? [
+        ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.non_invested_assets')), PROJ_COLORS.nonInvestedAssets, baselineNonInvestedAssetsFull, 'y2')] : []),
+        projLine(scenarioLabel(t('proj.chart.non_invested_assets')), PROJ_COLORS.nonInvestedAssets, nonInvestedAssetsProjFull, 'y2'),
         scatter(PROJ_COLORS.investments, invScatter, 'y2'),
         projLine(t('proj.chart.investments'), PROJ_COLORS.investments, invProjFull, 'y2'),
       ] : []),

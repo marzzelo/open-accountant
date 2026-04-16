@@ -501,6 +501,7 @@
   "proj.chart.expenses": "Gastos",
   "proj.chart.savings": "Ahorros",
   "proj.chart.assets": "Activo (proyectado)",
+  "proj.chart.non_invested_assets": "Activo no invertido",
   "proj.chart.liabilities": "Pasivo (proyectado)",
   "proj.chart.outliers": "Atípicos (excluidos)",
   "proj.chart.combined": "Ingresos · Gastos · Ahorros · Activo proyectados",
