@@ -1499,11 +1499,48 @@ function _renderCharts() {
       return historical.concat(projectedTail);
     };
 
+    const mergedHistoricalProjection = (historicalMap, projectedTail) => {
+      const historical = histMonths.map(month => {
+        const value = historicalMap?.[month];
+        return value == null ? null : Math.round(Number(value) * 100) / 100;
+      });
+      return historical.concat(projectedTail);
+    };
+
     const scenarioLabel = label => hasActiveSeries
       ? `${label} (${t('proj.chart.with_series')})`
       : label;
     const baselineLabel = label => `${label} (${t('proj.chart.without_series')})`;
 
+    const incScatter  = pickScatterData(incomeResult);
+    const incOutliers = pickScatterData(incomeResult, 'crossRot');
+    const expScatter  = pickScatterData(expensesResult);
+    const expOutliers = pickScatterData(expensesResult, 'crossRot');
+    const savScatter  = histMonths.filter(m => incHistMap[m]  != null && expHistMap[m] != null)
+                                  .map(m => ({ x: m, y: Math.round((incHistMap[m] - expHistMap[m]) * 100) / 100 }));
+    const savHistMap = Object.fromEntries(
+      histMonths
+        .filter(m => incHistMap[m] != null && expHistMap[m] != null)
+        .map(m => [m, Math.round((incHistMap[m] - expHistMap[m]) * 100) / 100])
+    );
+    const assetScatter = histMonths.filter(m => assetsHistMap[m] != null).map(m => ({ x: m, y: assetsHistMap[m] }));
+
+    // ── Investment data for combined chart ──
+    const invHistMap = {};
+    (projData.historical.investments || []).forEach(p => { invHistMap[p.month] = p.value; });
+    const nonInvestedAssetsHistMap = Object.fromEntries(
+      histMonths
+        .filter(m => assetsHistMap[m] != null && invHistMap[m] != null)
+        .map(m => [m, Math.round((assetsHistMap[m] - invHistMap[m]) * 100) / 100])
+    );
+    const invScatter = histMonths.filter(m => invHistMap[m] != null).map(m => ({ x: m, y: invHistMap[m] }));
+    const invProjFull = Array(histMonths.length).fill(null).concat(
+      (displayState?.scenarioInvestmentsProjected || []).map(v => Math.round(v * 100) / 100)
+    );
+    const nonInvestedAssetsProjFull = Array(histMonths.length).fill(null).concat(
+      (displayState?.scenarioNonInvestedAssetsProjected || []).map(v => Math.round(v * 100) / 100)
+    );
+    const hasInvestments = projData.investment_model?.enabled === true;
     const baselineIncomeFull = displayState
       ? mergedDashedProjection(incTrend, displayState.baselineIncomeProjected)
       : [];
@@ -1514,34 +1551,14 @@ function _renderCharts() {
       ? mergedDashedProjection(savingsTrendData, displayState.baselineSavingsProjected)
       : [];
     const baselineAssetsFull = displayState
-      ? Array(histMonths.length).fill(null).concat(displayState.baselineAssetsProjected)
+      ? mergedHistoricalProjection(assetsHistMap, displayState.baselineAssetsProjected)
       : [];
     const baselineInvestmentsFull = displayState
-      ? Array(histMonths.length).fill(null).concat(displayState.baselineInvestmentsProjected)
+      ? mergedHistoricalProjection(invHistMap, displayState.baselineInvestmentsProjected)
       : [];
     const baselineNonInvestedAssetsFull = displayState
-      ? Array(histMonths.length).fill(null).concat(displayState.baselineNonInvestedAssetsProjected)
+      ? mergedHistoricalProjection(nonInvestedAssetsHistMap, displayState.baselineNonInvestedAssetsProjected)
       : [];
-
-    const incScatter  = pickScatterData(incomeResult);
-    const incOutliers = pickScatterData(incomeResult, 'crossRot');
-    const expScatter  = pickScatterData(expensesResult);
-    const expOutliers = pickScatterData(expensesResult, 'crossRot');
-    const savScatter  = histMonths.filter(m => incHistMap[m]  != null && expHistMap[m] != null)
-                                  .map(m => ({ x: m, y: Math.round((incHistMap[m] - expHistMap[m]) * 100) / 100 }));
-    const assetScatter = histMonths.filter(m => assetsHistMap[m] != null).map(m => ({ x: m, y: assetsHistMap[m] }));
-
-    // ── Investment data for combined chart ──
-    const invHistMap = {};
-    (projData.historical.investments || []).forEach(p => { invHistMap[p.month] = p.value; });
-    const invScatter = histMonths.filter(m => invHistMap[m] != null).map(m => ({ x: m, y: invHistMap[m] }));
-    const invProjFull = Array(histMonths.length).fill(null).concat(
-      (displayState?.scenarioInvestmentsProjected || []).map(v => Math.round(v * 100) / 100)
-    );
-    const nonInvestedAssetsProjFull = Array(histMonths.length).fill(null).concat(
-      (displayState?.scenarioNonInvestedAssetsProjected || []).map(v => Math.round(v * 100) / 100)
-    );
-    const hasInvestments = projData.investment_model?.enabled === true;
 
     const datasets = [
       scatter(PROJ_COLORS.income,   incScatter,   'y'),
