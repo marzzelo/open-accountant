@@ -546,6 +546,9 @@ function _deriveProjectionDisplayState() {
       (row.manual_contribution || 0) + (row.series_transfer || 0)
     ));
 
+  const baselineReturns = (projData.baseline_projection?.returns || [])
+    .map(value => _roundProjectionValue(value));
+
   const currentAssets = Number(projData.current_balances?.total_assets || 0);
   const currentInvestments = Number(projData.current_balances?.total_investments || 0);
   const hasActiveSeries = _hasActiveSeries();
@@ -553,7 +556,7 @@ function _deriveProjectionDisplayState() {
   const baselineAssetsProjected = _buildProjectedAssetSeries(
     currentAssets,
     baselineSavingsProjected,
-    projectedReturns,
+    baselineReturns,
   );
   const scenarioAssetsProjected = _buildProjectedAssetSeries(
     currentAssets,

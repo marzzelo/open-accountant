@@ -1387,6 +1387,8 @@ def get_projections(
     _proj_detail: list[dict] = []
     # True baseline: without any series adjustments
     true_baseline_investments: list[float] = []
+    true_baseline_non_inv_assets: list[float] = []
+    true_baseline_detail: list[dict] = []
     if has_investments:
         baseline_investments, baseline_non_inv_assets, _proj_detail = (
             _project_investments(
@@ -1401,7 +1403,7 @@ def get_projections(
                 investment_adj=adj["investments"],
             )
         )
-        true_baseline_investments, _, _ = (
+        true_baseline_investments, true_baseline_non_inv_assets, true_baseline_detail = (
             _project_investments(
                 current_investment_balance,
                 current_non_inv_assets,
@@ -1440,8 +1442,12 @@ def get_projections(
             )
 
     # Total assets = non-investment assets + projected investments
+    # Use true baseline (without series) for the baseline projection.
+    true_baseline_non_inv = (
+        true_baseline_non_inv_assets if has_investments else baseline_non_inv_assets
+    )
     baseline_assets = [
-        round(baseline_non_inv_assets[i] + baseline_investments[i], 4)
+        round(true_baseline_non_inv[i] + true_baseline_investments[i], 4)
         for i in range(horizon)
     ]
 
@@ -1463,7 +1469,11 @@ def get_projections(
         round(baseline_assets[i] - baseline_liabilities[i], 4) for i in range(horizon)
     ]
     scenario_assets = [
-        round(baseline_assets[i] + adj["assets"][i], 4) for i in range(horizon)
+        round(baseline_non_inv_assets[i] + baseline_investments[i], 4)
+        for i in range(horizon)
+    ]
+    adj["assets"] = [
+        round(scenario_assets[i] - baseline_assets[i], 4) for i in range(horizon)
     ]
     scenario_liabilities = [
         round(baseline_liabilities[i] + adj["liabilities"][i], 4)
@@ -1488,7 +1498,7 @@ def get_projections(
     baseline_current_assets = [
         round(
             current_assets_only
-            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets),
+            + max(0.0, true_baseline_non_inv[i] - current_non_inv_assets),
             4,
         )
         for i in range(horizon)
@@ -1496,8 +1506,7 @@ def get_projections(
     scenario_current_assets = [
         round(
             current_assets_only
-            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets)
-            + adj["assets"][i],
+            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets),
             4,
         )
         for i in range(horizon)
@@ -1505,7 +1514,7 @@ def get_projections(
     baseline_quick_assets = [
         round(
             quick_assets
-            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets),
+            + max(0.0, true_baseline_non_inv[i] - current_non_inv_assets),
             4,
         )
         for i in range(horizon)
@@ -1513,8 +1522,7 @@ def get_projections(
     scenario_quick_assets = [
         round(
             quick_assets
-            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets)
-            + adj["assets"][i],
+            + max(0.0, baseline_non_inv_assets[i] - current_non_inv_assets),
             4,
         )
         for i in range(horizon)
@@ -1799,6 +1807,10 @@ def get_projections(
             "assets": baseline_assets,
             "liabilities": baseline_liabilities,
             "investments": true_baseline_investments,
+            "returns": [
+                round(d.get("interest_total", 0.0), 4)
+                for d in (true_baseline_detail if has_investments else [{"interest_total": 0.0}] * horizon)
+            ],
         },
         "series_adjustment": adj,
         "current_balances": {
