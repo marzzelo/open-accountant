@@ -916,6 +916,7 @@ def _compute_series_adjustments(
     n = len(projected_months)
     income_adj = [0.0] * n
     expense_adj = [0.0] * n
+    investment_adj = [0.0] * n  # positive = invest, negative = rescue
 
     for s in series_list:
         if not bool(s.get("enabled", True)):
@@ -928,8 +929,12 @@ def _compute_series_adjustments(
             if 0 <= month_idx < s["months"]:
                 if s["type"] == "income":
                     income_adj[i] += s["monthly_amount"]
-                else:
+                elif s["type"] == "expense":
                     expense_adj[i] += s["monthly_amount"]
+                elif s["type"] == "investment":
+                    investment_adj[i] += s["monthly_amount"]
+                elif s["type"] == "rescue":
+                    investment_adj[i] -= s["monthly_amount"]
 
     savings_adj = [income_adj[i] - expense_adj[i] for i in range(n)]
 
@@ -953,6 +958,7 @@ def _compute_series_adjustments(
         "savings": savings_adj,
         "assets": assets_adj,
         "liabilities": liabilities_adj,
+        "investments": investment_adj,
     }
 
 

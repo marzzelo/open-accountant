@@ -299,18 +299,31 @@ function _renderSeriesTable() {
   // Income and expense totals per projected month
   const incomeTotals = new Array(projMonths.length).fill(0);
   const expenseTotals = new Array(projMonths.length).fill(0);
+  const investmentTotals = new Array(projMonths.length).fill(0);
+  const rescueTotals = new Array(projMonths.length).fill(0);
+
+  const _seriesTypeBadge = (type) => {
+    const map = {
+      income:     { css: 'bg-ingreso/20 text-ingreso', key: 'proj.series.type_income' },
+      expense:    { css: 'bg-gasto/20 text-gasto',     key: 'proj.series.type_expense' },
+      investment: { css: 'bg-orange-500/20 text-orange-400', key: 'proj.series.type_investment' },
+      rescue:     { css: 'bg-cyan-500/20 text-cyan-400',     key: 'proj.series.type_rescue' },
+    };
+    const m = map[type] || map.expense;
+    return `<span class="text-[10px] px-1.5 py-0.5 rounded ${m.css}">${t(m.key)}</span>`;
+  };
 
   const rows = series.map(s => {
     const enabled = s.enabled !== false;
-    const typeBadge = s.type === 'income'
-      ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-ingreso/20 text-ingreso">${t('proj.series.type_income')}</span>`
-      : `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gasto/20 text-gasto">${t('proj.series.type_expense')}</span>`;
+    const typeBadge = _seriesTypeBadge(s.type);
 
     const cells = projMonths.map((m, i) => {
       const active = _monthActive(s, m);
       if (active) {
         if (s.type === 'income') incomeTotals[i] += s.monthly_amount;
-        else expenseTotals[i] += s.monthly_amount;
+        else if (s.type === 'expense') expenseTotals[i] += s.monthly_amount;
+        else if (s.type === 'investment') investmentTotals[i] += s.monthly_amount;
+        else if (s.type === 'rescue') rescueTotals[i] += s.monthly_amount;
         return `<td class="px-2 py-1 text-right text-xs text-dark-200 whitespace-nowrap">${fmt(s.monthly_amount)}</td>`;
       }
       return `<td class="px-2 py-1 text-right text-xs text-dark-600">—</td>`;
@@ -349,6 +362,12 @@ function _renderSeriesTable() {
   const expenseTotalCells = expenseTotals.map(v =>
     `<td class="px-2 py-1.5 text-right text-xs font-medium text-gasto whitespace-nowrap">${v > 0 ? fmt(v) : '—'}</td>`
   ).join('');
+  const investmentTotalCells = investmentTotals.map(v =>
+    `<td class="px-2 py-1.5 text-right text-xs font-medium text-orange-400 whitespace-nowrap">${v > 0 ? fmt(v) : '—'}</td>`
+  ).join('');
+  const rescueTotalCells = rescueTotals.map(v =>
+    `<td class="px-2 py-1.5 text-right text-xs font-medium text-cyan-400 whitespace-nowrap">${v > 0 ? fmt(v) : '—'}</td>`
+  ).join('');
 
   container.innerHTML = `
     <div class="overflow-x-auto rounded-xl border border-dark-600">
@@ -371,6 +390,16 @@ function _renderSeriesTable() {
             <td class="sticky left-0 z-10 bg-dark-700/50 px-3 py-1.5 text-xs font-semibold text-gasto">${t('proj.series.col.expense_total')}</td>
             <td></td>
             ${expenseTotalCells}
+          </tr>
+          <tr class="border-t border-dark-600 bg-dark-700/20">
+            <td class="sticky left-0 z-10 bg-dark-700/50 px-3 py-1.5 text-xs font-semibold text-orange-400">${t('proj.series.col.investment_total')}</td>
+            <td></td>
+            ${investmentTotalCells}
+          </tr>
+          <tr class="border-t border-dark-600 bg-dark-700/20">
+            <td class="sticky left-0 z-10 bg-dark-700/50 px-3 py-1.5 text-xs font-semibold text-cyan-400">${t('proj.series.col.rescue_total')}</td>
+            <td></td>
+            ${rescueTotalCells}
           </tr>
         </tbody>
       </table>
@@ -534,15 +563,29 @@ function _deriveProjectionDisplayState() {
   // Build scenario investments + non-invested assets jointly.
   // If non-invested assets would go negative, reduce investments (rescue)
   // so that non-invested assets floor at zero.
+  const investmentSeriesAdj = projData.series_adjustment?.investments || [];
   const scenarioInvestmentsProjected = [];
   const scenarioNonInvestedAssetsProjected = [];
   {
     let invRunning = currentInvestments;
     for (let i = 0; i < projMonths.length; i++) {
       // Naive investment balance (interest + contribution)
-      const naiveInv = _roundProjectionValue(
+      let naiveInv = _roundProjectionValue(
         invRunning + Number(projectedReturns[i] || 0) + Number(projectedContributions[i] || 0)
       );
+      // Apply investment/rescue series adjustment with capping
+      const seriesInvAdj = Number(investmentSeriesAdj[i] || 0);
+      if (seriesInvAdj > 0) {
+        // Investment: cap to available savings (non-invested assets)
+        const totalAssetsBefore = Number(scenarioAssetsProjected[i] || 0);
+        const nonInvBefore = _roundProjectionValue(totalAssetsBefore - naiveInv);
+        const cappedInv = Math.min(seriesInvAdj, Math.max(0, nonInvBefore));
+        naiveInv = _roundProjectionValue(naiveInv + cappedInv);
+      } else if (seriesInvAdj < 0) {
+        // Rescue: cap to available investments
+        const cappedRescue = Math.min(-seriesInvAdj, Math.max(0, naiveInv));
+        naiveInv = _roundProjectionValue(naiveInv - cappedRescue);
+      }
       const totalAssets = Number(scenarioAssetsProjected[i] || 0);
       let nonInv = _roundProjectionValue(totalAssets - naiveInv);
       let inv = naiveInv;
@@ -1875,6 +1918,8 @@ const Projections = {
                  class="w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-200 text-sm px-3 py-2 focus:outline-none focus:border-blue-500">
                 <option value="income" ${existing?.type === 'income' ? 'selected' : ''}>${t('proj.series.type_income')}</option>
                 <option value="expense" ${existing?.type === 'expense' ? 'selected' : ''}>${t('proj.series.type_expense')}</option>
+                <option value="investment" ${existing?.type === 'investment' ? 'selected' : ''}>${t('proj.series.type_investment')}</option>
+                <option value="rescue" ${existing?.type === 'rescue' ? 'selected' : ''}>${t('proj.series.type_rescue')}</option>
               </select>`),
           T.group(t('proj.series.start_date'),
               `<input type="month" id="ps-start" value="${startVal}"
