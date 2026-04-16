@@ -1706,6 +1706,7 @@ def get_projections(
         net_result_i = detail_i.get("net_result", max(0.0, proj_income_i - proj_expense_i))
         interest_i = detail_i.get("interest_total", detail_i.get("interest", 0))
         contrib_i = detail_i.get("contribution", 0)
+        series_transfer_i = detail_i.get("series_transfer", 0)
         opening_investment_balance = detail_i.get("opening_investment_balance", 0)
         _investment_detail.append(
             {
@@ -1722,6 +1723,7 @@ def get_projections(
                     else 0.0
                 ),
                 "manual_contribution": round(contrib_i, 4),
+                "series_transfer": round(series_transfer_i, 4),
                 "contribution_pct_result": (
                     round(contrib_i / net_result_i * 100, 4)
                     if net_result_i > 0
