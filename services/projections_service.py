@@ -739,6 +739,7 @@ def _estimate_investment_model(
     contrib_map: dict[str, float],
     income_map: dict[str, float],
     *,
+    expense_map: dict[str, float] | None = None,
     stat: str = "mean",
     exclude_outliers: bool = True,
     outlier_k: float = 1.5,
@@ -746,8 +747,10 @@ def _estimate_investment_model(
     """Estimate monthly yield and contribution rates from trailing data.
 
     Yield is interest / investment base for the month.
-    Contribution rate is manual contribution / total income for the month.
+    Contribution rate is manual contribution / net result (income - expenses).
     """
+    if expense_map is None:
+        expense_map = {}
     stat = _normalize_investment_stat(stat)
     interest_samples: list[dict] = []
     contribution_samples: list[dict] = []
@@ -760,16 +763,18 @@ def _estimate_investment_model(
 
         contrib_val = contrib_map.get(m, 0.0)
         income_val = income_map.get(m)
+        expense_val = expense_map.get(m, 0.0)
+        result_val = (income_val - expense_val) if income_val is not None else None
         if (
-            income_val is not None
-            and income_val > 0
+            result_val is not None
+            and result_val > 0
             and (has_investment_context or m in contrib_map)
         ):
             contribution_samples.append(
                 {
                     "amount": float(contrib_val),
-                    "rate": float(contrib_val) / float(income_val),
-                    "income": float(income_val),
+                    "rate": float(contrib_val) / float(result_val),
+                    "income": float(result_val),
                 }
             )
 
@@ -851,13 +856,15 @@ def _project_investments(
     yield_rate: float,
     contribution_rate: float,
     projected_income: list[float],
+    projected_expenses: list[float],
     baseline_savings: list[float],
     horizon: int,
 ) -> tuple[list[float], list[float], list[dict]]:
     """Project investment and non-investment assets jointly.
 
-    contribution_rate is the fraction of projected income contributed to
-    investments each period. Returns (investments, non_inv_assets, detail).
+    contribution_rate is the fraction of net result (income - expenses)
+    contributed to investments each period.
+    Returns (investments, non_inv_assets, detail).
     """
     investments: list[float] = []
     non_inv_assets: list[float] = []
@@ -869,7 +876,11 @@ def _project_investments(
         projected_income_i = max(
             0.0, projected_income[i] if i < len(projected_income) else 0.0
         )
-        contribution = contribution_rate * projected_income_i
+        projected_expense_i = max(
+            0.0, projected_expenses[i] if i < len(projected_expenses) else 0.0
+        )
+        net_result_i = max(0.0, projected_income_i - projected_expense_i)
+        contribution = contribution_rate * net_result_i
         interest = inv_bal * yield_rate
         inv_bal = max(0.0, inv_bal + interest + contribution)
         non_inv_savings = baseline_savings[i] - contribution
@@ -883,6 +894,8 @@ def _project_investments(
                 "interest_total": round(interest, 4),
                 "contribution": round(contribution, 4),
                 "projected_income": round(projected_income_i, 4),
+                "projected_expense": round(projected_expense_i, 4),
+                "net_result": round(net_result_i, 4),
             }
         )
     return investments, non_inv_assets, detail
@@ -1196,7 +1209,7 @@ def get_projections(
     )
 
     # Total income for the investment lookback/detail period.
-    inv_income_map_full, _ = _get_monthly_cashflow(
+    inv_income_map_full, inv_expense_map_full = _get_monthly_cashflow(
         conn, inv_data_start, current_partial_end
     )
 
@@ -1230,6 +1243,7 @@ def get_projections(
         div_map,
         contrib_map,
         inv_income_map_full,
+        expense_map=inv_expense_map_full,
         stat=investment_stat,
         exclude_outliers=investment_exclude_outliers,
         outlier_k=investment_outlier_k,
@@ -1251,6 +1265,9 @@ def get_projections(
         investment_projection_inputs["default_contribution_percent"],
         investment_model.get("contribution_rate_samples_pct", []),
     )
+    # Clamp contribution slider to 0-100% range
+    contribution_slider["min"] = max(0.0, contribution_slider["min"])
+    contribution_slider["max"] = min(100.0, contribution_slider["max"])
 
     has_investments = len(inv_ids) > 0 and current_investment_balance > 0
 
@@ -1303,6 +1320,20 @@ def get_projections(
         round(baseline_income[i] - baseline_expenses[i], 4) for i in range(horizon)
     ]
 
+    # ── Series adjustments (computed early so investments reflect them) ──
+    series_list = list_series(conn)
+    adj = _compute_series_adjustments(series_list, projected_months)
+
+    scenario_income = [
+        round(baseline_income[i] + adj["income"][i], 4) for i in range(horizon)
+    ]
+    scenario_expenses = [
+        round(baseline_expenses[i] + adj["expenses"][i], 4) for i in range(horizon)
+    ]
+    scenario_savings = [
+        round(scenario_income[i] - scenario_expenses[i], 4) for i in range(horizon)
+    ]
+
     # ── Investment projection (joint iteration) ──
     baseline_investments: list[float] = []
     baseline_non_inv_assets: list[float] = []
@@ -1314,8 +1345,9 @@ def get_projections(
                 current_non_inv_assets,
                 investment_projection_inputs["applied_yield_rate"],
                 investment_projection_inputs["applied_contribution_rate"],
-                baseline_income,
-                baseline_savings,
+                scenario_income,
+                scenario_expenses,
+                scenario_savings,
                 horizon,
             )
         )
@@ -1323,7 +1355,7 @@ def get_projections(
         baseline_investments = [round(current_investment_balance, 4)] * horizon
         cum_non_inv_savings = 0.0
         for i in range(horizon):
-            cum_non_inv_savings += baseline_savings[i]
+            cum_non_inv_savings += scenario_savings[i]
             val = max(0.0, current_non_inv_assets + cum_non_inv_savings)
             baseline_non_inv_assets.append(round(val, 4))
             _proj_detail.append(
@@ -1333,7 +1365,13 @@ def get_projections(
                     "interest_total": 0.0,
                     "contribution": 0.0,
                     "projected_income": round(
-                        baseline_income[i] if i < len(baseline_income) else 0.0, 4
+                        scenario_income[i] if i < len(scenario_income) else 0.0, 4
+                    ),
+                    "projected_expense": round(
+                        scenario_expenses[i] if i < len(scenario_expenses) else 0.0, 4
+                    ),
+                    "net_result": round(
+                        max(0.0, (scenario_income[i] if i < len(scenario_income) else 0.0) - (scenario_expenses[i] if i < len(scenario_expenses) else 0.0)), 4
                     ),
                 }
             )
@@ -1349,10 +1387,6 @@ def get_projections(
     for i in range(horizon):
         val = round(max(0.0, reg_liabilities[1] + reg_liabilities[0] * (n_hist + i)), 4)
         baseline_liabilities.append(val)
-
-    # ── Series adjustments ──
-    series_list = list_series(conn)
-    adj = _compute_series_adjustments(series_list, projected_months)
 
     observed_hist_months = max(
         len([m for m in all_hist_months if m in income_map or m in expense_map]), 1
@@ -1573,6 +1607,8 @@ def get_projections(
         div_income = div_map.get(m, 0.0)
         contrib = contrib_map.get(m, 0.0)
         income_m = inv_income_map_full.get(m, 0.0)
+        expense_m = inv_expense_map_full.get(m, 0.0)
+        result_m = income_m - expense_m
         _investment_detail.append(
             {
                 "month": m,
@@ -1589,22 +1625,22 @@ def get_projections(
                     else None
                 ),
                 "manual_contribution": round(contrib, 4),
-                "contribution_pct_income": (
-                    round(contrib / income_m * 100, 4)
-                    if income_m and income_m > 0
+                "contribution_pct_result": (
+                    round(contrib / result_m * 100, 4)
+                    if result_m > 0
                     else None
                 ),
                 "total_income": round(income_m, 4),
-                "interest_pct_income": (
-                    round(div_income / income_m * 100, 4)
-                    if income_m and income_m > 0
-                    else None
-                ),
+                "total_expense": round(expense_m, 4),
+                "net_result": round(result_m, 4),
+                "dividends": round(div_income, 4),
             }
         )
     for i, m in enumerate(projected_months):
         detail_i = _proj_detail[i] if i < len(_proj_detail) else {}
-        proj_income_i = baseline_income[i] if i < len(baseline_income) else 0
+        proj_income_i = detail_i.get("projected_income", scenario_income[i] if i < len(scenario_income) else 0)
+        proj_expense_i = detail_i.get("projected_expense", scenario_expenses[i] if i < len(scenario_expenses) else 0)
+        net_result_i = detail_i.get("net_result", max(0.0, proj_income_i - proj_expense_i))
         interest_i = detail_i.get("interest_total", detail_i.get("interest", 0))
         contrib_i = detail_i.get("contribution", 0)
         opening_investment_balance = detail_i.get("opening_investment_balance", 0)
@@ -1623,17 +1659,15 @@ def get_projections(
                     else 0.0
                 ),
                 "manual_contribution": round(contrib_i, 4),
-                "contribution_pct_income": (
-                    round(contrib_i / proj_income_i * 100, 4)
-                    if proj_income_i > 0
+                "contribution_pct_result": (
+                    round(contrib_i / net_result_i * 100, 4)
+                    if net_result_i > 0
                     else None
                 ),
                 "total_income": round(proj_income_i, 4),
-                "interest_pct_income": (
-                    round(interest_i / proj_income_i * 100, 4)
-                    if proj_income_i > 0
-                    else None
-                ),
+                "total_expense": round(proj_expense_i, 4),
+                "net_result": round(net_result_i, 4),
+                "dividends": round(interest_i, 4),
             }
         )
 
