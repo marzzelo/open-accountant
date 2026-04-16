@@ -1232,7 +1232,7 @@ function _buildPageShell() {
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-5" id="proj-charts-grid">
         <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 lg:col-span-2">
           <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3" id="proj-chart-combined-title">${t('proj.chart.combined')}</h3>
-          <canvas id="ch-proj-combined" height="220"></canvas>
+          <canvas id="ch-proj-combined" height="180"></canvas>
         </div>
       </div>
 
@@ -1491,19 +1491,27 @@ function _renderCharts() {
       yAxisID: yId,
     });
 
+    const mergedDashedProjection = (trendData, projectedTail) => {
+      const historical = Array.from({ length: histMonths.length }, (_, index) => {
+        const value = Array.isArray(trendData) ? trendData[index] : null;
+        return value == null ? null : Math.round(Number(value) * 100) / 100;
+      });
+      return historical.concat(projectedTail);
+    };
+
     const scenarioLabel = label => hasActiveSeries
       ? `${label} (${t('proj.chart.with_series')})`
       : label;
     const baselineLabel = label => `${label} (${t('proj.chart.without_series')})`;
 
     const baselineIncomeFull = displayState
-      ? Array(histMonths.length).fill(null).concat(displayState.baselineIncomeProjected)
+      ? mergedDashedProjection(incTrend, displayState.baselineIncomeProjected)
       : [];
     const baselineExpensesFull = displayState
-      ? Array(histMonths.length).fill(null).concat(displayState.baselineExpenseProjected)
+      ? mergedDashedProjection(expTrend, displayState.baselineExpenseProjected)
       : [];
     const baselineSavingsFull = displayState
-      ? Array(histMonths.length).fill(null).concat(displayState.baselineSavingsProjected)
+      ? mergedDashedProjection(savingsTrendData, displayState.baselineSavingsProjected)
       : [];
     const baselineAssetsFull = displayState
       ? Array(histMonths.length).fill(null).concat(displayState.baselineAssetsProjected)
@@ -1538,18 +1546,18 @@ function _renderCharts() {
     const datasets = [
       scatter(PROJ_COLORS.income,   incScatter,   'y'),
       ...(incOutliers.length ? [outlierMarks(t('proj.chart.income'), incOutliers, 'y')] : []),
-      ...(incTrend ? [trendLine(PROJ_COLORS.income,   incTrend,         'y')] : []),
+      ...(!hasActiveSeries && incTrend ? [trendLine(PROJ_COLORS.income, incTrend, 'y')] : []),
       ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.income')), PROJ_COLORS.income, baselineIncomeFull, 'y')] : []),
       projLine(scenarioLabel(t('proj.chart.income')),   PROJ_COLORS.income,   incProj,         'y'),
 
       scatter(PROJ_COLORS.expenses, expScatter,   'y'),
       ...(expOutliers.length ? [outlierMarks(t('proj.chart.expenses'), expOutliers, 'y')] : []),
-      ...(expTrend ? [trendLine(PROJ_COLORS.expenses, expTrend,         'y')] : []),
+      ...(!hasActiveSeries && expTrend ? [trendLine(PROJ_COLORS.expenses, expTrend, 'y')] : []),
       ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.expenses')), PROJ_COLORS.expenses, baselineExpensesFull, 'y')] : []),
       projLine(scenarioLabel(t('proj.chart.expenses')), PROJ_COLORS.expenses, expProj,         'y'),
 
       scatter(PROJ_COLORS.savings,  savScatter,   'y'),
-      ...(savingsTrendData ? [trendLine(PROJ_COLORS.savings, savingsTrendData, 'y')] : []),
+      ...(!hasActiveSeries && savingsTrendData ? [trendLine(PROJ_COLORS.savings, savingsTrendData, 'y')] : []),
       ...(hasActiveSeries ? [baselineLine(baselineLabel(t('proj.chart.savings')), PROJ_COLORS.savings, baselineSavingsFull, 'y')] : []),
       projLine(scenarioLabel(t('proj.chart.savings')),  PROJ_COLORS.savings,  savingsProjFull, 'y'),
 
