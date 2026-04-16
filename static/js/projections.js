@@ -1198,6 +1198,16 @@ async function _loadData() {
     if (incomeMax != null) projUrl += `&income_trend_max=${encodeURIComponent(incomeMax)}`;
     if (incomeInflationBase != null) projUrl += `&income_inflation_base=${encodeURIComponent(incomeInflationBase)}`;
     if (incomeInflationRate != null) projUrl += `&income_inflation_rate=${encodeURIComponent(incomeInflationRate)}`;
+    const expenses = _projState.trendSettings.expenses;
+    projUrl += `&expense_trend_mode=${encodeURIComponent(expenses.mode || 'linear')}`;
+    const expenseMin = expenses.minVal !== '' ? _parseTrendSettingNumber(expenses.minVal, 'minVal') : null;
+    const expenseMax = expenses.maxVal !== '' ? _parseTrendSettingNumber(expenses.maxVal, 'maxVal') : null;
+    const expenseInflationBase = expenses.inflationBase !== '' ? _parseTrendSettingNumber(expenses.inflationBase, 'inflationBase') : null;
+    const expenseInflationRate = expenses.inflationRate !== '' ? _parseTrendSettingNumber(expenses.inflationRate, 'inflationRate') : null;
+    if (expenseMin != null) projUrl += `&expense_trend_min=${encodeURIComponent(expenseMin)}`;
+    if (expenseMax != null) projUrl += `&expense_trend_max=${encodeURIComponent(expenseMax)}`;
+    if (expenseInflationBase != null) projUrl += `&expense_inflation_base=${encodeURIComponent(expenseInflationBase)}`;
+    if (expenseInflationRate != null) projUrl += `&expense_inflation_rate=${encodeURIComponent(expenseInflationRate)}`;
     if (inv.lookbackMonths != null) projUrl += `&investment_lookback_months=${inv.lookbackMonths}`;
     projUrl += `&investment_include_current_month=${inv.includeCurrentMonth === true}`;
     projUrl += `&investment_exclude_outliers=${inv.excludeOutliers !== false}`;
@@ -1716,7 +1726,7 @@ const Projections = {
     }
     _saveProjPrefs({ [`proj_trend_${metricKey}`]: _projState.trendSettings[metricKey] });
     _renderTrendPanel();
-    if (metricKey === 'income') _loadData();
+    if (metricKey === 'income' || metricKey === 'expenses') _loadData();
     else _renderCharts();
   },
 
@@ -1731,7 +1741,7 @@ const Projections = {
     _projState.trendSettings[metricKey][field] = normalized.normalized;
     _saveProjPrefs({ [`proj_trend_${metricKey}`]: _projState.trendSettings[metricKey] });
     _renderTrendPanel();
-    if (metricKey === 'income') _loadData();
+    if (metricKey === 'income' || metricKey === 'expenses') _loadData();
     else _renderCharts();
   },
 

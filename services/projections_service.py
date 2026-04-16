@@ -1052,6 +1052,11 @@ def get_projections(
     income_trend_max: float | None = None,
     income_inflation_base: float | None = None,
     income_inflation_rate: float | None = None,
+    expense_trend_mode: str = "linear",
+    expense_trend_min: float | None = None,
+    expense_trend_max: float | None = None,
+    expense_inflation_base: float | None = None,
+    expense_inflation_rate: float | None = None,
     investment_lookback_months: int | None = None,
     investment_include_current_month: bool = False,
     investment_stat: str = "mean",
@@ -1315,7 +1320,16 @@ def get_projections(
         inflation_base=income_inflation_base,
         inflation_rate=income_inflation_rate,
     )
-    baseline_expenses = _project(reg_expenses[0], reg_expenses[1], n_hist, horizon)
+    baseline_expenses = _project_flow_from_settings(
+        sparse_expenses,
+        n_hist,
+        horizon,
+        mode=expense_trend_mode,
+        min_val=expense_trend_min,
+        max_val=expense_trend_max,
+        inflation_base=expense_inflation_base,
+        inflation_rate=expense_inflation_rate,
+    )
     baseline_savings = [
         round(baseline_income[i] - baseline_expenses[i], 4) for i in range(horizon)
     ]
