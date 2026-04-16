@@ -531,16 +531,35 @@ function _deriveProjectionDisplayState() {
   );
   const baselineInvestmentsProjected = (projData.baseline_projection?.investments || [])
     .map(value => _roundProjectionValue(value));
-  const scenarioInvestmentsProjected = _buildProjectedInvestmentSeries(
-    currentInvestments,
-    projectedReturns,
-    projectedContributions,
-  );
+  // Build scenario investments + non-invested assets jointly.
+  // If non-invested assets would go negative, reduce investments (rescue)
+  // so that non-invested assets floor at zero.
+  const scenarioInvestmentsProjected = [];
+  const scenarioNonInvestedAssetsProjected = [];
+  {
+    let invRunning = currentInvestments;
+    for (let i = 0; i < projMonths.length; i++) {
+      // Naive investment balance (interest + contribution)
+      const naiveInv = _roundProjectionValue(
+        invRunning + Number(projectedReturns[i] || 0) + Number(projectedContributions[i] || 0)
+      );
+      const totalAssets = Number(scenarioAssetsProjected[i] || 0);
+      let nonInv = _roundProjectionValue(totalAssets - naiveInv);
+      let inv = naiveInv;
+      if (nonInv < 0) {
+        // Rescue: reduce investments so non-invested = 0
+        inv = _roundProjectionValue(inv + nonInv); // inv -= |nonInv|
+        if (inv < 0) inv = 0;
+        nonInv = _roundProjectionValue(totalAssets - inv);
+        if (nonInv < 0) nonInv = 0;
+      }
+      scenarioInvestmentsProjected.push(inv);
+      scenarioNonInvestedAssetsProjected.push(nonInv);
+      invRunning = inv;
+    }
+  }
   const baselineNonInvestedAssetsProjected = baselineAssetsProjected.map((value, index) =>
     _roundProjectionValue(Number(value || 0) - Number(baselineInvestmentsProjected[index] || 0))
-  );
-  const scenarioNonInvestedAssetsProjected = scenarioAssetsProjected.map((value, index) =>
-    _roundProjectionValue(Number(value || 0) - Number(scenarioInvestmentsProjected[index] || 0))
   );
 
   return {
