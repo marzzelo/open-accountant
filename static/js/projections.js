@@ -1636,12 +1636,14 @@ function _renderInvestmentDetailTable() {
       : (row.is_current_partial ? ` <span class="text-[9px] text-amber-400 uppercase tracking-wide">${escapeHtml(t('proj.detail.partial_badge'))}</span>` : '');
     return `<tr class="${cls} ${bgCls} border-b border-dark-700 hover:bg-dark-700/40">
       <td class="px-3 py-1.5 whitespace-nowrap text-xs">${escapeHtml(row.month)}${monthBadge}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.total_income)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.total_expense)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.net_result)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.contribution_pct_result)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.manual_contribution)}</td>
       <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.investment_balance)}</td>
       <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.interest_pct_investments)}</td>
-      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.manual_contribution)}</td>
-      <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.contribution_pct_income)}</td>
-      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.total_income)}</td>
-      <td class="px-3 py-1.5 text-xs text-right">${fmtPct(row.interest_pct_income)}</td>
+      <td class="px-3 py-1.5 text-xs text-right">${fmtMoney(row.dividends)}</td>
     </tr>`;
   }).join('');
 
@@ -1651,12 +1653,14 @@ function _renderInvestmentDetailTable() {
         <thead>
           <tr class="text-[10px] text-dark-400 uppercase tracking-wide border-b border-dark-600">
             <th class="px-3 py-2">${t('proj.detail.col_month')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_total_income')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_total_expense')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_net_result')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_contribution_pct_result')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_contribution')}</th>
             <th class="px-3 py-2 text-right">${t('proj.detail.col_investment_balance')}</th>
             <th class="px-3 py-2 text-right">${t('proj.detail.col_interest')}</th>
-            <th class="px-3 py-2 text-right">${t('proj.detail.col_contribution')}</th>
-            <th class="px-3 py-2 text-right">${t('proj.detail.col_contribution_pct')}</th>
-            <th class="px-3 py-2 text-right">${t('proj.detail.col_total_income')}</th>
-            <th class="px-3 py-2 text-right">${t('proj.detail.col_interest_pct_income')}</th>
+            <th class="px-3 py-2 text-right">${t('proj.detail.col_dividends')}</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
