@@ -10,8 +10,9 @@ psycopg[binary]>=3.2.0
 # Form/file upload support (needed for book import)
 python-multipart>=0.0.9
 
-# PDF export (optional — gracefully skipped if not installed)
-reportlab>=4.0.0
-
 # Internationalization tools (optional — only needed to rebuild .po/.mo files)
 babel>=2.14.0
+
+# NOTE: Optional features live in separate files to keep the base install slim:
+#   pip install -r requirements-pdf.txt   # reportlab for PDF exports
+#   pip install -r requirements-dev.txt   # test/dev tooling

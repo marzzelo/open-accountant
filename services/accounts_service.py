@@ -18,7 +18,6 @@ from services.helpers import (
     require_row,
     resolve_date_range,
     serialize_account_properties,
-    serialize_temporal_value,
 )
 
 ACCOUNT_SELECT = """
@@ -58,7 +57,7 @@ def last_3_movements(
         out.append(
             MovementOut(
                 id=row["id"],
-                date=serialize_temporal_value(row["date"]),
+                date=row["date"],
                 description=row["description"],
                 amount=row["amount"],
                 role=role,
@@ -192,7 +191,7 @@ def batch_last_movements(
         movement_map.setdefault(row["account_id"], []).append(
             MovementOut(
                 id=row["id"],
-                date=serialize_temporal_value(row["date"]),
+                date=row["date"],
                 description=row["description"],
                 amount=row["amount"],
                 role=row["role"],

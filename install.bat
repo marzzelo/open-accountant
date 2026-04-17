@@ -77,34 +77,30 @@ if errorlevel 1 (
 )
 echo   Dependencies installed.
 
-REM ── 4. App settings storage ────────────────────────────────────────────────
-echo   Initializing SQLite app settings...
-"%VENV_PYTHON%" -c "import app_config; app_config.load()"
-if errorlevel 1 (
-    echo   ERROR: failed to initialize SQLite app settings.
-    pause & exit /b 1
-)
-echo   SQLite app settings ready.
-
-REM ── 5. .env ─────────────────────────────────────────────────────────────────
+REM ── 4. .env ─────────────────────────────────────────────────────────────────
 if not exist .env (
     if exist .env.example (
         copy .env.example .env >nul
-        echo   .env created.
+        echo   .env created. Edit it and set DATABASE_URL before starting.
     )
 )
 
-REM ── 6. data/ directory ──────────────────────────────────────────────────────
+REM ── 5. data/ directory ──────────────────────────────────────────────────────
 if not exist data mkdir data
 echo   data\ directory ready.
 
-REM ── 7. Seed demo database ───────────────────────────────────────────────────
-if not exist data\home.db (
-    echo   Creating demo database...
-    "%VENV_PYTHON%" scripts\seed_demo.py --db data\home.db
-    echo   Demo database ready.
+REM ── 6. Initialize PostgreSQL schema and app settings ────────────────────────
+if not defined DATABASE_URL (
+    echo   WARNING: DATABASE_URL is not set. Edit .env and re-run install.bat
+    echo            to initialize the PostgreSQL schema.
 ) else (
-    echo   data\home.db already exists -- skipping seed.
+    echo   Initializing PostgreSQL schema and app settings...
+    "%VENV_PYTHON%" -c "import app_config; app_config.load()"
+    if errorlevel 1 (
+        echo   ERROR: failed to initialize PostgreSQL schema.
+        pause ^& exit /b 1
+    )
+    echo   PostgreSQL schema ready.
 )
 
 echo.

@@ -4,12 +4,11 @@ import json
 from typing import Any
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from database import get_db
+from database import db_dep
 from services import settings_service
-from services.errors import ExternalServiceError, NotFoundError, ValidationError
 
 router = APIRouter()
 
@@ -27,12 +26,9 @@ def update_config(data: dict[str, dict[str, str]]):
 @router.get("/settings/finance/usd-rates")
 @router.get("/settings/finance/usd-official")
 def get_finance_usd_rates():
-    try:
-        return settings_service.fetch_bluelytics_latest_rates(
-            fetcher=lambda: _fetch_rates_payload()
-        )
-    except ExternalServiceError as exc:
-        raise HTTPException(502, str(exc)) from exc
+    return settings_service.fetch_bluelytics_latest_rates(
+        fetcher=lambda: _fetch_rates_payload()
+    )
 
 
 def _fetch_rates_payload() -> dict[str, Any]:
@@ -45,15 +41,13 @@ def _fetch_rates_payload() -> dict[str, Any]:
 
 
 @router.get("/settings/preferences")
-def get_preferences():
-    with get_db() as conn:
-        return settings_service.get_preferences(conn)
+def get_preferences(conn=Depends(db_dep)):
+    return settings_service.get_preferences(conn)
 
 
 @router.put("/settings/preferences")
-def update_preferences(data: dict[str, Any]):
-    with get_db() as conn:
-        return settings_service.update_preferences(conn, data)
+def update_preferences(data: dict[str, Any], conn=Depends(db_dep)):
+    return settings_service.update_preferences(conn, data)
 
 
 @router.get("/settings/env")
@@ -82,18 +76,12 @@ class LangRequest(BaseModel):
 
 @router.put("/settings/language")
 def set_language(req: LangRequest):
-    try:
-        return settings_service.set_language(req.language)
-    except ValidationError as exc:
-        raise HTTPException(400, str(exc)) from exc
+    return settings_service.set_language(req.language)
 
 
 @router.get("/settings/translations/{lang}")
 def get_translations(lang: str):
-    try:
-        return settings_service.get_translations(lang)
-    except NotFoundError as exc:
-        raise HTTPException(404, str(exc)) from exc
+    return settings_service.get_translations(lang)
 
 
 @router.get("/settings/languages")

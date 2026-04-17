@@ -1,9 +1,8 @@
 import app_config
 import app_version
 import json
-import sqlite3
 
-from database import init_db
+from database import get_db, init_db, table_columns, table_exists
 
 
 TEST_BOARD_IMAGE_DATA_URL = (
@@ -274,10 +273,8 @@ def test_create_account_and_transaction_updates_balances(client):
     assert salary_response.status_code == 200
     assert salary_response.json()["balance"] == 100.0
 
-    with sqlite3.connect(app_config.get_db_path()) as conn:
-        columns = {
-            row[1] for row in conn.execute("PRAGMA table_info(accounts)").fetchall()
-        }
+    with get_db() as conn:
+        columns = set(table_columns(conn, "accounts"))
     assert "balance" not in columns
 
 
@@ -323,26 +320,7 @@ def test_init_db_bootstraps_single_database_schema(isolated_paths):
     app_config.load()
     init_db()
 
-    db_path = app_config.get_db_path()
-    with sqlite3.connect(db_path) as conn:
-        tables = {
-            row[0]
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            ).fetchall()
-        }
-        account_columns = {
-            row[1] for row in conn.execute("PRAGMA table_info(accounts)").fetchall()
-        }
-        tx_columns = {
-            row[1] for row in conn.execute("PRAGMA table_info(transactions)").fetchall()
-        }
-        projection_series_columns = {
-            row[1]
-            for row in conn.execute("PRAGMA table_info(projection_series)").fetchall()
-        }
-
-    assert {
+    expected_tables = {
         "settings",
         "types",
         "subtypes",
@@ -350,7 +328,15 @@ def test_init_db_bootstraps_single_database_schema(isolated_paths):
         "transactions",
         "users",
         "auth_sessions",
-    } <= tables
+    }
+
+    with get_db() as conn:
+        missing = {name for name in expected_tables if not table_exists(conn, name)}
+        account_columns = set(table_columns(conn, "accounts"))
+        tx_columns = set(table_columns(conn, "transactions"))
+        projection_series_columns = set(table_columns(conn, "projection_series"))
+
+    assert missing == set()
     assert "balance" not in account_columns
     assert {
         "original_amount",
@@ -843,19 +829,19 @@ def test_stats_net_expense_subtypes_ignore_fully_reversed_movements(client):
     assert "net_worth_evolution" in stats
 
 
-def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_paths):
+def test_settings_config_and_preferences_persist_in_main_database(
+    client, isolated_paths
+):
     config_response = client.get("/api/settings/config")
     assert config_response.status_code == 200
-    assert config_response.json()["general"]["port"] == "5999"
     assert "current_book" not in config_response.json()["general"]
-    assert config_response.json()["app"]["language"] == "es"
     assert config_response.json()["finance"]["usd_official_buy_ars"] == "0.00"
 
     update_config = client.put(
         "/api/settings/config",
         json={
             "general": {"host": "0.0.0.0", "port": "6001"},
-            "app": {"name": "SQLite Settings", "language": "en"},
+            "app": {"name": "PostgreSQL Settings", "language": "en"},
             "finance": {
                 "usd_official_buy_ars": "1366.00",
                 "usd_official_sell_ars": "1417.00",
@@ -871,7 +857,7 @@ def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_path
     config_json = client.get("/api/settings/config").json()
     assert config_json["general"]["host"] == "0.0.0.0"
     assert config_json["general"]["port"] == "6001"
-    assert config_json["app"]["name"] == "SQLite Settings"
+    assert config_json["app"]["name"] == "PostgreSQL Settings"
     assert config_json["app"]["language"] == "en"
     assert config_json["finance"]["usd_official_buy_ars"] == "1366.00"
     assert config_json["finance"]["usd_official_sell_ars"] == "1417.00"
@@ -905,32 +891,37 @@ def test_settings_config_and_preferences_persist_in_sqlite(client, isolated_path
     assert prefs_response.status_code == 200
     assert prefs_response.json() == pref_payload
 
-    main_db = app_config.get_db_path()
-    with sqlite3.connect(main_db) as conn:
-        rows = conn.execute(
-            "SELECT section, key, value FROM settings ORDER BY section, key"
-        ).fetchall()
-    assert ("general", "port", "6001") in rows
-    assert ("app", "language", "en") in rows
-    assert ("finance", "usd_official_buy_ars", "1366.00") in rows
-    assert ("finance", "usd_official_sell_ars", "1417.00") in rows
-    assert ("finance", "usd_blue_buy_ars", "1405.00") in rows
-    assert ("finance", "usd_blue_sell_ars", "1425.00") in rows
-    assert ("finance", "usd_card_ars", "1842.10") in rows
+    with get_db() as conn:
+        settings_rows = [
+            (row["section"], row["key"], row["value"])
+            for row in conn.execute(
+                "SELECT section, key, value FROM settings ORDER BY section, key"
+            ).fetchall()
+        ]
+    assert ("general", "port", "6001") in settings_rows
+    assert ("app", "language", "en") in settings_rows
+    assert ("finance", "usd_official_buy_ars", "1366.00") in settings_rows
+    assert ("finance", "usd_official_sell_ars", "1417.00") in settings_rows
+    assert ("finance", "usd_blue_buy_ars", "1405.00") in settings_rows
+    assert ("finance", "usd_blue_sell_ars", "1425.00") in settings_rows
+    assert ("finance", "usd_card_ars", "1842.10") in settings_rows
     assert (
         "finance",
         "usd_official_last_update",
         "2026-03-16T11:16:04.488756-03:00",
-    ) in rows
+    ) in settings_rows
 
-    with sqlite3.connect(main_db) as conn:
-        rows = conn.execute(
-            "SELECT key, value FROM user_preferences ORDER BY key"
-        ).fetchall()
-    assert not any(row[0].startswith("finance_") for row in rows)
-    assert any(row[0] == "show_zero_balance_accounts" for row in rows)
-    assert any(row[0] == "report_sort_directions" for row in rows)
-    assert any(row[0] == "common_transactions_pins" for row in rows)
+    with get_db() as conn:
+        preference_keys = [
+            row["key"]
+            for row in conn.execute(
+                "SELECT key FROM user_preferences ORDER BY key"
+            ).fetchall()
+        ]
+    assert not any(key.startswith("finance_") for key in preference_keys)
+    assert "show_zero_balance_accounts" in preference_keys
+    assert "report_sort_directions" in preference_keys
+    assert "common_transactions_pins" in preference_keys
 
 
 def test_user_preferences_are_global_in_single_database(client):
@@ -958,80 +949,6 @@ def test_user_preferences_are_global_in_single_database(client):
     assert (
         client.get("/api/settings/config").json()["finance"]
         == finance_config["finance"]
-    )
-
-
-def test_legacy_finance_preferences_are_migrated_to_global_config(
-    client, isolated_paths
-):
-    legacy_finance_prefs = {
-        "finance_usd_official_buy_ars": "1366.00",
-        "finance_usd_official_sell_ars": "1417.00",
-        "finance_usd_blue_buy_ars": "1405.00",
-        "finance_usd_blue_sell_ars": "1425.00",
-        "finance_usd_card_ars": "1842.10",
-        "finance_usd_official_last_update": "2026-03-16T11:16:04.488756-03:00",
-    }
-    response = client.put("/api/settings/preferences", json=legacy_finance_prefs)
-    assert response.status_code == 200
-    assert response.json()["preferences"] == {}
-
-    config_json = client.get("/api/settings/config").json()
-    assert config_json["finance"]["usd_official_buy_ars"] == "1366.00"
-    assert config_json["finance"]["usd_official_sell_ars"] == "1417.00"
-    assert config_json["finance"]["usd_blue_buy_ars"] == "1405.00"
-    assert config_json["finance"]["usd_blue_sell_ars"] == "1425.00"
-    assert config_json["finance"]["usd_card_ars"] == "1842.10"
-    assert (
-        config_json["finance"]["usd_official_last_update"]
-        == "2026-03-16T11:16:04.488756-03:00"
-    )
-
-    with sqlite3.connect(app_config.get_db_path()) as conn:
-        rows = conn.execute("SELECT key FROM user_preferences ORDER BY key").fetchall()
-    assert not any(row[0].startswith("finance_") for row in rows)
-
-
-def test_startup_migrates_legacy_finance_preferences_to_global_config(isolated_paths):
-    home_db = isolated_paths / "data" / "home.db"
-    home_db.parent.mkdir(parents=True, exist_ok=True)
-
-    with sqlite3.connect(home_db) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS user_preferences (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )
-            """
-        )
-        conn.executemany(
-            "INSERT INTO user_preferences (key, value) VALUES (?, ?)",
-            [
-                ("finance_usd_official_buy_ars", json.dumps("1366.00")),
-                ("finance_usd_official_sell_ars", json.dumps("1417.00")),
-                ("finance_usd_blue_buy_ars", json.dumps("1405.00")),
-                ("finance_usd_blue_sell_ars", json.dumps("1425.00")),
-                ("finance_usd_card_ars", json.dumps("1842.10")),
-                (
-                    "finance_usd_official_last_update",
-                    json.dumps("2026-03-16T11:16:04.488756-03:00"),
-                ),
-            ],
-        )
-
-    app_config.load()
-
-    config_json = app_config.get_all()
-    assert config_json["finance"]["usd_official_buy_ars"] == "1366.00"
-    assert config_json["finance"]["usd_official_sell_ars"] == "1417.00"
-    assert config_json["finance"]["usd_blue_buy_ars"] == "1405.00"
-    assert config_json["finance"]["usd_blue_sell_ars"] == "1425.00"
-    assert config_json["finance"]["usd_card_ars"] == "1842.10"
-    assert (
-        config_json["finance"]["usd_official_last_update"]
-        == "2026-03-16T11:16:04.488756-03:00"
     )
 
 

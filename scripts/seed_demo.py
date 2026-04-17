@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
 """
-seed_demo.py - Create a rich demo accounting book with three months of
-sample data, including USD-origin transactions and FX metadata.
+seed_demo.py - Populate the configured PostgreSQL database with a rich demo
+accounting dataset: three months of sample data, USD-origin transactions, and
+FX metadata.
 
 Run from the project root:
-    python scripts/seed_demo.py [--db data/sample.db] [--force]
+    python scripts/seed_demo.py [--force]
+
+The script targets the database referenced by ``DATABASE_URL``. Use ``--force``
+to wipe existing data in the ``oacc_*`` tables before seeding.
 """
 
 import argparse
 import json
-import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DB_DIR = ROOT / "data"
-DEFAULT_DB_PATH = DB_DIR / "sample.db"
-AUTO_REPLACE_PREFIX = "sample.db"
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from database import SQLITE_SCHEMA, SEED_SUBTYPES, SEED_TYPES
+import app_config
+from database import get_db, init_db
 
 MARKET_RATES = [
     {
@@ -245,15 +246,6 @@ def _month_label(month_index: int) -> str:
 
 def _booked_from_usd(month_index: int, original_amount: float, fx_source: str) -> float:
     return round(float(original_amount) * MARKET_RATES[month_index][fx_source], 2)
-
-
-def _cleanup_database_files(db_path: Path) -> int:
-    removed = 0
-    for candidate in (db_path, Path(f"{db_path}-shm"), Path(f"{db_path}-wal")):
-        if candidate.exists():
-            candidate.unlink()
-            removed += 1
-    return removed
 
 
 def build_transactions(account_ids: dict[str, int]) -> list[tuple]:
@@ -635,107 +627,108 @@ def build_transactions(account_ids: dict[str, int]) -> list[tuple]:
     return transactions
 
 
-def seed(db_path: Path, force: bool = False) -> bool:
-    auto_replace = db_path.name.startswith(AUTO_REPLACE_PREFIX)
-    if (
-        db_path.exists()
-        or Path(f"{db_path}-shm").exists()
-        or Path(f"{db_path}-wal").exists()
-    ):
-        if not (force or auto_replace):
-            print(f"  !  {db_path} already exists. Use --force to overwrite.")
-            return False
-        removed = _cleanup_database_files(db_path)
-        print(f"  +  Removed {removed} existing database file(s) for {db_path.name}")
+def _wipe_runtime_tables(conn) -> None:
+    """Remove existing runtime data while keeping seed types/subtypes."""
+    conn.execute("DELETE FROM transaction_tags")
+    conn.execute("DELETE FROM transactions")
+    conn.execute("DELETE FROM tags")
+    conn.execute("DELETE FROM accounts")
 
-    conn = sqlite3.connect(str(db_path))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.executescript(SQLITE_SCHEMA)
 
-    for type_id, type_name in SEED_TYPES:
-        conn.execute(
-            "INSERT OR IGNORE INTO types (id, name) VALUES (?, ?)",
-            (type_id, type_name),
-        )
+def seed(force: bool = False) -> bool:
+    init_db()
 
-    for subtype_id, subtype_name, type_id in SEED_SUBTYPES:
-        conn.execute(
-            "INSERT OR IGNORE INTO subtypes (id, name, type_id) VALUES (?, ?, ?)",
-            (subtype_id, subtype_name, type_id),
-        )
+    with get_db() as conn:
+        existing_count_row = conn.execute(
+            "SELECT COUNT(*) AS c FROM transactions"
+        ).fetchone()
+        existing_tx_count = int(existing_count_row["c"])
 
-    account_ids: dict[str, int] = {}
-    for name, type_id, subtype_id, description, initial_balance, properties in ACCOUNTS:
-        cursor = conn.execute(
-            """
-            INSERT INTO accounts (
-                name, type_id, subtype_id, description, initial_balance, properties
+        if existing_tx_count and not force:
+            print(
+                f"  !  Database already contains {existing_tx_count} transactions. "
+                "Use --force to wipe existing data."
             )
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                name,
-                type_id,
-                subtype_id,
-                description,
-                initial_balance,
-                json.dumps(properties, ensure_ascii=True, separators=(",", ":")),
-            ),
-        )
-        account_ids[name] = cursor.lastrowid
+            return False
 
-    transactions = build_transactions(account_ids)
-    conn.executemany(
-        """
-        INSERT INTO transactions (
-            debit_account,
-            credit_account,
-            amount,
-            original_amount,
-            original_currency,
-            fx_rate,
-            fx_source,
+        if existing_tx_count:
+            _wipe_runtime_tables(conn)
+            print(f"  +  Wiped previous demo data ({existing_tx_count} transactions)")
+        else:
+            # Remove the default seed accounts before inserting the rich demo set.
+            conn.execute("DELETE FROM accounts")
+
+        account_ids: dict[str, int] = {}
+        for (
+            name,
+            type_id,
+            subtype_id,
             description,
-            date
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        transactions,
-    )
+            initial_balance,
+            properties,
+        ) in ACCOUNTS:
+            row = conn.execute(
+                """
+                INSERT INTO accounts (
+                    name, type_id, subtype_id, description, initial_balance, properties
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                RETURNING id
+                """,
+                (
+                    name,
+                    type_id,
+                    subtype_id,
+                    description,
+                    initial_balance,
+                    json.dumps(properties, ensure_ascii=True, separators=(",", ":")),
+                ),
+            ).fetchone()
+            account_ids[name] = row["id"]
 
-    conn.commit()
-    conn.close()
+        transactions = build_transactions(account_ids)
+        conn.executemany(
+            """
+            INSERT INTO transactions (
+                debit_account,
+                credit_account,
+                amount,
+                original_amount,
+                original_currency,
+                fx_rate,
+                fx_source,
+                description,
+                date
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            transactions,
+        )
 
     print(
-        f"  +  {db_path.name} created with {len(ACCOUNTS)} accounts and "
-        f"{len(transactions)} transactions across three months"
+        f"  +  Seeded {len(ACCOUNTS)} accounts and {len(transactions)} "
+        "transactions across three months"
     )
     return True
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Seed the Open Accountant sample database."
-    )
-    parser.add_argument(
-        "--db",
-        default=str(DEFAULT_DB_PATH),
-        help="Output SQLite file (default: data/sample.db)",
+        description="Seed the Open Accountant demo dataset into the configured "
+        "PostgreSQL database.",
     )
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Overwrite an existing database target",
+        help="Wipe existing accounts/transactions/tags before seeding.",
     )
     args = parser.parse_args()
 
-    db_path = Path(args.db)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    app_config.load()
 
-    print("\nOpen Accountant - sample seed")
-    print(f"  Target: {db_path}")
-    seed(db_path, force=args.force)
+    print("\nOpen Accountant - demo seed")
+    print(f"  Target: {app_config.database_url()}")
+    seed(force=args.force)
     print()
 
 

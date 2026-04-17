@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 import app_config
 from auth import require_admin_user
-from database import get_db
+from database import db_dep, get_db
 from models import (
     LoginIn,
     SessionOut,
@@ -15,7 +15,7 @@ from models import (
     UserStatusUpdateIn,
 )
 from services import auth_service
-from services.errors import ConflictError, NotFoundError, ValidationError
+from services.errors import NotFoundError, ValidationError
 
 router = APIRouter()
 
@@ -105,22 +105,20 @@ def logout(request: Request, response: Response):
 
 
 @router.get("/auth/users", response_model=list[UserOut])
-def list_users(_current_user: dict = Depends(require_admin_user)):
-    with get_db() as conn:
-        return auth_service.list_users(conn)
+def list_users(
+    _current_user: dict = Depends(require_admin_user),
+    conn=Depends(db_dep),
+):
+    return auth_service.list_users(conn)
 
 
 @router.post("/auth/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def create_user(data: UserCreateIn, _current_user: dict = Depends(require_admin_user)):
-    with get_db() as conn:
-        try:
-            return auth_service.create_user(
-                conn, data.username, data.password, data.is_admin
-            )
-        except (ValidationError, ConflictError) as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-            ) from exc
+def create_user(
+    data: UserCreateIn,
+    _current_user: dict = Depends(require_admin_user),
+    conn=Depends(db_dep),
+):
+    return auth_service.create_user(conn, data.username, data.password, data.is_admin)
 
 
 @router.put("/auth/users/{user_id}", response_model=UserOut)
@@ -128,24 +126,15 @@ def update_user(
     user_id: int,
     data: UserUpdateIn,
     current_user: dict = Depends(require_admin_user),
+    conn=Depends(db_dep),
 ):
-    with get_db() as conn:
-        try:
-            return auth_service.update_user(
-                conn,
-                user_id,
-                data.username,
-                data.is_admin,
-                current_user["id"],
-            )
-        except NotFoundError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-            ) from exc
-        except (ValidationError, ConflictError) as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-            ) from exc
+    return auth_service.update_user(
+        conn,
+        user_id,
+        data.username,
+        data.is_admin,
+        current_user["id"],
+    )
 
 
 @router.put("/auth/users/{user_id}/password", response_model=UserOut)
@@ -153,18 +142,9 @@ def update_user_password(
     user_id: int,
     data: UserPasswordUpdateIn,
     _current_user: dict = Depends(require_admin_user),
+    conn=Depends(db_dep),
 ):
-    with get_db() as conn:
-        try:
-            return auth_service.update_user_password(conn, user_id, data.password)
-        except NotFoundError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-            ) from exc
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-            ) from exc
+    return auth_service.update_user_password(conn, user_id, data.password)
 
 
 @router.put("/auth/users/{user_id}/status", response_model=UserOut)
@@ -172,36 +152,18 @@ def update_user_status(
     user_id: int,
     data: UserStatusUpdateIn,
     current_user: dict = Depends(require_admin_user),
+    conn=Depends(db_dep),
 ):
-    with get_db() as conn:
-        try:
-            return auth_service.update_user_status(
-                conn, user_id, data.is_active, current_user["id"]
-            )
-        except NotFoundError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-            ) from exc
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-            ) from exc
+    return auth_service.update_user_status(
+        conn, user_id, data.is_active, current_user["id"]
+    )
 
 
 @router.delete("/auth/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: int,
     current_user: dict = Depends(require_admin_user),
+    conn=Depends(db_dep),
 ):
-    with get_db() as conn:
-        try:
-            auth_service.delete_user(conn, user_id, current_user["id"])
-        except NotFoundError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-            ) from exc
-        except ValidationError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-            ) from exc
+    auth_service.delete_user(conn, user_id, current_user["id"])
     return Response(status_code=status.HTTP_204_NO_CONTENT)

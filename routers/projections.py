@@ -1,11 +1,10 @@
 """routers/projections.py — HTTP adapter for projection services."""
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
-from database import get_db
+from database import db_dep
 from models import ProjectionSeriesIn, ProjectionSeriesOut, ProjectionSeriesUpdate
 from services import projections_service
-from services.errors import NotFoundError
 
 router = APIRouter()
 
@@ -14,33 +13,23 @@ router = APIRouter()
 
 
 @router.get("/projections/series", response_model=list[ProjectionSeriesOut])
-def list_series():
-    with get_db() as conn:
-        return projections_service.list_series(conn)
+def list_series(conn=Depends(db_dep)):
+    return projections_service.list_series(conn)
 
 
 @router.post("/projections/series", response_model=ProjectionSeriesOut, status_code=201)
-def create_series(data: ProjectionSeriesIn):
-    with get_db() as conn:
-        return projections_service.create_series(conn, data)
+def create_series(data: ProjectionSeriesIn, conn=Depends(db_dep)):
+    return projections_service.create_series(conn, data)
 
 
 @router.put("/projections/series/{series_id}", response_model=ProjectionSeriesOut)
-def update_series(series_id: int, data: ProjectionSeriesUpdate):
-    with get_db() as conn:
-        try:
-            return projections_service.update_series(conn, series_id, data)
-        except NotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+def update_series(series_id: int, data: ProjectionSeriesUpdate, conn=Depends(db_dep)):
+    return projections_service.update_series(conn, series_id, data)
 
 
 @router.delete("/projections/series/{series_id}", status_code=204)
-def delete_series(series_id: int):
-    with get_db() as conn:
-        try:
-            projections_service.delete_series(conn, series_id)
-        except NotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e))
+def delete_series(series_id: int, conn=Depends(db_dep)):
+    projections_service.delete_series(conn, series_id)
 
 
 # ── Projection data ───────────────────────────────────────────────────────────
@@ -69,30 +58,30 @@ def get_projections(
     investment_contribution_pct_override: float | None = Query(None),
     investment_interest_override: float | None = Query(None),
     investment_contribution_override: float | None = Query(None),
+    conn=Depends(db_dep),
 ):
     investment_stat = projections_service._normalize_investment_stat(investment_stat)
-    with get_db() as conn:
-        return projections_service.get_projections(
-            conn,
-            horizon,
-            history_months,
-            income_trend_mode=income_trend_mode,
-            income_trend_min=income_trend_min,
-            income_trend_max=income_trend_max,
-            income_inflation_base=income_inflation_base,
-            income_inflation_rate=income_inflation_rate,
-            expense_trend_mode=expense_trend_mode,
-            expense_trend_min=expense_trend_min,
-            expense_trend_max=expense_trend_max,
-            expense_inflation_base=expense_inflation_base,
-            expense_inflation_rate=expense_inflation_rate,
-            investment_lookback_months=investment_lookback_months,
-            investment_include_current_month=investment_include_current_month,
-            investment_stat=investment_stat,
-            investment_exclude_outliers=investment_exclude_outliers,
-            investment_outlier_k=investment_outlier_k,
-            investment_interest_pct_override=investment_interest_pct_override,
-            investment_contribution_pct_override=investment_contribution_pct_override,
-            investment_interest_override=investment_interest_override,
-            investment_contribution_override=investment_contribution_override,
-        )
+    return projections_service.get_projections(
+        conn,
+        horizon,
+        history_months,
+        income_trend_mode=income_trend_mode,
+        income_trend_min=income_trend_min,
+        income_trend_max=income_trend_max,
+        income_inflation_base=income_inflation_base,
+        income_inflation_rate=income_inflation_rate,
+        expense_trend_mode=expense_trend_mode,
+        expense_trend_min=expense_trend_min,
+        expense_trend_max=expense_trend_max,
+        expense_inflation_base=expense_inflation_base,
+        expense_inflation_rate=expense_inflation_rate,
+        investment_lookback_months=investment_lookback_months,
+        investment_include_current_month=investment_include_current_month,
+        investment_stat=investment_stat,
+        investment_exclude_outliers=investment_exclude_outliers,
+        investment_outlier_k=investment_outlier_k,
+        investment_interest_pct_override=investment_interest_pct_override,
+        investment_contribution_pct_override=investment_contribution_pct_override,
+        investment_interest_override=investment_interest_override,
+        investment_contribution_override=investment_contribution_override,
+    )

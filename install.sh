@@ -83,33 +83,34 @@ info "Installing Python dependencies in $VENV_DIR…"
 "$VENV_PYTHON" -m pip install -r requirements.txt --quiet || die "pip install failed inside $VENV_DIR."
 ok "Dependencies installed"
 
-# ── 4. Initialize SQLite app settings ────────────────────────────────────────
-info "Initializing SQLite app settings…"
-"$VENV_PYTHON" -c "import app_config; app_config.load(); app_config.set_value('general', 'host', '$HOST'); app_config.set_value('general', 'port', '$PORT')" \
-    || die "Failed to initialize SQLite app settings."
-ok "SQLite app settings ready (host=$HOST, port=$PORT)"
-
-# ── 5. Create .env if missing ─────────────────────────────────────────────────
+# ── 4. Create .env if missing ─────────────────────────────────────────────────
 if [[ ! -f .env && -f .env.example ]]; then
     info "Creating .env from template…"
     cp .env.example .env
     ok ".env created"
+    warn "Edit .env and set DATABASE_URL before starting the server."
 fi
 
-# ── 6. Ensure data/ directory ─────────────────────────────────────────────────
+# ── 5. Ensure data/ directory ─────────────────────────────────────────────────
 mkdir -p data
 info "data/ directory ready"
 
-# ── 7. Seed demo database ─────────────────────────────────────────────────────
-DB_PATH="data/home.db"
-if [[ ! -f "$DB_PATH" || "$FORCE_DB" -eq 1 ]]; then
-    info "Creating demo database…"
-    FORCE_FLAG=""
-    [[ "$FORCE_DB" -eq 1 ]] && FORCE_FLAG="--force"
-    "$VENV_PYTHON" scripts/seed_demo.py --db "$DB_PATH" $FORCE_FLAG
-    ok "Demo database ready: $DB_PATH"
+# ── 6. Initialize PostgreSQL schema and app settings ──────────────────────────
+if [[ -n "${DATABASE_URL:-}" ]]; then
+    info "Initializing PostgreSQL schema and app settings…"
+    "$VENV_PYTHON" -c "import app_config; app_config.load(); app_config.set_value('general', 'host', '$HOST'); app_config.set_value('general', 'port', '$PORT')" \
+        || die "Failed to initialize PostgreSQL schema and app settings."
+    ok "PostgreSQL schema ready (host=$HOST, port=$PORT)"
+
+    # ── 7. Seed demo data (optional) ─────────────────────────────────────────
+    if [[ "$FORCE_DB" -eq 1 ]]; then
+        info "Seeding demo data (--force-db)…"
+        "$VENV_PYTHON" scripts/seed_demo.py --force || die "Demo seed failed."
+        ok "Demo data seeded"
+    fi
 else
-    warn "$DB_PATH already exists — skipping seed (use --force-db to reset)"
+    warn "DATABASE_URL not set — skipping schema init and demo seed."
+    warn "Set DATABASE_URL (e.g. postgresql://user:pass@host:5432/db) and re-run this script."
 fi
 
 # ── 8. Compile i18n .mo files ─────────────────────────────────────────────────

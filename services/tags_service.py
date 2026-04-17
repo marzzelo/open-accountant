@@ -5,7 +5,7 @@ from typing import Iterable
 from database import ci_order_sql, is_unique_violation
 from models import TagOut, TagSummary
 from services.errors import ConflictError, NotFoundError, ValidationError
-from services.helpers import require_row, serialize_temporal_value
+from services.helpers import require_row
 
 DEFAULT_TAG_COLOR = "#3B82F6"
 
@@ -55,8 +55,8 @@ def _row_to_tag_out(row) -> TagOut:
         user_id=row["user_id"],
         name=row["name"],
         color=row["color"],
-        created_at=serialize_temporal_value(row["created_at"]),
-        updated_at=serialize_temporal_value(row["updated_at"]),
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
         transaction_count=row["transaction_count"],
     )
 
