@@ -25,14 +25,6 @@ BLUELYTICS_HEADERS = {
 }
 
 
-def strip_legacy_finance_preferences(preferences: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value
-        for key, value in preferences.items()
-        if key not in app_config.FINANCE_PREFERENCE_TO_CONFIG_KEY
-    }
-
-
 def get_config() -> dict:
     return app_config.get_all()
 
@@ -94,29 +86,40 @@ def fetch_bluelytics_latest_rates(
     }
 
 
+# Preferences with these keys are stored as global configuration under the
+# ``finance`` section of the settings table instead of as user preferences,
+# so all users share the same FX rates.
+FINANCE_PREFERENCE_TO_CONFIG_KEY: dict[str, str] = {
+    "finance_usd_official_buy_ars": "usd_official_buy_ars",
+    "finance_usd_official_sell_ars": "usd_official_sell_ars",
+    "finance_usd_blue_buy_ars": "usd_blue_buy_ars",
+    "finance_usd_blue_sell_ars": "usd_blue_sell_ars",
+    "finance_usd_card_ars": "usd_card_ars",
+    "finance_usd_rate_last_update": "usd_rate_last_update",
+    "finance_usd_rate_source": "usd_rate_source",
+}
+
+
 def get_preferences(conn) -> dict[str, Any]:
-    preferences = get_user_preferences(conn)
-    return strip_legacy_finance_preferences(preferences)
+    return get_user_preferences(conn)
 
 
 def update_preferences(conn, data: dict[str, Any]) -> dict:
-    legacy_finance_values = {
-        key: value
-        for key, value in data.items()
-        if key in app_config.FINANCE_PREFERENCE_TO_CONFIG_KEY
-    }
-    for preference_key, value in legacy_finance_values.items():
-        app_config.set_value(
-            "finance",
-            app_config.FINANCE_PREFERENCE_TO_CONFIG_KEY[preference_key],
-            value,
-        )
+    finance_updates: dict[str, str] = {}
+    remaining: dict[str, Any] = {}
+    for key, value in data.items():
+        config_key = FINANCE_PREFERENCE_TO_CONFIG_KEY.get(key)
+        if config_key is None:
+            remaining[key] = value
+        elif value is not None:
+            finance_updates[config_key] = str(value)
 
-    filtered_data = {
-        key: value for key, value in data.items() if key not in legacy_finance_values
-    }
-    preferences = save_user_preferences(conn, filtered_data)
-    return {"ok": True, "preferences": strip_legacy_finance_preferences(preferences)}
+    if finance_updates:
+        for config_key, value in finance_updates.items():
+            app_config.set_value("finance", config_key, value)
+
+    preferences = save_user_preferences(conn, remaining)
+    return {"ok": True, "preferences": preferences}
 
 
 def get_env() -> list[dict[str, Any]]:

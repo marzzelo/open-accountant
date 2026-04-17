@@ -331,7 +331,6 @@ const CommonTx = {
   },
 };
 
-
 const Board = {
   _eventsBound: false,
   _press: null,
@@ -1088,3 +1087,5 @@ const Board = {
     });
   },
 };
+
+window.Board = Board;

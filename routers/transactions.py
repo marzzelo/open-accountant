@@ -2,26 +2,19 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from database import get_db
+from database import db_dep
 from models import TransactionIn, TransactionOut, TransactionUpdate
+from routers._common import parse_tag_ids
 from services import transactions_service
-from services.errors import NotFoundError, ValidationError
 
 router = APIRouter()
 
 
-def _parse_tag_ids(tag_ids: Optional[str]) -> Optional[list[int]]:
-    if tag_ids is None:
-        return None
-
-    raw_values = [value.strip() for value in tag_ids.split(",") if value.strip()]
-    if not raw_values:
-        return []
-
+def _parse_tag_ids_or_400(raw: Optional[str]) -> Optional[list[int]]:
     try:
-        return [int(value) for value in raw_values]
+        return parse_tag_ids(raw)
     except ValueError as exc:
         raise HTTPException(400, "Invalid tag_ids filter") from exc
 
@@ -34,54 +27,34 @@ def list_transactions(
     tag_ids: Optional[str] = Query(None),
     limit: int = Query(500, ge=1, le=5000),
     offset: int = Query(0, ge=0),
+    conn=Depends(db_dep),
 ):
-    with get_db() as conn:
-        return transactions_service.list_transactions(
-            conn,
-            from_date,
-            to_date,
-            account_id,
-            _parse_tag_ids(tag_ids),
-            limit,
-            offset,
-        )
+    return transactions_service.list_transactions(
+        conn,
+        from_date,
+        to_date,
+        account_id,
+        _parse_tag_ids_or_400(tag_ids),
+        limit,
+        offset,
+    )
 
 
 @router.get("/transactions/{tx_id}", response_model=TransactionOut)
-def get_transaction(tx_id: int):
-    with get_db() as conn:
-        try:
-            return transactions_service.get_transaction(conn, tx_id)
-        except NotFoundError as exc:
-            raise HTTPException(404, str(exc)) from exc
+def get_transaction(tx_id: int, conn=Depends(db_dep)):
+    return transactions_service.get_transaction(conn, tx_id)
 
 
 @router.post("/transactions", response_model=TransactionOut, status_code=201)
-def create_transaction(data: TransactionIn):
-    with get_db() as conn:
-        try:
-            return transactions_service.create_transaction(conn, data)
-        except ValidationError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        except NotFoundError as exc:
-            raise HTTPException(404, str(exc)) from exc
+def create_transaction(data: TransactionIn, conn=Depends(db_dep)):
+    return transactions_service.create_transaction(conn, data)
 
 
 @router.put("/transactions/{tx_id}", response_model=TransactionOut)
-def update_transaction(tx_id: int, data: TransactionUpdate):
-    with get_db() as conn:
-        try:
-            return transactions_service.update_transaction(conn, tx_id, data)
-        except ValidationError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        except NotFoundError as exc:
-            raise HTTPException(404, str(exc)) from exc
+def update_transaction(tx_id: int, data: TransactionUpdate, conn=Depends(db_dep)):
+    return transactions_service.update_transaction(conn, tx_id, data)
 
 
 @router.delete("/transactions/{tx_id}", status_code=204)
-def delete_transaction(tx_id: int):
-    with get_db() as conn:
-        try:
-            transactions_service.delete_transaction(conn, tx_id)
-        except NotFoundError as exc:
-            raise HTTPException(404, str(exc)) from exc
+def delete_transaction(tx_id: int, conn=Depends(db_dep)):
+    transactions_service.delete_transaction(conn, tx_id)

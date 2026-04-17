@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 **Open Accountant** is a browser-based personal double-entry accounting application.
-- **Backend**: FastAPI (Python 3.10+) with PostgreSQL support and a single-file SQLite fallback for local development/tests
+- **Backend**: FastAPI (Python 3.10+) with PostgreSQL (required; `DATABASE_URL` must be set)
 - **Frontend**: Vanilla JavaScript + Tailwind CSS (SPA, no framework)
 - **Default port**: 5001
 
@@ -44,19 +44,19 @@ docker run --rm -p 5001:5001 -v open-accountant-data:/app/data open-accountant:l
 ```
 HTTP Request → routers/ (FastAPI handlers)
                   → services/ (business logic, validation)
-                      → database.py (backend-aware SQL helpers and connections)
-                          → PostgreSQL `oacc_*` tables or `data/open_accountant.db`
+                      → database.py (PostgreSQL helpers and connections)
+                          → PostgreSQL `oacc_*` tables
 ```
 
 ### Key Files
 - [main.py](main.py) — App entry point, router registration, lifespan hooks
-- [database.py](database.py) — Backend-aware schema/bootstrap, `oacc_*` prefix translation, balance helpers, `get_db()` context manager
+- [database.py](database.py) — PostgreSQL schema/bootstrap, `oacc_*` prefix translation, balance helpers, `get_db()` context manager
 - [models.py](models.py) — Pydantic v2 request/response schemas
-- [app_config.py](app_config.py) — Config hierarchy: env vars → main DB settings table → legacy `app_meta.sqlite3` / `config.ini` → hardcoded defaults
+- [app_config.py](app_config.py) — Config hierarchy: env vars → main DB settings table → hardcoded defaults. `DATABASE_URL` is required.
 - [services/errors.py](services/errors.py) — Custom exceptions (`ValidationError`, `NotFoundError`, `ConflictError`)
 
 ### Single-Dataset System
-The legacy multi-book model has been removed. Runtime data now lives in a single dataset: PostgreSQL tables prefixed with `oacc_`, or `data/open_accountant.db` when using the SQLite fallback.
+Runtime data lives in a single PostgreSQL database with tables prefixed `oacc_`. `DATABASE_URL` is mandatory.
 
 ### Double-Entry Accounting Logic
 Every transaction debits one account and credits another. Balance calculation uses account type:

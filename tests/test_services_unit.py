@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime
 
 import database
 
@@ -10,16 +10,25 @@ import pytest
 from database import get_db, init_db
 from models import (
     AccountIn,
-    ProjectionSeriesIn,
-    ProjectionSeriesUpdate,
     AccountUpdate,
+    MovementOut,
+    ProjectionSeriesIn,
+    ProjectionSeriesOut,
+    ProjectionSeriesUpdate,
+    SessionOut,
     SubtypeIn,
     SubtypeUpdate,
     TagIn,
+    TagOut,
     TagUpdate,
     TransactionIn,
+    TransactionOut,
+    UserOut,
 )
-from routers import reports as reports_router
+from routers import (
+    reports as reports_router,
+)  # noqa: F401 (kept for router-level tests)
+from services import exports_service
 from services import (
     about_service,
     accounts_service,
@@ -39,6 +48,10 @@ from services.errors import ConflictError, NotFoundError, ValidationError
 def initialized_environment(isolated_paths):
     app_config.load()
     init_db()
+    # Seed non-default server host/port so tests can assert that environment
+    # overrides take priority over values stored in the settings table.
+    app_config.set_value("general", "host", "127.0.0.1")
+    app_config.set_value("general", "port", "5999")
     return isolated_paths
 
 
@@ -63,6 +76,74 @@ def test_server_host_and_port_env_override_settings(
     monkeypatch.setenv("PORT", "not-a-number")
 
     assert app_config.server_port() == 5999
+
+
+def test_temporal_output_models_coerce_date_and_datetime_values():
+    dt = datetime(2026, 4, 17, 12, 34, 56)
+    day = date(2026, 4, 17)
+
+    movement = MovementOut(
+        id=1,
+        date=dt,
+        description="Cash movement",
+        amount=10.5,
+        role="debit",
+        counterpart="Caja",
+    )
+    user = UserOut(
+        id=1,
+        username="admin",
+        is_admin=True,
+        is_active=True,
+        created_at=dt,
+    )
+    session = SessionOut(authenticated=True, user=user, expires_at=dt)
+    tag = TagOut(
+        id=1,
+        name="Travel",
+        color="#123456",
+        created_at=dt,
+        updated_at=dt,
+        transaction_count=0,
+    )
+    tx = TransactionOut(
+        id=1,
+        debit_account=1,
+        debit_name="Caja",
+        debit_type_id=1,
+        credit_account=2,
+        credit_name="Ventas",
+        credit_type_id=3,
+        amount=10.5,
+        original_amount=10.5,
+        original_currency="ARS",
+        fx_rate=1.0,
+        fx_source=None,
+        description="Ingreso",
+        date=dt,
+        created_at=dt,
+        tags=[tag],
+    )
+    series = ProjectionSeriesOut(
+        id=1,
+        name="Salary",
+        type="income",
+        start_date=day,
+        months=12,
+        enabled=True,
+        monthly_amount=1000,
+        created_at=dt,
+    )
+
+    assert movement.date == "2026-04-17 12:34:56"
+    assert user.created_at == "2026-04-17 12:34:56"
+    assert session.expires_at == "2026-04-17 12:34:56"
+    assert tag.created_at == "2026-04-17 12:34:56"
+    assert tag.updated_at == "2026-04-17 12:34:56"
+    assert tx.date == "2026-04-17 12:34:56"
+    assert tx.created_at == "2026-04-17 12:34:56"
+    assert series.start_date == "2026-04-17"
+    assert series.created_at == "2026-04-17 12:34:56"
 
 
 def test_types_and_about_services_work_directly(initialized_environment):
@@ -942,7 +1023,7 @@ def test_balance_pdf_table_builds_spans_and_total_rows(initialized_environment):
         balance_sheet = reports_service.get_balance(conn)
 
     table_data, spans, group_total_rows, summary_rows = (
-        reports_router._build_balance_pdf_table(balance_sheet)
+        exports_service._build_balance_pdf_table(balance_sheet)
     )
 
     assert table_data[0] == ["Tipo", "Subtipo", "Cuenta", "Saldo"]
@@ -1020,7 +1101,14 @@ def test_project_investments_compound_growth():
 
 def test_project_investments_floors_at_zero():
     inv, non_inv, detail = projections_service._project_investments(
-        50.0, 1000.0, 0.0, 0.0, [0.0, 0.0, 0.0], [200.0, 200.0, 200.0], [-200.0, -200.0, -200.0], 3
+        50.0,
+        1000.0,
+        0.0,
+        0.0,
+        [0.0, 0.0, 0.0],
+        [200.0, 200.0, 200.0],
+        [-200.0, -200.0, -200.0],
+        3,
     )
     # With zero rate and zero contribution_rate, inv stays at 50, non_inv shrinks
     assert inv[0] == pytest.approx(50.0, rel=1e-4)

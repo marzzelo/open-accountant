@@ -8,7 +8,7 @@ import app_config
 from models import TransactionIn, TransactionOut, TransactionUpdate
 
 from services.errors import NotFoundError, ValidationError
-from services.helpers import require_row, serialize_temporal_value
+from services.helpers import require_row
 from services import tags_service
 
 TX_SELECT = """
@@ -23,8 +23,6 @@ TX_SELECT = """
 
 def row_to_out(row, tags=None) -> TransactionOut:
     payload = dict(row)
-    payload["date"] = serialize_temporal_value(payload.get("date"))
-    payload["created_at"] = serialize_temporal_value(payload.get("created_at"))
     payload["tags"] = tags or []
     return TransactionOut(**payload)
 

@@ -1,0 +1,5 @@
+# Optional dependencies for PDF exports (Libro Diario / Balance / Libro Mayor).
+# Install only if you need the /api/reports/export/pdf endpoint:
+#   pip install -r requirements-pdf.txt
+
+reportlab>=4.0.0

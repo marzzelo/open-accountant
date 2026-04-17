@@ -2,9 +2,39 @@
 models.py — Pydantic v2 request/response schemas.
 """
 
-from typing import Optional
+from datetime import date, datetime
+from typing import Any, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+def _coerce_temporal_to_str(value: Any) -> Any:
+    """Normalize datetime/date values to strings so callers may pass raw DB rows.
+
+    - ``datetime`` → ``"YYYY-MM-DD HH:MM:SS"`` (matches legacy format used by the UI).
+    - ``date`` → ``"YYYY-MM-DD"``.
+    - Anything else is returned untouched (``None`` included).
+    """
+
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
+
+
+class TemporalStringMixin:
+    """Accept raw date/datetime values in common string timestamp fields."""
+
+    _coerce_temporal_fields = field_validator(
+        "date",
+        "created_at",
+        "updated_at",
+        "start_date",
+        "expires_at",
+        mode="before",
+        check_fields=False,
+    )(_coerce_temporal_to_str)
 
 
 # ── Types ─────────────────────────────────────────────────────────────────────
@@ -55,7 +85,7 @@ class AccountUpdate(BaseModel):
     properties: Optional[str] = None
 
 
-class MovementOut(BaseModel):
+class MovementOut(TemporalStringMixin, BaseModel):
     id: int
     date: str
     description: str
@@ -84,7 +114,7 @@ class AccountOut(BaseModel):
     monthly_history: list[MonthlyBar] = []
 
 
-class UserOut(BaseModel):
+class UserOut(TemporalStringMixin, BaseModel):
     id: int
     username: str
     is_admin: bool
@@ -98,7 +128,7 @@ class LoginIn(BaseModel):
     remember_me: bool = False
 
 
-class SessionOut(BaseModel):
+class SessionOut(TemporalStringMixin, BaseModel):
     authenticated: bool
     user: Optional[UserOut] = None
     expires_at: Optional[str] = None
@@ -147,7 +177,7 @@ class TagUpdate(BaseModel):
     user_id: Optional[str] = Field(None, max_length=100)
 
 
-class TagOut(TagSummary):
+class TagOut(TemporalStringMixin, TagSummary):
     user_id: Optional[str] = None
     created_at: str
     updated_at: str
@@ -189,7 +219,7 @@ class TransactionUpdate(BaseModel):
     date: Optional[str] = None
 
 
-class TransactionOut(BaseModel):
+class TransactionOut(TemporalStringMixin, BaseModel):
     id: int
     debit_account: int
     debit_name: str
@@ -250,10 +280,14 @@ class StatsData(BaseModel):
     income_by_subtype: list[dict]  # {subtype, amount}
     asset_composition: list[dict]  # {account, balance}
     top_accounts: list[dict]  # {account, volume, tx_count}
-    balance_evolution: list[dict]  # {month, account_id, account_name, subtype_name, balance}
+    balance_evolution: list[
+        dict
+    ]  # {month, account_id, account_name, subtype_name, balance}
     income_evolution: list[dict]  # {month, subtype, amount}
     expense_evolution: list[dict]  # {month, subtype, amount}
-    liability_evolution: list[dict]  # {month, account_id, account_name, subtype_name, balance}
+    liability_evolution: list[
+        dict
+    ]  # {month, account_id, account_name, subtype_name, balance}
     net_worth_evolution: list[dict]  # {month, assets, liabilities, net_worth}
 
 
@@ -278,7 +312,7 @@ class ProjectionSeriesUpdate(BaseModel):
     monthly_amount: Optional[float] = Field(None, gt=0)
 
 
-class ProjectionSeriesOut(BaseModel):
+class ProjectionSeriesOut(TemporalStringMixin, BaseModel):
     id: int
     name: str
     type: str

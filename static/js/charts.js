@@ -1013,6 +1013,9 @@ const Charts = {
   },
 };
 
+window.KpiInfo = KpiInfo;
+window.Charts = Charts;
+
 document.addEventListener('change', event => {
   const target = event.target.closest('[data-chart-change]');
   if (!target) return;

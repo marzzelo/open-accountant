@@ -21,22 +21,12 @@ private/
 # Keep the example file:
 !.env.example
 
-# ── Database files (contain personal / user data) ─────────────────────────────
-data/*.db
-data/*.db-wal
-data/*.db-shm
-data/*.db-bak
-data/*.sqlite3
-data/*.sqlite3-wal
-data/*.sqlite3-shm
+# ── Data directory (any backups or exports that may contain user data) ──────
 data/*.bak
-# Keep the demo seed script output directory but not its contents:
+data/*.dump
+data/*.sql
+# Keep the directory placeholder:
 !data/.gitkeep
-
-# ── Config (contains personal host/port/book preferences) ─────────────────────
-config.ini
-# Keep the example:
-!config.ini.example
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
 *.log

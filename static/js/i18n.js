@@ -16,12 +16,12 @@ const I18n = {
   async init() {
     // Load available languages list
     try {
-      this._langs = await API.get('/settings/languages');
+      this._langs = await window.API.get('/settings/languages');
     } catch (_) {}
 
     // Determine language: config.ini → fallback 'en'
     try {
-      const cfg = await API.get('/settings/language');
+      const cfg = await window.API.get('/settings/language');
       this._lang = cfg.language || 'en';
     } catch (_) { this._lang = 'en'; }
 
@@ -32,7 +32,7 @@ const I18n = {
   /* ── Load translation dictionary ─────────────────────────────────── */
   async _loadDict(lang) {
     try {
-      this._dict = await API.get(`/settings/translations/${lang}`);
+      this._dict = await window.API.get(`/settings/translations/${lang}`);
       this._lang = lang;
     } catch (_) {
       console.warn(`[i18n] Could not load '${lang}', keeping current.`);
@@ -61,7 +61,7 @@ const I18n = {
       }
     });
     document.documentElement.lang = this._lang;
-    if (typeof StatusBar !== 'undefined') StatusBar.refresh();
+    if (window.StatusBar?.refresh) window.StatusBar.refresh();
   },
 
   /* ── Public: get translation (with optional interpolation) ────────── */
@@ -76,11 +76,11 @@ const I18n = {
     await this._loadDict(lang);
     // Persist to config.ini via API
     try {
-      await API.put('/settings/language', { language: lang });
+      await window.API.put('/settings/language', { language: lang });
     } catch (_) {}
     this._applyStatic();
     // Re-render current view
-    await View.refresh();
+    await window.View.refresh();
     // Update language buttons
     document.querySelectorAll('[data-lang-btn]').forEach(btn => {
       btn.classList.toggle('!bg-blue-600/20', btn.dataset.langBtn === lang);
@@ -109,3 +109,6 @@ const I18n = {
 
 /* Global shorthand */
 function t(key, vars = {}) { return I18n.get(key, vars); }
+
+window.I18n = I18n;
+window.t = t;
