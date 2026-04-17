@@ -943,3 +943,5 @@ const Settings = {
     } catch (e) { Toast.show(t('msg.env_save_error'), 'error'); }
   },
 };
+
+window.Settings = Settings;

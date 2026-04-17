@@ -1,285 +1,35 @@
 /* ── app.js — State, API client, View router, Filter, Modal, Toast ── */
 
-'use strict';
+import {
+  BOARD_IMAGE_DEFAULT_URL,
+  BOARD_IMAGE_MIME_TYPES,
+  BOARD_IMAGE_NORMALIZED_SIZE,
+  BOARD_VIEW_MODE_DEFAULT,
+  accountBoardImageUrl,
+  buildApiUrl,
+  escapeHtml,
+  fmt,
+  fmtSigned,
+  formatApiError,
+  hasCustomBoardImageUrl,
+  htmlAttrs,
+  localNow,
+  normalizeBoardViewMode,
+  normalizeTagColor,
+  parseMoneyInput,
+  renderTagBadge,
+} from './core/app-shared.js';
 
-/* ─── CONFIG ─────────────────────────────────────────────────────── */
-// Resuelve automáticamente contra el host que sirvió la página
-// → funciona tanto en localhost como desde dispositivos remotos en la red
-const API_BASE = `${window.location.origin}/api`;
-const BOARD_VIEW_MODES = new Set(['cards', 'compact']);
-const BOARD_VIEW_MODE_DEFAULT = 'cards';
-const BOARD_IMAGE_DEFAULT_URL = '/images/account-tile-default.svg';
-const BOARD_IMAGE_MIME_TYPES = ['image/png', 'image/webp'];
-const BOARD_IMAGE_NORMALIZED_SIZE = 200;
-
-function buildApiUrl(path = '') {
-  const normalizedPath = String(path || '').replace(/^\/+/, '');
-  return new URL(normalizedPath, `${API_BASE}/`).toString();
-}
-
-/* ─── LOCAL DATETIME HELPER ──────────────────────────────────────── */
-// toISOString() siempre devuelve UTC. Ajustamos con el offset local del browser.
-function localNow() {
-  const now = new Date();
-  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
-  return local.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:MM" en hora local
-}
-
-/* ─── CURRENCY FORMATTER ─────────────────────────────────────────── */
-function fmt(v) {
-  if (v == null) return '$ 0.00';
-  const amount = Number(v) || 0;
-  const str = Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return `${amount < 0 ? '-$' : '$'} ${str}`;
-}
-function fmtSigned(v) {
-  if (v == null) return '$ 0.00';
-  return `${(Number(v) || 0) < 0 ? '-' : '+'}$ ${Math.abs(Number(v) || 0).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-function _invalidParsedMoney(reason = 'invalid') {
-  return {
-    isEmpty: false,
-    isValid: false,
-    value: Number.NaN,
-    normalized: '',
-    reason,
-  };
-}
-
-function _countChar(value, char) {
-  return (String(value || '').match(new RegExp(`\\${char}`, 'g')) || []).length;
-}
-
-function _isValidThousandsInteger(value, separator) {
-  if (!/^\d+(?:[.,]\d+)*$/.test(value)) return false;
-  if (!value.includes(separator)) return /^\d+$/.test(value);
-
-  const groups = value.split(separator);
-  if (!/^\d{1,3}$/.test(groups[0])) return false;
-  return groups.slice(1).every(group => /^\d{3}$/.test(group));
-}
-
-function _parseMoneyLiteral(rawValue, { maxFractionDigits = 2 } = {}) {
-  const trimmedValue = String(rawValue ?? '').trim();
-  if (!trimmedValue) {
-    return {
-      isEmpty: true,
-      isValid: false,
-      value: Number.NaN,
-      normalized: '',
-      reason: 'empty',
-    };
-  }
-
-  const compactValue = trimmedValue.replace(/\s+/g, '');
-  if (!/^[+-]?\d[\d.,]*$/.test(compactValue)) return _invalidParsedMoney('invalid_chars');
-
-  const sign = /^[+-]/.test(compactValue) ? compactValue[0] : '';
-  const unsignedValue = sign ? compactValue.slice(1) : compactValue;
-  const commaCount = _countChar(unsignedValue, ',');
-  const dotCount = _countChar(unsignedValue, '.');
-
-  if (!commaCount && !dotCount) {
-    return {
-      isEmpty: false,
-      isValid: true,
-      value: Number(sign + unsignedValue),
-      normalized: sign + unsignedValue,
-      reason: null,
-    };
-  }
-
-  if (commaCount && dotCount) {
-    const decimalSeparator = unsignedValue.lastIndexOf(',') > unsignedValue.lastIndexOf('.') ? ',' : '.';
-    const groupSeparator = decimalSeparator === ',' ? '.' : ',';
-    const decimalIndex = unsignedValue.lastIndexOf(decimalSeparator);
-    const integerPart = unsignedValue.slice(0, decimalIndex);
-    const decimalPart = unsignedValue.slice(decimalIndex + 1);
-
-    if (!integerPart || integerPart.includes(decimalSeparator)) return _invalidParsedMoney('ambiguous');
-    if (!new RegExp(`^\\d{1,${maxFractionDigits}}$`).test(decimalPart)) return _invalidParsedMoney('ambiguous');
-    if (!_isValidThousandsInteger(integerPart, groupSeparator)) return _invalidParsedMoney('ambiguous');
-
-    const normalized = `${sign}${integerPart.split(groupSeparator).join('')}.${decimalPart}`;
-    return {
-      isEmpty: false,
-      isValid: true,
-      value: Number(normalized),
-      normalized,
-      reason: null,
-    };
-  }
-
-  const separator = commaCount ? ',' : '.';
-  const separatorCount = commaCount || dotCount;
-
-  if (separatorCount === 1) {
-    const [integerPart, decimalPart] = unsignedValue.split(separator);
-    if (!integerPart || !decimalPart || !/^\d+$/.test(integerPart) || !/^\d+$/.test(decimalPart)) {
-      return _invalidParsedMoney('invalid');
-    }
-    if (decimalPart.length >= 1 && decimalPart.length <= maxFractionDigits) {
-      const normalized = `${sign}${integerPart}.${decimalPart}`;
-      return {
-        isEmpty: false,
-        isValid: true,
-        value: Number(normalized),
-        normalized,
-        reason: null,
-      };
-    }
-    return _invalidParsedMoney(decimalPart.length === 3 && maxFractionDigits < 3 ? 'ambiguous' : 'invalid');
-  }
-
-  if (!_isValidThousandsInteger(unsignedValue, separator)) return _invalidParsedMoney('ambiguous');
-
-  const normalized = sign + unsignedValue.split(separator).join('');
-  return {
-    isEmpty: false,
-    isValid: true,
-    value: Number(normalized),
-    normalized,
-    reason: null,
-  };
-}
-
-function _normalizeMoneyExpression(rawValue, { maxFractionDigits = 2 } = {}) {
-  const expression = String(rawValue ?? '');
-  if (!/^[\d\s.,+\-*/%()]+$/.test(expression)) return _invalidParsedMoney('invalid_expression');
-
-  const tokenPattern = /(?<![\d.,])[-+]?(?:\d[\d.,\s]*\d|\d)(?![\d.,])/g;
-  let sawToken = false;
-  let invalidReason = '';
-
-  const normalized = expression.replace(tokenPattern, token => {
-    sawToken = true;
-    const parsed = _parseMoneyLiteral(token, { maxFractionDigits });
-    if (!parsed.isValid) {
-      invalidReason = parsed.reason || 'invalid_expression';
-      return '__INVALID_MONEY_TOKEN__';
-    }
-    return parsed.normalized;
-  });
-
-  if (!sawToken || invalidReason || normalized.includes('__INVALID_MONEY_TOKEN__')) {
-    return _invalidParsedMoney(invalidReason || 'invalid_expression');
-  }
-  if (!/^[\d\s.+\-*/%()]+$/.test(normalized)) return _invalidParsedMoney('invalid_expression');
-
-  return {
-    isEmpty: false,
-    isValid: true,
-    value: Number.NaN,
-    normalized,
-    reason: null,
-  };
-}
-
-function parseMoneyInput(rawValue, { allowExpression = false, maxFractionDigits = 2 } = {}) {
-  const parsedLiteral = _parseMoneyLiteral(rawValue, { maxFractionDigits });
-  if (parsedLiteral.isEmpty || parsedLiteral.isValid || !allowExpression) return parsedLiteral;
-
-  const normalizedExpression = _normalizeMoneyExpression(rawValue, { maxFractionDigits });
-  if (!normalizedExpression.isValid) return normalizedExpression;
-
-  try {
-    const evaluated = Function(`"use strict"; return (${normalizedExpression.normalized});`)();
-    if (!Number.isFinite(evaluated)) return _invalidParsedMoney('invalid_expression');
-    return {
-      isEmpty: false,
-      isValid: true,
-      value: evaluated,
-      normalized: normalizedExpression.normalized,
-      reason: null,
-    };
-  } catch (_) {
-    return _invalidParsedMoney('invalid_expression');
-  }
-}
-
-function escapeHtml(value) {
-  return String(value ?? '').replace(/[&<>"']/g, char => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[char]));
-}
-
-function htmlAttrs(attrs = {}) {
-  return Object.entries(attrs)
-    .filter(([, value]) => value !== false && value != null)
-    .map(([key, value]) => value === true ? key : `${key}="${escapeHtml(value)}"`)
-    .join(' ');
-}
-
-function normalizeBoardViewMode(mode) {
-  return BOARD_VIEW_MODES.has(mode) ? mode : BOARD_VIEW_MODE_DEFAULT;
-}
-
-function accountBoardImageUrl(source) {
-  const properties = source?.properties && typeof source.properties === 'object'
-    ? source.properties
-    : source && typeof source === 'object'
-      ? source
-      : {};
-  const candidate = typeof properties.board_image_url === 'string'
-    ? properties.board_image_url.trim()
-    : '';
-  return candidate || BOARD_IMAGE_DEFAULT_URL;
-}
-
-function hasCustomBoardImageUrl(source) {
-  return accountBoardImageUrl(source).startsWith('data:image/');
-}
-
-function formatApiError(payload, fallback = 'Unknown error') {
-  if (payload == null) return fallback;
-  if (typeof payload === 'string') return payload;
-
-  if (Array.isArray(payload)) {
-    const parts = payload
-      .map(item => formatApiError(item, ''))
-      .filter(Boolean);
-    return parts.join(' | ') || fallback;
-  }
-
-  if (typeof payload === 'object') {
-    if (typeof payload.detail === 'string') return payload.detail;
-    if (payload.detail != null) return formatApiError(payload.detail, fallback);
-    if (typeof payload.message === 'string') return payload.message;
-
-    if (typeof payload.msg === 'string') {
-      const location = Array.isArray(payload.loc) ? payload.loc.join('.') : '';
-      return location ? `${location}: ${payload.msg}` : payload.msg;
-    }
-
-    const values = Object.values(payload)
-      .map(value => formatApiError(value, ''))
-      .filter(Boolean);
-    return values.join(' | ') || fallback;
-  }
-
-  return String(payload);
-}
-
-function normalizeTagColor(color) {
-  return /^#[0-9a-f]{6}$/i.test(String(color || '')) ? String(color) : '#3B82F6';
-}
-
-function renderTagBadge(tag, extraClass = '') {
-  const color = normalizeTagColor(tag?.color);
-  return `
-    <span class="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${extraClass}" style="border-color:${color}55;background:${color}1A;color:${color}">
-      <span class="h-1.5 w-1.5 rounded-full" style="background:${color}"></span>
-      <span>${escapeHtml(tag?.name || '')}</span>
-    </span>`;
-}
+const t = (...args) => window.t(...args);
+const getBoard = () => window.Board;
+const getReports = () => window.Reports;
+const getCharts = () => window.Charts;
+const getProjections = () => window.Projections;
+const getSettings = () => window.Settings;
+const getAbout = () => window.About;
+const getForms = () => window.Forms;
+const getCommonTx = () => window.CommonTx;
+const getFX = () => window.FX;
 
 /* ─── STATE ──────────────────────────────────────────────────────── */
 const State = {
@@ -429,13 +179,13 @@ const AppShell = {
     await API.loadAll();
     await Preferences.applyLoaded();
     applyAppVersion();
-    await I18n.init();
+    await window.I18n.init();
     StatusBar.startClock();
     StatusBar.refresh();
     Filter._syncUi();
     Auth.renderSessionUi();
     await View.show('board');
-    if (typeof FX !== 'undefined') FX.init();
+    getFX()?.init?.();
     this._booted = true;
   },
 
@@ -545,9 +295,8 @@ const Auth = {
       if (button) button.classList.toggle('hidden', !username);
     });
 
-    if (typeof Board !== 'undefined' && typeof Board.syncGlobalControls === 'function') {
-      Board.syncGlobalControls();
-    }
+    const board = getBoard();
+    if (typeof board?.syncGlobalControls === 'function') board.syncGlobalControls();
   },
 
   async restoreSession() {
@@ -632,21 +381,22 @@ const Preferences = {
     State.showZeroBalanceItems = !!prefs.show_zero_balance_accounts;
     State.boardViewMode = normalizeBoardViewMode(prefs.board_view_mode);
 
-    if (typeof Reports !== 'undefined') {
+    const reports = getReports();
+    if (reports) {
       const persistedSort = prefs.report_sort_directions;
       if (persistedSort && typeof persistedSort === 'object') {
-        Reports.dateSort = { ...Reports.dateSort, ...persistedSort };
+        reports.dateSort = { ...reports.dateSort, ...persistedSort };
       }
     }
 
-    if (typeof CommonTx !== 'undefined') {
-      CommonTx.applyPinnedStore(prefs.common_transactions_pins || {});
-      await CommonTx.migrateLegacyPins();
+    const commonTx = getCommonTx();
+    if (commonTx) {
+      commonTx.applyPinnedStore(prefs.common_transactions_pins || {});
+      await commonTx.migrateLegacyPins();
     }
 
-    if (typeof Board !== 'undefined' && typeof Board.syncGlobalControls === 'function') {
-      Board.syncGlobalControls();
-    }
+    const board = getBoard();
+    if (typeof board?.syncGlobalControls === 'function') board.syncGlobalControls();
   },
 };
 
@@ -755,26 +505,31 @@ const View = {
       b.classList.toggle('active', b.dataset.view === name);
     });
 
-    if (typeof Board !== 'undefined' && typeof Board.syncGlobalControls === 'function') {
-      Board.syncGlobalControls();
-    }
+    const board = getBoard();
+    if (typeof board?.syncGlobalControls === 'function') board.syncGlobalControls();
 
     const main = document.getElementById('main');
     main.innerHTML = '<div class="spinner">⏳ Cargando...</div>';
 
     try {
+      const board = getBoard();
+      const reports = getReports();
+      const charts = getCharts();
+      const projections = getProjections();
+      const settings = getSettings();
+      const about = getAbout();
       switch (name) {
-        case 'board':    await Board.render();   break;
-        case 'balance':  await Reports.balance(); break;
-        case 'journal':  await Reports.journal(); break;
-        case 'ledger':   await Reports.ledger();  break;
-        case 'indicadores': await Charts.panel(); break;
-        case 'stats':    await Charts.stats();    break;
-        case 'proyecciones': await Projections.render(); break;
-        case 'subtypes':  await Reports.subtypes();  break;
-        case 'txlist':    await Reports.journal();   break;
-        case 'settings':  await Settings.render(); break;
-        case 'about':     await About.render();    break;
+        case 'board':    await board.render();   break;
+        case 'balance':  await reports.balance(); break;
+        case 'journal':  await reports.journal(); break;
+        case 'ledger':   await reports.ledger();  break;
+        case 'indicadores': await charts.panel(); break;
+        case 'stats':    await charts.stats();    break;
+        case 'proyecciones': await projections.render(); break;
+        case 'subtypes':  await reports.subtypes();  break;
+        case 'txlist':    await reports.journal();   break;
+        case 'settings':  await settings.render(); break;
+        case 'about':     await about.render();    break;
         default: main.innerHTML = '<div class="empty">Vista no encontrada</div>';
       }
     } catch (e) {
@@ -1211,8 +966,9 @@ const Nav = {
   },
   async go(action) {
     this.close();
-    if (action === 'new-account') { Forms.newAccount(); return; }
-    if (action === 'tags') { Forms.tagModal(); return; }
+    const forms = getForms();
+    if (action === 'new-account') { forms?.newAccount(); return; }
+    if (action === 'tags') { forms?.tagModal(); return; }
     await View.show(action);
   },
 };
@@ -1256,6 +1012,38 @@ View.show = async function (name) {
   if (fab)  fab.style.display  = show ? 'flex' : 'none';
   return _ViewShow(name);
 };
+
+Object.assign(window, {
+  BOARD_IMAGE_DEFAULT_URL,
+  BOARD_IMAGE_MIME_TYPES,
+  BOARD_IMAGE_NORMALIZED_SIZE,
+  BOARD_VIEW_MODE_DEFAULT,
+  accountBoardImageUrl,
+  buildApiUrl,
+  escapeHtml,
+  fmt,
+  fmtSigned,
+  formatApiError,
+  hasCustomBoardImageUrl,
+  htmlAttrs,
+  localNow,
+  normalizeBoardViewMode,
+  normalizeTagColor,
+  parseMoneyInput,
+  renderTagBadge,
+  State,
+  API,
+  AppShell,
+  Auth,
+  Preferences,
+  StatusBar,
+  View,
+  Filter,
+  Modal,
+  Dialog,
+  Toast,
+  Nav,
+});
 
 document.addEventListener('DOMContentLoaded', async () => {
   Auth.bindUi();

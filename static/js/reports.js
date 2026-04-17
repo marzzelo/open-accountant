@@ -70,7 +70,6 @@ const Reports = {
     ledger: 'desc',
     txlist: 'desc',
   },
-
   _downloadUrl(path) {
     return buildApiUrl(path);
   },
@@ -706,6 +705,8 @@ document.addEventListener('click', event => {
       break;
   }
 });
+
+window.Reports = Reports;
 
 document.addEventListener('keydown', event => {
   if (event.key !== 'Enter' && event.key !== ' ') return;

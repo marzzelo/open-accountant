@@ -112,3 +112,5 @@ const About = {
       </div>`;
   },
 };
+
+window.About = About;

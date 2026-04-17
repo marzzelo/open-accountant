@@ -28,282 +28,49 @@ function _destroyProjCharts() {
   _projCharts = {};
 }
 
-const PROJ_COLORS = {
-  income:      '#66bb6a',
-  expenses:    '#ef5350',
-  savings:     '#ffd54f',
-  assets:      '#4fc3f7',
-  liabilities: '#ce93d8',
-  investments: '#ff9800',
-  nonInvestedAssets: '#26a69a',
-};
+const {
+  PROJ_COLORS,
+  fmtProjRatio: _fmtProjRatio,
+  fmtProjMonths: _fmtProjMonths,
+  healthCard: _healthCard,
+  parseMonth: _parseMonth,
+  monthActive: _monthActive,
+  hasActiveSeries: _hasActiveSeries,
+  getLastKnownValue: _getLastKnownValue,
+  parseTrendSettingNumber: _parseTrendSettingNumber,
+  normalizeTrendSettingValue: _normalizeTrendSettingValue,
+  roundSliderValue: _roundSliderValue,
+  clamp: _clamp,
+  fmtSliderPct: _fmtSliderPct,
+  updateInvestmentSliderValue: _updateInvestmentSliderValue,
+  getInvestmentSliderMeta: _getInvestmentSliderMeta,
+  normalizeInvestmentOverride: _normalizeInvestmentOverride,
+  clearInvestmentRecalcSchedule: _clearInvestmentRecalcSchedule,
+  scheduleInvestmentRecalc: _scheduleInvestmentRecalc,
+  registerRuntime: _registerCommonRuntime,
+} = window.ProjectionsCommon;
 
-function _fmtProjRatio(value) {
-  if (value == null || Number.isNaN(Number(value))) return '—';
-  return `${Number(value).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}x`;
-}
+const {
+  computeTrendDatasets: _computeTrendDatasets,
+} = window.ProjectionsTrends;
 
-function _fmtProjMonths(value) {
-  if (value == null || Number.isNaN(Number(value))) return '—';
-  return `${Number(value).toLocaleString('en-US', {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  })}m`;
-}
+const {
+  deriveProjectionDisplayState: _deriveProjectionDisplayState,
+  deriveDisplayedHealthSummary: _deriveDisplayedHealthSummary,
+  registerRuntime: _registerDisplayRuntime,
+} = window.ProjectionsDisplay;
 
-function _healthCard(label, value, note = '', valueClass = 'text-dark-100', infoKey = null) {
-  const infoBtn = infoKey
-    ? `<button class="kpi-info-btn" onclick="KpiInfo.show('${infoKey}')"
-               title="${escapeHtml(t('kpi.info.btn'))}" aria-label="${escapeHtml(t('kpi.info.btn'))}">ⓘ</button>`
-    : '';
-  return `
-    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
-      <div class="flex items-start justify-between gap-1 mb-2">
-        <div class="text-[11px] text-dark-400 uppercase tracking-wide">${escapeHtml(label)}</div>
-        ${infoBtn}
-      </div>
-      <div class="text-2xl font-semibold ${valueClass}">${escapeHtml(value)}</div>
-      <div class="text-xs text-dark-400 mt-2 min-h-[18px]">${escapeHtml(note)}</div>
-    </div>`;
-}
+_registerCommonRuntime({
+  stateGetter: () => _projState,
+  savePrefsFn: _saveProjPrefs,
+  loadDataFn: _loadData,
+});
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function _parseMonth(m) {
-  return { y: parseInt(m.slice(0, 4)), mo: parseInt(m.slice(5, 7)) };
-}
-
-function _monthActive(series, monthStr) {
-  // Returns true if monthStr (YYYY-MM) falls within the series date range
-  if (series.enabled === false) return false;
-  const start = series.start_date.slice(0, 7); // YYYY-MM
-  const { y: sy, mo: sm } = _parseMonth(start);
-  const { y: my, mo: mm } = _parseMonth(monthStr);
-  const idx = (my - sy) * 12 + (mm - sm);
-  return idx >= 0 && idx < series.months;
-}
-
-function _hasActiveSeries() {
-  return _projState.series.some(series => series.enabled !== false);
-}
-
-function _getLastKnownValue(metric, projData) {
-  if (!projData) return null;
-  const pts = projData.historical[metric] || [];
-  return pts.length > 0 ? pts[pts.length - 1].value : null;
-}
-
-function _trendSettingPrecision(field) {
-  return field === 'inflationRate' ? 4 : 2;
-}
-
-function _parseTrendSettingNumber(value, field) {
-  const parsed = parseMoneyInput(value, { maxFractionDigits: _trendSettingPrecision(field) });
-  return parsed.isValid ? parsed.value : null;
-}
-
-function _normalizeTrendSettingValue(field, value) {
-  const parsed = parseMoneyInput(value, { maxFractionDigits: _trendSettingPrecision(field) });
-  if (parsed.isEmpty) return { isEmpty: true, isValid: true, normalized: '', value: null };
-  if (!parsed.isValid || !Number.isFinite(parsed.value) || parsed.value < 0) {
-    return { isEmpty: false, isValid: false, normalized: '', value: Number.NaN };
-  }
-  return {
-    isEmpty: false,
-    isValid: true,
-    normalized: parsed.normalized,
-    value: parsed.value,
-  };
-}
-
-function _roundSliderValue(value) {
-  return Math.round(Number(value) * 100) / 100;
-}
-
-function _clamp(value, min, max) {
-  return Math.min(max, Math.max(min, value));
-}
-
-function _fmtSliderPct(value) {
-  if (value == null || Number.isNaN(Number(value))) return '—';
-  return `${Number(value).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}%`;
-}
-
-function _updateInvestmentSliderValue(field, value) {
-  const valueEl = document.getElementById(`proj-slider-${field}-value`);
-  if (valueEl) valueEl.textContent = _fmtSliderPct(value);
-
-  const sliderEl = document.getElementById(`proj-slider-${field}`);
-  if (sliderEl) sliderEl.value = value;
-
-  const inputEl = document.getElementById(`proj-slider-${field}-input`);
-  if (inputEl) inputEl.value = _roundSliderValue(value);
-}
-
-function _getInvestmentSliderMeta(field) {
-  const model = _projState.projData?.investment_model;
-  const isInterestField = field === 'interestPct';
-  const defaultValue = isInterestField
-    ? (model?.default_interest_percent ?? 0)
-    : (model?.default_contribution_percent ?? 0);
-  const overrideValue = _projState.investmentOverrides[field];
-
-  return {
-    slider: isInterestField
-      ? (model?.interest_slider || { min: 0, max: 1, step: 0.01 })
-      : (model?.contribution_slider || { min: 0, max: 1, step: 0.01 }),
-    defaultValue,
-    currentValue: overrideValue ?? defaultValue,
-    hasOverride: overrideValue != null,
-  };
-}
-
-function _normalizeInvestmentOverride(value) {
-  if (value == null || value === '') return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function _investmentOverridePrefs() {
-  return {
-    proj_investment_interest_pct_override: _projState.investmentOverrides.interestPct,
-    proj_investment_contribution_pct_override: _projState.investmentOverrides.contributionPct,
-  };
-}
-
-function _persistInvestmentOverrides() {
-  _saveProjPrefs(_investmentOverridePrefs());
-}
-
-function _clearInvestmentRecalcSchedule() {
-  if (_projState.investmentOverrides.debounceId) {
-    window.clearTimeout(_projState.investmentOverrides.debounceId);
-    _projState.investmentOverrides.debounceId = null;
-  }
-}
-
-function _scheduleInvestmentRecalc() {
-  _clearInvestmentRecalcSchedule();
-  _projState.investmentOverrides.debounceId = window.setTimeout(() => {
-    _projState.investmentOverrides.debounceId = null;
-    _persistInvestmentOverrides();
-    _loadData();
-  }, 180);
-}
-
-// ── Trend computation ─────────────────────────────────────────────────────────
-
-function _olsFromPoints(pts) {
-  // OLS on [{idx, value}] using actual indices (not re-indexed 0..n-1).
-  // This ensures the result is consistent with the index space of allLabels.
-  const n = pts.length;
-  if (n === 0) return { slope: 0, intercept: 0 };
-  if (n === 1) return { slope: 0, intercept: pts[0].value };
-  const xm = pts.reduce((s, p) => s + p.idx, 0) / n;
-  const ym = pts.reduce((s, p) => s + p.value, 0) / n;
-  const num = pts.reduce((s, p) => s + (p.idx - xm) * (p.value - ym), 0);
-  const den = pts.reduce((s, p) => s + (p.idx - xm) ** 2, 0);
-  const slope = den ? num / den : 0;
-  return { slope, intercept: ym - slope * xm };
-}
-
-function _computeTrendDatasets(allLabels, histMonths, histMap, color, settings) {
-  // Returns { trendDataset, outlierDataset } — either may be null.
-  // idx of each known point = its position in allLabels (== position in histMonths).
-  const allPts = histMonths
-    .map((m, i) => histMap[m] != null ? { idx: i, month: m, value: histMap[m] } : null)
-    .filter(Boolean);
-
-  // ── Inflation mode ──────────────────────────────────────────────────────────
-  if (settings.mode === 'inflation') {
-    if (allPts.length === 0) return { trendDataset: null, outlierDataset: null };
-
-    const lastPt  = allPts[allPts.length - 1];
-    const rawBase = settings.inflationBase;
-    const base    = (rawBase !== '' && rawBase !== null) ? _parseTrendSettingNumber(rawBase, 'inflationBase') : lastPt.value;
-    const rawRate = settings.inflationRate;
-    const parsedRate = (rawRate !== '' && rawRate !== null) ? _parseTrendSettingNumber(rawRate, 'inflationRate') : null;
-    const rate = parsedRate != null ? parsedRate / 100 : 0;
-
-    if (isNaN(base)) return { trendDataset: null, outlierDataset: null };
-
-    // Trend starts at lastPt.idx (last known month) and extends into the future.
-    // Historical months before that point are left null (no backward extrapolation).
-    const trendData = allLabels.map((_, i) => {
-      if (i < lastPt.idx) return null;
-      return Math.max(0, Math.round(base * Math.pow(1 + rate, i - lastPt.idx) * 100) / 100);
-    });
-
-    return {
-      trendDataset: {
-        label: t('proj.chart.trend'),
-        type: 'line',
-        data: trendData,
-        borderColor: color + '88',
-        backgroundColor: 'transparent',
-        borderWidth: 1.5,
-        borderDash: [6, 3],
-        pointRadius: 0,
-        fill: false,
-        tension: 0,
-        order: 2,
-        spanGaps: false,
-      },
-      outlierDataset: null,
-    };
-  }
-
-  // ── Linear regression mode (with optional outlier filtering) ────────────────
-  const minVal = settings.minVal !== '' ? _parseTrendSettingNumber(settings.minVal, 'minVal') : null;
-  const maxVal = settings.maxVal !== '' ? _parseTrendSettingNumber(settings.maxVal, 'maxVal') : null;
-  const hasMin = minVal !== null && !isNaN(minVal);
-  const hasMax = maxVal !== null && !isNaN(maxVal);
-
-  const inliers  = allPts.filter(p => (!hasMin || p.value >= minVal) && (!hasMax || p.value <= maxVal));
-  const outliers = allPts.filter(p => (hasMin && p.value < minVal) || (hasMax && p.value > maxVal));
-  const outlierDataset = outliers.length > 0 ? {
-    label: t('proj.chart.outliers'),
-    type: 'scatter',
-    data: outliers.map(p => ({ x: p.month, y: p.value })),
-    parsing: false,
-    pointStyle: 'crossRot',
-    pointRadius: 7,
-    pointBorderWidth: 2.5,
-    pointBackgroundColor: 'transparent',
-    pointBorderColor: '#ef4444',
-    showLine: false,
-    order: 0,
-  } : null;
-
-  if (inliers.length === 0) return { trendDataset: null, outlierDataset };
-
-  const { slope, intercept } = _olsFromPoints(inliers);
-  const trendData = allLabels.map((_, i) =>
-    Math.max(0, Math.round((intercept + slope * i) * 100) / 100)
-  );
-
-  const trendDataset = {
-    label: t('proj.chart.trend'),
-    type: 'line',
-    data: trendData,
-    borderColor: color + '88',
-    backgroundColor: 'transparent',
-    borderWidth: 1.5,
-    borderDash: [6, 3],
-    pointRadius: 0,
-    fill: false,
-    tension: 0,
-    order: 2,
-  };
-
-  return { trendDataset, outlierDataset };
-}
+_registerDisplayRuntime({
+  stateGetter: () => _projState,
+  buildProjectionDatasetsFn: _buildProjectionDatasets,
+  hasActiveSeriesFn: _hasActiveSeries,
+});
 
 // ── Series table ──────────────────────────────────────────────────────────────
 
@@ -432,356 +199,6 @@ function _renderSeriesTable() {
         </tbody>
       </table>
     </div>`;
-}
-
-function _roundProjectionValue(value, digits = 4) {
-  if (value == null || Number.isNaN(Number(value))) return 0;
-  const factor = 10 ** digits;
-  return Math.round(Number(value) * factor) / factor;
-}
-
-function _safeProjectionRatio(numerator, denominator) {
-  const num = Number(numerator);
-  const den = Number(denominator);
-  if (!Number.isFinite(num) || !Number.isFinite(den) || Math.abs(den) < 0.0000001) {
-    return null;
-  }
-  return num / den;
-}
-
-function _projectedValuesFromSeries(series, nHist, projMonths, fallback = []) {
-  return projMonths.map((_, index) => {
-    const value = Array.isArray(series) ? series[nHist + index] : undefined;
-    const fallbackValue = Array.isArray(fallback) ? fallback[index] : 0;
-    return _roundProjectionValue(value ?? fallbackValue);
-  });
-}
-
-function _buildProjectedAssetSeries(
-  currentAssets,
-  projectedSavings,
-  projectedReturns,
-) {
-  // NOTE: contributions are intentionally excluded here.
-  // A periodic manual contribution is an internal transfer from
-  // non-investment assets to investment assets.  It does NOT change
-  // total assets — it only affects the split between the two buckets
-  // and, indirectly, the interest earned on the larger investment base.
-  let running = Number(currentAssets || 0);
-  return projectedSavings.map((savings, index) => {
-    running = _roundProjectionValue(
-      running
-      + Number(savings || 0)
-      + Number(projectedReturns[index] || 0)
-    );
-    return running;
-  });
-}
-
-function _buildProjectedInvestmentSeries(
-  currentInvestments,
-  projectedReturns,
-  projectedContributions,
-) {
-  let running = Number(currentInvestments || 0);
-  return projectedReturns.map((interest, index) => {
-    running = _roundProjectionValue(
-      running
-      + Number(interest || 0)
-      + Number(projectedContributions[index] || 0)
-    );
-    return running;
-  });
-}
-
-function _deriveProjectionDisplayState() {
-  const projData = _projState.projData;
-  if (!projData) return null;
-
-  const histMonths = projData.historical_months || [];
-  const projMonths = projData.projected_months || [];
-  const allLabels = [...histMonths, ...projMonths];
-  const nHist = histMonths.length;
-
-  const incomeResult = _buildProjectionDatasets(
-    'income',
-    histMonths,
-    projMonths,
-    projData,
-    PROJ_COLORS.income,
-    true,
-    _projState.trendSettings.income
-  );
-  const expensesResult = _buildProjectionDatasets(
-    'expenses',
-    histMonths,
-    projMonths,
-    projData,
-    PROJ_COLORS.expenses,
-    true,
-    _projState.trendSettings.expenses
-  );
-
-  const incProj = incomeResult._raw.projFull || [];
-  const expProj = expensesResult._raw.projFull || [];
-  const incTrend = incomeResult._raw.trendData || null;
-  const expTrend = expensesResult._raw.trendData || null;
-
-  const baselineIncomeProjected = _projectedValuesFromSeries(
-    incTrend,
-    nHist,
-    projMonths,
-    projData.baseline_projection?.income || []
-  );
-  const baselineExpenseProjected = _projectedValuesFromSeries(
-    expTrend,
-    nHist,
-    projMonths,
-    projData.baseline_projection?.expenses || []
-  );
-  const scenarioIncomeProjected = _projectedValuesFromSeries(
-    incProj,
-    nHist,
-    projMonths,
-    projData.baseline_projection?.income || []
-  );
-  const scenarioExpenseProjected = _projectedValuesFromSeries(
-    expProj,
-    nHist,
-    projMonths,
-    projData.baseline_projection?.expenses || []
-  );
-
-  const baselineSavingsProjected = projMonths.map((_, index) =>
-    _roundProjectionValue(
-      Number(baselineIncomeProjected[index] || 0)
-      - Number(baselineExpenseProjected[index] || 0)
-    )
-  );
-  const scenarioSavingsProjected = projMonths.map((_, index) =>
-    _roundProjectionValue(
-      Number(scenarioIncomeProjected[index] || 0)
-      - Number(scenarioExpenseProjected[index] || 0)
-    )
-  );
-
-  const projectedReturns = (projData.investment_detail || [])
-    .filter(row => row.is_projected)
-    .map(row => _roundProjectionValue(row.interest_total || 0));
-  const projectedContributions = (projData.investment_detail || [])
-    .filter(row => row.is_projected)
-    .map(row => _roundProjectionValue(
-      (row.manual_contribution || 0) + (row.series_transfer || 0)
-    ));
-
-  const baselineReturns = (projData.baseline_projection?.returns || [])
-    .map(value => _roundProjectionValue(value));
-
-  const currentAssets = Number(projData.current_balances?.total_assets || 0);
-  const currentInvestments = Number(projData.current_balances?.total_investments || 0);
-  const hasActiveSeries = _hasActiveSeries();
-
-  const baselineAssetsProjected = _buildProjectedAssetSeries(
-    currentAssets,
-    baselineSavingsProjected,
-    baselineReturns,
-  );
-  const scenarioAssetsProjected = _buildProjectedAssetSeries(
-    currentAssets,
-    scenarioSavingsProjected,
-    projectedReturns,
-  );
-  const baselineInvestmentsProjected = (projData.baseline_projection?.investments || [])
-    .map(value => _roundProjectionValue(value));
-  // Build scenario investments + non-invested assets jointly.
-  // If non-invested assets would go negative, reduce investments (rescue)
-  // so that non-invested assets floor at zero.
-  const scenarioInvestmentsProjected = [];
-  const scenarioNonInvestedAssetsProjected = [];
-  {
-    let invRunning = currentInvestments;
-    for (let i = 0; i < projMonths.length; i++) {
-      // Investment balance (interest + contribution + series transfers already included)
-      let naiveInv = _roundProjectionValue(
-        invRunning + Number(projectedReturns[i] || 0) + Number(projectedContributions[i] || 0)
-      );
-      const totalAssets = Number(scenarioAssetsProjected[i] || 0);
-      let nonInv = _roundProjectionValue(totalAssets - naiveInv);
-      let inv = naiveInv;
-      if (nonInv < 0) {
-        // Rescue: reduce investments so non-invested = 0
-        inv = _roundProjectionValue(inv + nonInv); // inv -= |nonInv|
-        if (inv < 0) inv = 0;
-        nonInv = _roundProjectionValue(totalAssets - inv);
-        if (nonInv < 0) nonInv = 0;
-      }
-      scenarioInvestmentsProjected.push(inv);
-      scenarioNonInvestedAssetsProjected.push(nonInv);
-      invRunning = inv;
-    }
-  }
-  const baselineNonInvestedAssetsProjected = baselineAssetsProjected.map((value, index) =>
-    _roundProjectionValue(Number(value || 0) - Number(baselineInvestmentsProjected[index] || 0))
-  );
-
-  return {
-    projData,
-    histMonths,
-    projMonths,
-    allLabels,
-    nHist,
-    incomeResult,
-    expensesResult,
-    incProj,
-    expProj,
-    incTrend,
-    expTrend,
-    baselineIncomeProjected,
-    baselineExpenseProjected,
-    scenarioIncomeProjected,
-    scenarioExpenseProjected,
-    baselineSavingsProjected,
-    scenarioSavingsProjected,
-    projectedReturns,
-    projectedContributions,
-    baselineAssetsProjected,
-    scenarioAssetsProjected,
-    baselineInvestmentsProjected,
-    scenarioInvestmentsProjected,
-    baselineNonInvestedAssetsProjected,
-    scenarioNonInvestedAssetsProjected,
-    hasActiveSeries,
-  };
-}
-
-function _buildProjectedHealthPoint(
-  month,
-  assets,
-  liabilities,
-  currentAssets,
-  quickAssets,
-  currentLiabilities,
-  essentialExpense
-) {
-  const currentRatio = _safeProjectionRatio(currentAssets, currentLiabilities);
-  const quickRatio = _safeProjectionRatio(quickAssets, currentLiabilities);
-  const runwayMonths = essentialExpense > 0
-    ? _safeProjectionRatio(quickAssets, essentialExpense)
-    : null;
-
-  return {
-    month,
-    assets: _roundProjectionValue(assets),
-    liabilities: _roundProjectionValue(liabilities),
-    net_worth: _roundProjectionValue(Number(assets || 0) - Number(liabilities || 0)),
-    current_assets: _roundProjectionValue(currentAssets),
-    quick_assets: _roundProjectionValue(quickAssets),
-    current_liabilities: _roundProjectionValue(currentLiabilities),
-    current_ratio: currentRatio == null ? null : _roundProjectionValue(currentRatio),
-    quick_ratio: quickRatio == null ? null : _roundProjectionValue(quickRatio),
-    monthly_essential_expense: _roundProjectionValue(essentialExpense),
-    runway_months: runwayMonths == null ? null : _roundProjectionValue(runwayMonths),
-  };
-}
-
-function _deriveDisplayedHealthSummary(displayState) {
-  const projData = _projState.projData;
-  const backendHealth = projData?.health;
-  if (!projData || !backendHealth) return null;
-
-  const currentBackend = backendHealth.current || {};
-  const assumptions = backendHealth.assumptions || {};
-  const currentBalances = projData.current_balances || {};
-  const currentAssetsTotal = Number(currentBalances.total_assets || 0);
-  const currentLiabilitiesTotal = Number(currentBalances.total_liabilities || 0);
-  const currentInvestments = Number(currentBalances.total_investments || 0);
-  const currentNonInvestmentAssets = currentAssetsTotal - currentInvestments;
-  const currentAssetsBucket = Number(currentBackend.current_assets || 0);
-  const currentQuickAssets = Number(currentBackend.quick_assets || 0);
-  const currentLiabilityShare = Number(assumptions.current_liability_share || 0);
-  const essentialExpenseShare = Number(assumptions.essential_expense_share || 0);
-  const projectedInvestments = projData.baseline_projection?.investments || [];
-  const baselineLiabilities = projData.baseline_projection?.liabilities || [];
-  const scenarioLiabilityAdjustments = projData.series_adjustment?.liabilities || [];
-  const scenarioLiabilities = displayState.projMonths.map((_, index) =>
-    _roundProjectionValue(
-      Number(baselineLiabilities[index] || 0)
-      + Number(scenarioLiabilityAdjustments[index] || 0)
-    )
-  );
-
-  const current = {
-    ...currentBackend,
-    assets: _roundProjectionValue(currentAssetsTotal),
-    liabilities: _roundProjectionValue(currentLiabilitiesTotal),
-    net_worth: _roundProjectionValue(currentBackend.net_worth),
-    current_assets: _roundProjectionValue(currentAssetsBucket),
-    quick_assets: _roundProjectionValue(currentQuickAssets),
-    current_liabilities: _roundProjectionValue(currentBackend.current_liabilities || 0),
-    monthly_essential_expense: _roundProjectionValue(currentBackend.monthly_essential_expense || 0),
-  };
-
-  const buildEndPoint = (assetsSeries, expenseSeries, liabilitiesSeries) => {
-    if (!displayState.projMonths.length) return current;
-
-    const lastIndex = displayState.projMonths.length - 1;
-    const totalAssets = Number(assetsSeries[lastIndex] || currentAssetsTotal);
-    const totalLiabilities = Number(liabilitiesSeries[lastIndex] || 0);
-    const projectedInvestmentsEnd = Number(projectedInvestments[lastIndex] || currentInvestments);
-    const projectedNonInvestmentAssets = totalAssets - projectedInvestmentsEnd;
-    const projectedNonInvestmentGrowth = Math.max(
-      0,
-      projectedNonInvestmentAssets - currentNonInvestmentAssets
-    );
-    const currentAssetsEnd = currentAssetsBucket + projectedNonInvestmentGrowth;
-    const quickAssetsEnd = currentQuickAssets + projectedNonInvestmentGrowth;
-    const currentLiabilitiesEnd = totalLiabilities * currentLiabilityShare;
-    const essentialExpenseEnd = Math.max(
-      0,
-      Number(expenseSeries[lastIndex] || 0) * essentialExpenseShare
-    );
-
-    return _buildProjectedHealthPoint(
-      displayState.projMonths[lastIndex],
-      totalAssets,
-      totalLiabilities,
-      currentAssetsEnd,
-      quickAssetsEnd,
-      currentLiabilitiesEnd,
-      essentialExpenseEnd
-    );
-  };
-
-  const baseline = buildEndPoint(
-    displayState.baselineAssetsProjected,
-    displayState.baselineExpenseProjected,
-    baselineLiabilities
-  );
-  const scenario = buildEndPoint(
-    displayState.scenarioAssetsProjected,
-    displayState.scenarioExpenseProjected,
-    scenarioLiabilities
-  );
-
-  const deltaValue = (scenarioValue, baselineValue) => (
-    scenarioValue == null || baselineValue == null
-      ? null
-      : _roundProjectionValue(Number(scenarioValue) - Number(baselineValue))
-  );
-
-  return {
-    current,
-    baseline_end: baseline,
-    scenario_end: scenario,
-    delta_end: {
-      month: displayState.projMonths[displayState.projMonths.length - 1] || current.month,
-      net_worth: deltaValue(scenario.net_worth, baseline.net_worth),
-      runway_months: deltaValue(scenario.runway_months, baseline.runway_months),
-      current_ratio: deltaValue(scenario.current_ratio, baseline.current_ratio),
-      quick_ratio: deltaValue(scenario.quick_ratio, baseline.quick_ratio),
-    },
-    assumptions,
-  };
 }
 
 function _renderHealthSummary() {
@@ -1982,7 +1399,7 @@ const Projections = {
     _clearInvestmentRecalcSchedule();
     _projState.investmentOverrides[field] = null;
     _updateInvestmentSliderValue(field, _clamp(defaultValue, slider.min, slider.max));
-    _persistInvestmentOverrides();
+    _saveProjPrefs(window.ProjectionsCommon.investmentOverridePrefs());
     _loadData();
   },
 
@@ -2087,3 +1504,5 @@ const Projections = {
     }
   },
 };
+
+window.Projections = Projections;
