@@ -4,6 +4,7 @@ from datetime import date, datetime
 import database
 
 import app_config
+import app_version
 
 import pytest
 
@@ -165,6 +166,21 @@ def test_types_and_about_services_work_directly(initialized_environment):
     assert about["github"]
     assert about["version"]
     assert version["version"]
+
+
+def test_version_payload_prefers_heroku_release_metadata(monkeypatch):
+    monkeypatch.setenv("HEROKU_RELEASE_VERSION", "v321")
+    monkeypatch.setenv("HEROKU_RELEASE_CREATED_AT", "2026-04-17T18:45:12Z")
+    monkeypatch.setenv("OPEN_ACCOUNTANT_VERSION", "v9.9.9")
+
+    payload = app_version.version_payload()
+
+    assert payload["tag"] == "v9.9.9"
+    assert payload["version"] == "9.9.9"
+    assert payload["release_version"] == "v321"
+    assert payload["release_created_at"] == "2026-04-17T18:45:12Z"
+    assert payload["release_created_at_display"] == "2026-04-17"
+    assert payload["full_title"] == "Open Accountant v321 · 2026-04-17"
 
 
 def test_subtypes_service_crud_and_usage_conflict(initialized_environment):

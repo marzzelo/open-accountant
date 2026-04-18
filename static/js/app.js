@@ -132,13 +132,19 @@ const API = {
   put(path, data, opts = {})   { return this._fetch(path, { method: 'PUT', body: JSON.stringify(data), ...opts }); },
   del(path, opts = {})         { return this._fetch(path, { method: 'DELETE', ...opts }); },
 
+  async loadVersion({ force = false } = {}) {
+    if (State.appVersion && !force) return State.appVersion;
+    State.appVersion = await this.get('/version', { skipAuthRedirect: true });
+    return State.appVersion;
+  },
+
   async loadAll() {
     const [accounts, types, subtypes, tags, version, config, preferences] = await Promise.all([
       this.get('/accounts' + State.apiDateParams),
       this.get('/types'),
       this.get('/subtypes'),
       this.get('/tags'),
-      this.get('/version'),
+      this.loadVersion({ force: true }),
       this.get('/settings/config'),
       this.get('/settings/preferences'),
     ]);
@@ -406,7 +412,7 @@ function applyAppVersion() {
 
   document.title = version.full_title;
 
-  ['app-title', 'app-title-mobile'].forEach(id => {
+  ['app-title', 'app-title-mobile', 'auth-app-title'].forEach(id => {
     const headerTitle = document.getElementById(id);
     if (headerTitle) headerTitle.textContent = version.full_title;
   });
@@ -1047,6 +1053,12 @@ Object.assign(window, {
 
 document.addEventListener('DOMContentLoaded', async () => {
   Auth.bindUi();
+  try {
+    await API.loadVersion();
+    applyAppVersion();
+  } catch {
+    // Keep static fallback title if version metadata is temporarily unavailable.
+  }
   try {
     const hasSession = await Auth.restoreSession();
     if (!hasSession) return;

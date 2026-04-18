@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Open Accountant v2.0.1</title>
+  <title>Open Accountant</title>
 
   <!-- Tailwind Play CDN (JIT in the browser, no build step) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -50,13 +50,13 @@
 
   <div class="flex items-center gap-2 min-w-0 lg:hidden">
     <span class="text-2xl shrink-0">💰</span>
-    <span id="app-title-mobile" class="font-bold text-dark-100 text-[15px] truncate">Open Accountant v2.0.1</span>
+    <span id="app-title-mobile" class="font-bold text-dark-100 text-[15px] truncate">Open Accountant</span>
   </div>
 
   <div class="hidden lg:grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 flex-1 min-w-0 overflow-hidden">
     <div class="flex items-center gap-2 min-w-0 justify-self-start max-w-[220px] xl:max-w-none">
       <span class="text-2xl shrink-0">💰</span>
-      <span id="app-title" class="font-bold text-dark-100 text-[15px] truncate">Open Accountant v2.0.1</span>
+      <span id="app-title" class="font-bold text-dark-100 text-[15px] truncate">Open Accountant</span>
     </div>
 
     <nav id="tl-nav" class="toolbar-scroll flex min-w-0 items-center justify-center gap-1 px-2 overflow-x-auto justify-self-center">
@@ -173,7 +173,7 @@
          onclick="event.stopPropagation()">
 
     <div class="flex items-center justify-between p-4 border-b border-dark-600">
-      <span id="drawer-app-title" class="font-bold text-dark-100">💰 Open Accountant v2.0.1</span>
+      <span id="drawer-app-title" class="font-bold text-dark-100">💰 Open Accountant</span>
       <button onclick="Nav.close()" class="text-dark-400 hover:text-dark-300 text-xl">✕</button>
     </div>
 
@@ -296,7 +296,7 @@
   <div class="w-full max-w-md rounded-3xl border border-dark-600 bg-dark-800/95 shadow-2xl backdrop-blur p-6 sm:p-8">
     <div class="text-center mb-8">
       <div class="text-5xl mb-4">💰</div>
-      <h1 class="text-3xl font-black text-dark-100 tracking-tight">Open Accountant</h1>
+      <h1 id="auth-app-title" class="text-3xl font-black text-dark-100 tracking-tight">Open Accountant</h1>
       <p class="text-sm text-dark-400 mt-3">Sign in to access your shared household ledger.</p>
     </div>
 
@@ -353,7 +353,7 @@
 <div id="toast" class="toast hidden"></div>
 
 <script src="/js/i18n.js?v=2.0.1.20260417"></script>
-<script type="module" src="/js/app.js?v=2.0.1.20260417"></script>
+<script type="module" src="/js/app.js?v=2.0.1.20260417.3"></script>
 <script src="/js/board.js?v=2.0.1.20260417"></script>
 <script src="/js/core/ui.js?v=2.0.1.20260417.2"></script>
 <script src="/js/forms.js?v=2.0.1.20260417"></script>
