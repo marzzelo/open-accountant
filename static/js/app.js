@@ -1049,6 +1049,7 @@ Object.assign(window, {
   Dialog,
   Toast,
   Nav,
+  isMobile,
 });
 
 document.addEventListener('DOMContentLoaded', async () => {
