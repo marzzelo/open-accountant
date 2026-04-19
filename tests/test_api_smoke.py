@@ -345,6 +345,7 @@ def test_init_db_bootstraps_single_database_schema(isolated_paths):
         "fx_source",
     } <= tx_columns
     assert "enabled" in projection_series_columns
+    assert "period_months" in projection_series_columns
 
 
 def test_projection_series_can_be_toggled_via_api(client):
@@ -361,6 +362,7 @@ def test_projection_series_can_be_toggled_via_api(client):
     assert create_response.status_code == 201
     created = create_response.json()
     assert created["enabled"] is True
+    assert created["period_months"] == 1
 
     disable_response = client.put(
         f"/api/projections/series/{created['id']}",
@@ -373,6 +375,7 @@ def test_projection_series_can_be_toggled_via_api(client):
     assert list_response.status_code == 200
     listed = next(item for item in list_response.json() if item["id"] == created["id"])
     assert listed["enabled"] is False
+    assert listed["period_months"] == 1
 
 
 def test_reports_and_csv_export_work_for_basic_journal_flow(client):

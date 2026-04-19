@@ -64,7 +64,9 @@ window.ProjectionsCommon = (() => {
     const { y: sy, mo: sm } = parseMonth(start);
     const { y: my, mo: mm } = parseMonth(monthStr);
     const idx = (my - sy) * 12 + (mm - sm);
-    return idx >= 0 && idx < series.months;
+    const durationMonths = Math.max(1, Number(series.months) || 1);
+    const periodMonths = Math.max(1, Number(series.period_months) || 1);
+    return idx >= 0 && idx < durationMonths && idx % periodMonths === 0;
   }
 
   function hasActiveSeries() {
@@ -101,31 +103,42 @@ window.ProjectionsCommon = (() => {
     };
   }
 
-  function roundSliderValue(value) {
-    return Math.round(Number(value) * 100) / 100;
+  function investmentFieldPrecision(field) {
+    return field === 'interestPct' ? 6 : 2;
+  }
+
+  function investmentInputStep(field) {
+    return field === 'interestPct' ? 0.000001 : 0.01;
+  }
+
+  function roundSliderValue(value, field = null) {
+    const digits = investmentFieldPrecision(field);
+    const factor = 10 ** digits;
+    return Math.round(Number(value) * factor) / factor;
   }
 
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
   }
 
-  function fmtSliderPct(value) {
+  function fmtSliderPct(value, field = null) {
     if (value == null || Number.isNaN(Number(value))) return '-';
+    const digits = investmentFieldPrecision(field);
     return `${Number(value).toLocaleString('en-US', {
       minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
+      maximumFractionDigits: digits,
     })}%`;
   }
 
   function updateInvestmentSliderValue(field, value) {
     const valueEl = document.getElementById(`proj-slider-${field}-value`);
-    if (valueEl) valueEl.textContent = fmtSliderPct(value);
+    if (valueEl) valueEl.textContent = fmtSliderPct(value, field);
 
     const sliderEl = document.getElementById(`proj-slider-${field}`);
     if (sliderEl) sliderEl.value = value;
 
     const inputEl = document.getElementById(`proj-slider-${field}-input`);
-    if (inputEl) inputEl.value = roundSliderValue(value);
+    if (inputEl) inputEl.value = roundSliderValue(value, field);
   }
 
   function getInvestmentSliderMeta(field) {
@@ -194,6 +207,8 @@ window.ProjectionsCommon = (() => {
     trendSettingPrecision,
     parseTrendSettingNumber,
     normalizeTrendSettingValue,
+    investmentFieldPrecision,
+    investmentInputStep,
     roundSliderValue,
     clamp,
     fmtSliderPct,

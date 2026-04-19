@@ -7,6 +7,11 @@ from database import compute_filtered_balance, month_bucket_sql
 from services.helpers import end_of_month_datetime
 
 
+_INTEREST_PERCENT_DIGITS = 6
+_CONTRIBUTION_PERCENT_DIGITS = 4
+_PROJECTED_INVESTMENT_DETAIL_DIGITS = 6
+
+
 def _resolve_investment_projection_inputs(
     current_investment_balance: float,
     investment_model: dict,
@@ -24,9 +29,13 @@ def _resolve_investment_projection_inputs(
     contribution_reference_income = float(
         investment_model.get("contribution_reference_income") or 0.0
     )
-    default_interest_percent = round(investment_model.get("yield_rate", 0.0) * 100, 4)
+    default_interest_percent = round(
+        investment_model.get("yield_rate", 0.0) * 100,
+        _INTEREST_PERCENT_DIGITS,
+    )
     default_contribution_percent = round(
-        investment_model.get("contribution_rate", 0.0) * 100, 4
+        investment_model.get("contribution_rate", 0.0) * 100,
+        _CONTRIBUTION_PERCENT_DIGITS,
     )
     default_interest_amount = round(
         investment_model.get(
@@ -44,10 +53,13 @@ def _resolve_investment_projection_inputs(
     )
 
     if interest_pct_override is not None:
-        applied_interest_percent = round(float(interest_pct_override), 4)
+        applied_interest_percent = round(
+            float(interest_pct_override), _INTEREST_PERCENT_DIGITS
+        )
     elif interest_override is not None and abs(interest_reference_base) > 0.0000001:
         applied_interest_percent = round(
-            float(interest_override) / interest_reference_base * 100.0, 4
+            float(interest_override) / interest_reference_base * 100.0,
+            _INTEREST_PERCENT_DIGITS,
         )
     else:
         applied_interest_percent = default_interest_percent
@@ -56,12 +68,15 @@ def _resolve_investment_projection_inputs(
         contribution_pct_override is not None
         and contribution_reference_income > 0.0000001
     ):
-        applied_contribution_percent = round(float(contribution_pct_override), 4)
+        applied_contribution_percent = round(
+            float(contribution_pct_override), _CONTRIBUTION_PERCENT_DIGITS
+        )
     elif (
         contribution_override is not None and contribution_reference_income > 0.0000001
     ):
         applied_contribution_percent = round(
-            float(contribution_override) / contribution_reference_income * 100.0, 4
+            float(contribution_override) / contribution_reference_income * 100.0,
+            _CONTRIBUTION_PERCENT_DIGITS,
         )
     else:
         applied_contribution_percent = default_contribution_percent
@@ -528,6 +543,19 @@ def _project_investments(
                 "projected_income": round(projected_income_i, 4),
                 "projected_expense": round(projected_expense_i, 4),
                 "net_result": round(net_result_i, 4),
+                "opening_investment_balance_exact": round(
+                    opening_investment_balance, _PROJECTED_INVESTMENT_DETAIL_DIGITS
+                ),
+                "ending_investment_balance_exact": round(
+                    inv_balance, _PROJECTED_INVESTMENT_DETAIL_DIGITS
+                ),
+                "interest_exact": round(interest, _PROJECTED_INVESTMENT_DETAIL_DIGITS),
+                "contribution_exact": round(
+                    contribution, _PROJECTED_INVESTMENT_DETAIL_DIGITS
+                ),
+                "series_transfer_exact": round(
+                    series_transfer, _PROJECTED_INVESTMENT_DETAIL_DIGITS
+                ),
             }
         )
     return investments, non_inv_assets, detail

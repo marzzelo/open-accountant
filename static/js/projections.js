@@ -39,6 +39,7 @@ const {
   getLastKnownValue: _getLastKnownValue,
   parseTrendSettingNumber: _parseTrendSettingNumber,
   normalizeTrendSettingValue: _normalizeTrendSettingValue,
+  investmentInputStep: _investmentInputStep,
   roundSliderValue: _roundSliderValue,
   clamp: _clamp,
   fmtSliderPct: _fmtSliderPct,
@@ -678,6 +679,7 @@ function _buildPageShell() {
         <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 lg:col-span-2">
           <h3 class="text-xs text-dark-400 uppercase tracking-wide mb-3" id="proj-chart-combined-title">${t('proj.chart.combined')}</h3>
           <canvas id="ch-proj-combined" height="180"></canvas>
+          <div id="proj-combined-summary" class="mt-4"><div class="spinner">⏳</div></div>
         </div>
       </div>
 
@@ -1113,6 +1115,123 @@ function _renderCharts() {
     });
   }
 
+  _renderCombinedSummaryTable(displayState);
+}
+
+function _renderCombinedSummaryTable(displayState = null) {
+  const container = document.getElementById('proj-combined-summary');
+  if (!container) return;
+
+  const state = displayState || _deriveProjectionDisplayState();
+  const projData = _projState.projData;
+  const projMonths = state?.projMonths || [];
+  if (!projData || projMonths.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const lastIndex = projMonths.length - 1;
+  const lastPeriod = projMonths[lastIndex] || '';
+  const hasInvestments = projData.investment_model?.enabled === true;
+  const roundDelta = (value) => Math.round(Number(value) * 100) / 100;
+  const fmtMoney = (value, { signed = false } = {}) => {
+    if (value == null || Number.isNaN(Number(value))) return '—';
+    const amount = Number(value);
+    const formatted = fmt(amount);
+    return signed && amount > 0 ? `+${formatted}` : formatted;
+  };
+  const diffValue = (scenarioValue, baselineValue) => {
+    if (scenarioValue == null || baselineValue == null) return null;
+    return roundDelta(Number(scenarioValue) - Number(baselineValue));
+  };
+
+  const metrics = [
+    {
+      label: t('proj.chart.income'),
+      color: PROJ_COLORS.income,
+      baseline: state.baselineIncomeProjected[lastIndex],
+      scenario: state.scenarioIncomeProjected[lastIndex],
+    },
+    {
+      label: t('proj.chart.expenses'),
+      color: PROJ_COLORS.expenses,
+      baseline: state.baselineExpenseProjected[lastIndex],
+      scenario: state.scenarioExpenseProjected[lastIndex],
+    },
+    {
+      label: t('proj.chart.savings'),
+      color: PROJ_COLORS.savings,
+      baseline: state.baselineSavingsProjected[lastIndex],
+      scenario: state.scenarioSavingsProjected[lastIndex],
+    },
+    {
+      label: t('proj.chart.assets'),
+      color: PROJ_COLORS.assets,
+      baseline: state.baselineAssetsProjected[lastIndex],
+      scenario: state.scenarioAssetsProjected[lastIndex],
+    },
+    ...(!hasInvestments ? [] : [{
+      label: t('proj.chart.non_invested_assets'),
+      color: PROJ_COLORS.nonInvestedAssets,
+      baseline: state.baselineNonInvestedAssetsProjected[lastIndex],
+      scenario: state.scenarioNonInvestedAssetsProjected[lastIndex],
+    }]),
+    ...(!hasInvestments ? [] : [{
+      label: t('proj.chart.investments'),
+      color: PROJ_COLORS.investments,
+      baseline: state.baselineInvestmentsProjected[lastIndex],
+      scenario: state.scenarioInvestmentsProjected[lastIndex],
+    }]),
+  ];
+
+  const rows = [
+    {
+      label: t('proj.chart.without_series'),
+      tone: 'bg-dark-800/30 text-dark-100',
+      values: metrics.map(metric => metric.baseline),
+      signed: false,
+    },
+    {
+      label: t('proj.chart.with_series'),
+      tone: 'bg-blue-950/10 text-blue-200/90',
+      values: metrics.map(metric => metric.scenario),
+      signed: false,
+    },
+    {
+      label: t('proj.chart.summary_delta'),
+      tone: 'bg-amber-950/10 text-amber-100',
+      values: metrics.map(metric => diffValue(metric.scenario, metric.baseline)),
+      signed: true,
+    },
+  ];
+
+  const headerCells = metrics.map(metric => `
+    <th class="px-3 py-2 text-right whitespace-nowrap" style="color: ${metric.color}">${escapeHtml(metric.label)}</th>`).join('');
+  const bodyRows = rows.map(row => `
+    <tr class="border-b border-dark-700/80 ${row.tone}">
+      <td class="px-3 py-2 text-xs font-semibold whitespace-nowrap">${escapeHtml(row.label)}</td>
+      ${row.values.map((value, index) => `
+        <td class="px-3 py-2 text-xs text-right font-medium whitespace-nowrap" style="color: ${metrics[index].color}">${fmtMoney(value, { signed: row.signed })}</td>`).join('')}
+    </tr>`).join('');
+
+  container.innerHTML = `
+    <div class="border-t border-dark-700 pt-4">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h4 class="text-[11px] text-dark-400 uppercase tracking-wide">${t('proj.chart.summary_title')}</h4>
+        <div class="text-[11px] text-dark-500">${t('proj.chart.summary_period')}: <span class="text-dark-300">${escapeHtml(lastPeriod)}</span></div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[640px] text-left">
+          <thead>
+            <tr class="text-[10px] text-dark-400 uppercase tracking-wide border-b border-dark-600">
+              <th class="px-3 py-2">${t('proj.chart.summary_case')}</th>
+              ${headerCells}
+            </tr>
+          </thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      </div>
+    </div>`;
 }
 
 // ── Investment sliders ───────────────────────────────────────────────────────
@@ -1151,9 +1270,9 @@ function _renderInvestmentSliders() {
       <div class="flex items-center justify-between gap-3">
         <div>
           <div class="text-sm text-dark-100 font-medium">${label}</div>
-          <div class="text-[11px] text-dark-500">${t('proj.slider.default_value')}: <span class="text-dark-300">${_fmtSliderPct(defaultValue)}</span></div>
+          <div class="text-[11px] text-dark-500">${t('proj.slider.default_value')}: <span class="text-dark-300">${_fmtSliderPct(defaultValue, field)}</span></div>
         </div>
-        <div id="proj-slider-${field}-value" class="text-sm text-blue-300 font-medium whitespace-nowrap">${_fmtSliderPct(value)}</div>
+        <div id="proj-slider-${field}-value" class="text-sm text-blue-300 font-medium whitespace-nowrap">${_fmtSliderPct(value, field)}</div>
       </div>
       <div class="flex items-center gap-3">
         <input type="range"
@@ -1169,8 +1288,8 @@ function _renderInvestmentSliders() {
                  id="proj-slider-${field}-input"
                  min="${slider.min}"
                  max="${slider.max}"
-                 step="${slider.step}"
-                 value="${_roundSliderValue(value)}"
+             step="${_investmentInputStep(field)}"
+             value="${_roundSliderValue(value, field)}"
                  inputmode="decimal"
                  onchange="Projections._onInvestmentSliderFieldChange('${field}', this.value)"
                  class="w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-100 text-sm px-2 py-1.5 text-right focus:outline-none focus:border-blue-500">
@@ -1184,8 +1303,8 @@ function _renderInvestmentSliders() {
                 ${restoreAttrs}>↺</button>
       </div>
       <div class="flex items-center justify-between text-[10px] text-dark-500">
-        <span>${_fmtSliderPct(slider.min)}</span>
-        <span>${_fmtSliderPct(slider.max)}</span>
+        <span>${_fmtSliderPct(slider.min, field)}</span>
+        <span>${_fmtSliderPct(slider.max, field)}</span>
       </div>
     </div>`;
   };
@@ -1372,7 +1491,7 @@ const Projections = {
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) return;
     const { slider } = _getInvestmentSliderMeta(field);
-    const rounded = _roundSliderValue(_clamp(parsed, slider.min, slider.max));
+    const rounded = _roundSliderValue(_clamp(parsed, slider.min, slider.max), field);
     _projState.investmentOverrides[field] = rounded;
     _updateInvestmentSliderValue(field, rounded);
     _scheduleInvestmentRecalc();
@@ -1386,7 +1505,7 @@ const Projections = {
       return;
     }
 
-    const rounded = _roundSliderValue(_clamp(parsed, slider.min, slider.max));
+    const rounded = _roundSliderValue(_clamp(parsed, slider.min, slider.max), field);
     _projState.investmentOverrides[field] = rounded;
     _updateInvestmentSliderValue(field, rounded);
     _scheduleInvestmentRecalc();
@@ -1430,9 +1549,11 @@ const Projections = {
               `<input type="month" id="ps-start" value="${startVal}"
                  class="w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-200 text-sm px-3 py-2 focus:outline-none focus:border-blue-500">`)
       )}
-      ${T.row2(
+          ${T.row2(
           T.group(t('proj.series.months'),
-              T.input('ps-months', { type: 'number', val: existing?.months ?? 1, ph: '1' })),
+              T.input('ps-months', { type: 'number', min: 1, val: existing?.months ?? 1, ph: '1' })),
+            T.group(t('proj.series.period_months'),
+              T.input('ps-period-months', { type: 'number', min: 1, val: existing?.period_months ?? 1, ph: '1' })),
           T.group(t('proj.series.amount'),
             T.input('ps-amount', { type: 'text', val: existing?.monthly_amount ?? '', ph: '0.00', inputmode: 'decimal' }))
       )}
@@ -1446,15 +1567,24 @@ const Projections = {
         const type   = document.getElementById('ps-type').value;
         const start  = document.getElementById('ps-start').value;  // YYYY-MM
         const months = parseInt(document.getElementById('ps-months').value, 10);
+        const periodMonths = parseInt(document.getElementById('ps-period-months').value, 10);
         const amountState = parseMoneyInput(document.getElementById('ps-amount').value);
         const amount = amountState.isValid ? amountState.value : Number.NaN;
 
         if (!name) { Toast.show(t('msg.invalid_value'), 'err'); return false; }
         if (!start) { Toast.show(t('msg.invalid_value'), 'err'); return false; }
         if (isNaN(months) || months < 1) { Toast.show(t('msg.invalid_value'), 'err'); return false; }
+        if (isNaN(periodMonths) || periodMonths < 1) { Toast.show(t('msg.invalid_value'), 'err'); return false; }
         if (amountState.isEmpty || !amountState.isValid || amount <= 0) { Toast.show(t('msg.invalid_money_input'), 'err'); return false; }
 
-        const payload = { name, type, start_date: start + '-01', months, monthly_amount: amount };
+        const payload = {
+          name,
+          type,
+          start_date: start + '-01',
+          months,
+          period_months: periodMonths,
+          monthly_amount: amount,
+        };
         try {
           if (existing) {
             await API.put(`/projections/series/${id}`, payload);

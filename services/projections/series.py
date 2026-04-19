@@ -21,12 +21,14 @@ def _compute_series_adjustments(
             continue
         start_ym = _series_start_month(series["start_date"])
         start_year, start_month = _parse_month(start_ym)
+        duration_months = max(1, int(series["months"]))
+        period_months = max(1, int(series.get("period_months") or 1))
         for index, projected_month in enumerate(projected_months):
             projected_year, projected_month_num = _parse_month(projected_month)
             month_idx = (projected_year - start_year) * 12 + (
                 projected_month_num - start_month
             )
-            if 0 <= month_idx < series["months"]:
+            if 0 <= month_idx < duration_months and month_idx % period_months == 0:
                 if series["type"] == "income":
                     income_adj[index] += series["monthly_amount"]
                 elif series["type"] == "expense":
@@ -67,6 +69,7 @@ def _row_to_dict(row) -> dict:
         "type": row["type"],
         "start_date": row["start_date"],
         "months": row["months"],
+        "period_months": row["period_months"],
         "enabled": bool(row["enabled"]),
         "monthly_amount": row["monthly_amount"],
         "created_at": row["created_at"],
@@ -93,14 +96,23 @@ def get_series(conn, series_id: int) -> dict:
 
 def create_series(conn, data: ProjectionSeriesIn) -> dict:
     row = conn.execute(
-        """INSERT INTO projection_series (name, type, start_date, months, enabled, monthly_amount)
-           VALUES (?, ?, ?, ?, ?, ?)
+        """INSERT INTO projection_series (
+               name,
+               type,
+               start_date,
+               months,
+               period_months,
+               enabled,
+               monthly_amount
+           )
+           VALUES (?, ?, ?, ?, ?, ?, ?)
            RETURNING id""",
         (
             data.name,
             data.type,
             data.start_date,
             data.months,
+            data.period_months,
             data.enabled,
             data.monthly_amount,
         ),

@@ -131,6 +131,7 @@ def test_temporal_output_models_coerce_date_and_datetime_values():
         type="income",
         start_date=day,
         months=12,
+        period_months=1,
         enabled=True,
         monthly_amount=1000,
         created_at=dt,
@@ -759,6 +760,29 @@ def test_projection_series_adjustments_accept_date_start_dates():
     assert adjustments["liabilities"] == [2000000.0, 2000000.0, 2000000.0]
 
 
+def test_projection_series_adjustments_respect_period_months():
+    adjustments = projections_service._compute_series_adjustments(
+        [
+            {
+                "id": 1,
+                "name": "aporte semestral",
+                "type": "income",
+                "start_date": "2026-07-01",
+                "months": 6,
+                "period_months": 2,
+                "monthly_amount": 100.0,
+            }
+        ],
+        ["2026-07", "2026-08", "2026-09", "2026-10", "2026-11", "2026-12"],
+    )
+
+    assert adjustments["income"] == [100.0, 0.0, 100.0, 0.0, 100.0, 0.0]
+    assert adjustments["expenses"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    assert adjustments["savings"] == [100.0, 0.0, 100.0, 0.0, 100.0, 0.0]
+    assert adjustments["assets"] == [100.0, 100.0, 200.0, 200.0, 300.0, 300.0]
+    assert adjustments["liabilities"] == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+
 def test_projection_series_adjustments_keep_signs_and_skip_disabled_series():
     adjustments = projections_service._compute_series_adjustments(
         [
@@ -809,12 +833,14 @@ def test_projection_series_service_persists_enabled_state(initialized_environmen
                 type="expense",
                 start_date="2026-07-01",
                 months=6,
+                period_months=3,
                 enabled=False,
                 monthly_amount=500.0,
             ),
         )
 
         assert created["enabled"] is False
+        assert created["period_months"] == 3
 
         updated = projections_service.update_series(
             conn,
@@ -823,6 +849,7 @@ def test_projection_series_service_persists_enabled_state(initialized_environmen
         )
 
     assert updated["enabled"] is True
+    assert updated["period_months"] == 3
 
 
 def test_tags_service_crud_assignment_and_report_filters(initialized_environment):
@@ -1141,6 +1168,26 @@ def test_project_investments_zero_rate_contribution_only():
     assert inv[1] == pytest.approx(1000.0, rel=1e-4)
 
 
+def test_project_investments_keeps_six_decimal_detail_precision():
+    inv, non_inv, detail = projections_service._project_investments(
+        1000.0,
+        0.0,
+        0.03123456,
+        0.0,
+        [0.0],
+        [0.0],
+        [0.0],
+        1,
+    )
+
+    assert inv[0] == pytest.approx(1031.2346, rel=1e-4)
+    assert non_inv[0] == pytest.approx(0.0, rel=1e-4)
+    assert detail[0]["interest_exact"] == pytest.approx(31.23456, rel=1e-8)
+    assert detail[0]["ending_investment_balance_exact"] == pytest.approx(
+        1031.23456, rel=1e-8
+    )
+
+
 def test_project_flow_from_settings_inflation_uses_last_known_value_by_default():
     projected = projections_service._project_flow_from_settings(
         [None, 1000.0, 1200.0],
@@ -1322,6 +1369,21 @@ def test_resolve_investment_projection_inputs_defaults_and_overrides():
     assert overridden["applied_contribution_rate"] == pytest.approx(0.18, rel=1e-4)
     assert overridden["has_overrides"] is True
 
+    high_precision_interest = projections_service._resolve_investment_projection_inputs(
+        10000.0,
+        model,
+        interest_pct_override=3.123456,
+    )
+    assert high_precision_interest["applied_interest_percent"] == pytest.approx(
+        3.123456, rel=1e-6
+    )
+    assert high_precision_interest["applied_yield_rate"] == pytest.approx(
+        0.03123456, rel=1e-8
+    )
+    assert high_precision_interest["applied_interest_amount"] == pytest.approx(
+        312.3456, rel=1e-6
+    )
+
 
 # ── Investment integration test with DB ───────────────────────────────────────
 
@@ -1500,13 +1562,19 @@ def test_investment_projection_integration(initialized_environment, monkeypatch)
             3,
             investment_stat="mean",
             investment_exclude_outliers=False,
-            investment_interest_pct_override=3.0,
+            investment_interest_pct_override=3.123456,
             investment_contribution_pct_override=12.0,
         )
 
     assert overridden["investment_model"]["has_overrides"] is True
     assert overridden["investment_model"]["applied_interest_percent"] == pytest.approx(
-        3.0, rel=1e-4
+        3.123456, rel=1e-6
+    )
+    first_projected_override = next(
+        row for row in overridden["investment_detail"] if row["is_projected"]
+    )
+    assert first_projected_override["interest_pct_investments"] == pytest.approx(
+        3.123456, rel=1e-6
     )
     assert overridden["investment_model"][
         "applied_contribution_percent"

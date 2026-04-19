@@ -704,10 +704,24 @@ def build_projections(
         net_result_i = detail_row.get(
             "net_result", max(0.0, projected_income_i - projected_expense_i)
         )
-        interest_i = detail_row.get("interest_total", detail_row.get("interest", 0))
-        contribution_i = detail_row.get("contribution", 0)
-        series_transfer_i = detail_row.get("series_transfer", 0)
-        opening_investment_balance = detail_row.get("opening_investment_balance", 0)
+        interest_i = detail_row.get(
+            "interest_exact",
+            detail_row.get("interest_total", detail_row.get("interest", 0)),
+        )
+        contribution_i = detail_row.get(
+            "contribution_exact", detail_row.get("contribution", 0)
+        )
+        series_transfer_i = detail_row.get(
+            "series_transfer_exact", detail_row.get("series_transfer", 0)
+        )
+        opening_investment_balance = detail_row.get(
+            "opening_investment_balance_exact",
+            detail_row.get("opening_investment_balance", 0),
+        )
+        ending_investment_balance = detail_row.get(
+            "ending_investment_balance_exact",
+            baseline_investments[index] if index < len(baseline_investments) else None,
+        )
         contribution_pct_income = (
             round(contribution_i / projected_income_i * 100, 4)
             if projected_income_i > 0
@@ -723,14 +737,14 @@ def build_projections(
                 "month": month,
                 "is_projected": True,
                 "investment_balance": (
-                    baseline_investments[index]
-                    if index < len(baseline_investments)
+                    round(ending_investment_balance, 6)
+                    if ending_investment_balance is not None
                     else None
                 ),
-                "interest_total": round(interest_i, 4),
-                "interest_earned": round(interest_i, 4),
+                "interest_total": round(interest_i, 6),
+                "interest_earned": round(interest_i, 6),
                 "interest_pct_investments": (
-                    round(interest_i / opening_investment_balance * 100, 4)
+                    round(interest_i / opening_investment_balance * 100, 6)
                     if opening_investment_balance and opening_investment_balance > 0
                     else 0.0
                 ),
@@ -746,7 +760,7 @@ def build_projections(
                 "total_expense": round(projected_expense_i, 4),
                 "net_result": round(net_result_i, 4),
                 "interest_pct_income": interest_pct_income,
-                "dividends": round(interest_i, 4),
+                "dividends": round(interest_i, 6),
             }
         )
 
