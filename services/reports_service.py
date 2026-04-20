@@ -167,13 +167,21 @@ def _build_account_stats(
     account_stats: list[dict] = []
     for row in account_rows:
         monthly_values: list[float] = []
+        active_month_count = 0
         for month in months:
+            has_activity = (row["id"], month) in totals_map
             deb, cred = totals_map.get((row["id"], month), (0.0, 0.0))
             value = deb - cred if row["type_id"] in {1, 4} else cred - deb
             monthly_values.append(round(value, 4))
+            if has_activity:
+                active_month_count += 1
 
         sorted_values = sorted(monthly_values)
-        mean_value = sum(monthly_values) / len(monthly_values) if monthly_values else None
+        mean_value = (
+            sum(monthly_values) / active_month_count
+            if active_month_count > 0
+            else None
+        )
         median_value = _median(sorted_values)
         q1 = _percentile(sorted_values, 0.25)
         q3 = _percentile(sorted_values, 0.75)
@@ -212,6 +220,7 @@ def _build_account_stats(
                 "mean": _round_or_none(mean_value),
                 "median": _round_or_none(median_value),
                 "stddev": _round_or_none(_std_dev(monthly_values) if monthly_values else None),
+                "active_months": active_month_count,
                 "months": months,
                 "values": [_round_or_none(value) for value in monthly_values],
                 "boxplot": {
