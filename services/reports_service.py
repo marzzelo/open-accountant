@@ -167,18 +167,22 @@ def _build_account_stats(
     account_stats: list[dict] = []
     for row in account_rows:
         monthly_values: list[float] = []
-        active_month_count = 0
+        active_month_values: list[float] = []
+        active_month_labels: list[str] = []
         for month in months:
             has_activity = (row["id"], month) in totals_map
             deb, cred = totals_map.get((row["id"], month), (0.0, 0.0))
             value = deb - cred if row["type_id"] in {1, 4} else cred - deb
-            monthly_values.append(round(value, 4))
+            rounded_value = round(value, 4)
+            monthly_values.append(rounded_value)
             if has_activity:
-                active_month_count += 1
+                active_month_values.append(rounded_value)
+                active_month_labels.append(month)
 
-        sorted_values = sorted(monthly_values)
+        active_month_count = len(active_month_values)
+        sorted_values = sorted(active_month_values)
         mean_value = (
-            sum(monthly_values) / active_month_count
+            sum(active_month_values) / active_month_count
             if active_month_count > 0
             else None
         )
@@ -219,10 +223,10 @@ def _build_account_stats(
                 "current": _round_or_none(current_value),
                 "mean": _round_or_none(mean_value),
                 "median": _round_or_none(median_value),
-                "stddev": _round_or_none(_std_dev(monthly_values) if monthly_values else None),
+                "stddev": _round_or_none(_std_dev(active_month_values) if active_month_values else None),
                 "active_months": active_month_count,
-                "months": months,
-                "values": [_round_or_none(value) for value in monthly_values],
+                "months": active_month_labels,
+                "values": [_round_or_none(value) for value in active_month_values],
                 "boxplot": {
                     "k": 1.5,
                     "lower_bound": _round_or_none(lower_bound),

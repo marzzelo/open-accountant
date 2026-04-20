@@ -611,8 +611,12 @@ def test_reports_service_stats_summary_and_net_worth_evolution(
     assert account_stats[income_account.name]["current"] == pytest.approx(1200.0)
     assert account_stats[liability_account.name]["current"] == pytest.approx(300.0)
     assert account_stats["Bond Ladder"]["active_months"] == 1
-    assert account_stats["Bond Ladder"]["months"] == ["2026-01", "2026-02", "2026-03"]
+    assert account_stats["Bond Ladder"]["months"] == ["2026-03"]
     assert account_stats["Bond Ladder"]["mean"] == pytest.approx(200.0, rel=1e-4)
+    assert account_stats["Bond Ladder"]["median"] == pytest.approx(200.0, rel=1e-4)
+    assert account_stats["Bond Ladder"]["stddev"] == pytest.approx(0.0, rel=1e-4)
+    assert account_stats["Bond Ladder"]["boxplot"]["q1"] == pytest.approx(200.0, rel=1e-4)
+    assert account_stats["Bond Ladder"]["boxplot"]["median"] == pytest.approx(200.0, rel=1e-4)
     assert account_stats["Bank"]["boxplot"]["max"] == pytest.approx(1550.0)
     assert refreshed_accounts["Bank"].properties["liquidity_profile"] == "quick"
     assert (
@@ -827,7 +831,7 @@ def test_reports_service_account_stats_excludes_subtype_patrimonio_and_uses_real
     assert account_stats["Bank"]["current"] == pytest.approx(400.0)
     assert account_stats["Salary"]["current"] == pytest.approx(450.0)
     assert account_stats["Bank"]["active_months"] == 0
-    assert account_stats["Bank"]["months"] == ["2026-03"]
+    assert account_stats["Bank"]["months"] == []
 
 
 def test_projection_series_adjustments_accept_date_start_dates():
