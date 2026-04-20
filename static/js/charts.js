@@ -467,6 +467,10 @@ function _accountBoxplotSvg(row) {
   const currentRatio = _positionInRange(current, lowerBound, upperBound);
   const currentX = currentRatio == null ? null : leftPad + trackWidth * currentRatio;
   const currentIsClamped = current != null && currentRatio != null && (Number(current) < Number(lowerBound) || Number(current) > Number(upperBound));
+  const currentMarkerColor = currentIsClamped ? '#f97316' : '#22c55e';
+  const currentTriangle = currentX == null
+    ? ''
+    : `${currentX - 4},4 ${currentX + 4},4 ${currentX},9`;
 
   return `
     <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" class="w-full h-8 min-w-[220px] overflow-visible" role="img" aria-label="${escapeHtml(t('stats.account_table.boxplot_aria', { account: row.account_name }))}">
@@ -479,24 +483,78 @@ function _accountBoxplotSvg(row) {
       <line x1="${medianX}" y1="${boxTop}" x2="${medianX}" y2="${boxTop + boxHeight}" stroke="#f8fafc" stroke-width="1.5" />
       <line x1="${meanX}" y1="${boxTop + 2}" x2="${meanX}" y2="${boxTop + boxHeight - 2}" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="2 2" />
       ${currentX == null ? '' : `<g>
-        <line x1="${currentX}" y1="2" x2="${currentX}" y2="${height - 2}" stroke="${currentIsClamped ? '#f97316' : '#22c55e'}" stroke-width="1.5" />
-        <circle cx="${currentX}" cy="${midY}" r="3.4" fill="${currentIsClamped ? '#f97316' : '#22c55e'}" stroke="#0d1117" stroke-width="1" />
+        <line x1="${currentX}" y1="2" x2="${currentX}" y2="${height - 2}" stroke="${currentMarkerColor}" stroke-width="1.75" />
+        <polygon points="${currentTriangle}" fill="${currentMarkerColor}" stroke="#0d1117" stroke-width="0.8" />
       </g>`}
     </svg>`;
 }
 
-function _accountStatsTable(rows = []) {
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return `
-      <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-5">
-        <div class="text-xs text-dark-400 uppercase tracking-wide mb-3">${escapeHtml(t('stats.account_table.title'))}</div>
-        <div class="empty py-6">${escapeHtml(t('report.no_data'))}</div>
-      </div>`;
+function _accountTypeLabel(typeId) {
+  const keyMap = {
+    1: 'asset',
+    2: 'liability',
+    3: 'income',
+    4: 'expense',
+  };
+  const typeKey = keyMap[typeId];
+  return typeKey ? t(`account.type.${typeKey}`) : '—';
+}
+
+function _accountTypeSectionTitle(typeId) {
+  const keyMap = {
+    1: 'asset',
+    2: 'liability',
+    3: 'income',
+    4: 'expense',
+  };
+  const typeKey = keyMap[typeId];
+  return typeKey ? t(`stats.account_table.section.${typeKey}`) : _accountTypeLabel(typeId);
+}
+
+function _accountNameCell(row) {
+  const label = escapeHtml(row.account_name || '—');
+  if (typeof Reports === 'undefined' || !row.account_id) {
+    return `<span class="text-sm text-dark-100 whitespace-nowrap">${label}</span>`;
   }
+  const title = escapeHtml(t('report.open_ledger_account', { account: row.account_name || '' }));
+  return `<button type="button"
+      class="text-sm text-blue-300 hover:text-blue-200 hover:underline whitespace-nowrap text-left"
+      onclick="Reports.openLedger(${Number(row.account_id)})"
+      title="${title}"
+      aria-label="${title}">${label}</button>`;
+}
+
+function _accountStatsLegend() {
+  const items = [
+    { key: 'range', swatch: '<span class="inline-block w-8 h-[2px] rounded bg-dark-600"></span>' },
+    { key: 'min', swatch: '<span class="relative inline-block w-4 h-3"><span class="absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 bg-dark-300"></span></span>' },
+    { key: 'q1_q3', swatch: '<span class="inline-block w-8 h-3 rounded-sm border border-blue-400 bg-dark-700"></span>' },
+    { key: 'median', swatch: '<span class="relative inline-block w-4 h-3"><span class="absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 bg-slate-50"></span></span>' },
+    { key: 'mean', swatch: '<span class="relative inline-block w-4 h-3"><span class="absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 border-l-2 border-dashed border-amber-400"></span></span>' },
+    { key: 'current', swatch: '<span class="relative inline-block w-4 h-3"><span class="absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 bg-green-500"></span><span class="absolute left-1/2 top-0 -translate-x-1/2 text-[8px] leading-none text-green-500">▼</span></span>' },
+    { key: 'current_clamped', swatch: '<span class="relative inline-block w-4 h-3"><span class="absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 bg-orange-500"></span><span class="absolute left-1/2 top-0 -translate-x-1/2 text-[8px] leading-none text-orange-500">▼</span></span>' },
+    { key: 'max', swatch: '<span class="relative inline-block w-4 h-3"><span class="absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 bg-dark-300"></span></span>' },
+  ];
+
+  return `
+    <div class="mt-4 pt-4 border-t border-dark-700">
+      <div class="text-[11px] font-medium uppercase tracking-wide text-dark-400 mb-3">${escapeHtml(t('stats.account_table.legend_title'))}</div>
+      <div class="flex flex-wrap gap-x-5 gap-y-2 text-xs text-dark-300">
+        ${items.map(item => `
+          <div class="inline-flex items-center gap-2">
+            ${item.swatch}
+            <span>${escapeHtml(t(`stats.account_table.legend.${item.key}`))}</span>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function _accountStatsSection(typeId, rows) {
+  if (!rows.length) return '';
 
   const bodyRows = rows.map(row => `
     <tr class="border-t border-dark-700 hover:bg-dark-700/30">
-      <td class="px-3 py-2 text-sm text-dark-100 whitespace-nowrap">${escapeHtml(row.account_name || '—')}</td>
+      <td class="px-3 py-2">${_accountNameCell(row)}</td>
       <td class="px-3 py-2 text-sm text-right whitespace-nowrap ${_num(row.current) >= 0 ? 'text-dark-100' : 'text-pasivo'}">${escapeHtml(_fmtStatNumber(row.current))}</td>
       <td class="px-3 py-2 text-sm text-right whitespace-nowrap text-dark-200">${escapeHtml(_fmtStatNumber(row.mean))}</td>
       <td class="px-3 py-2 text-sm text-right whitespace-nowrap text-dark-200">${escapeHtml(_fmtStatNumber(row.median))}</td>
@@ -505,11 +563,8 @@ function _accountStatsTable(rows = []) {
     </tr>`).join('');
 
   return `
-    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-5">
-      <div class="flex items-center justify-between gap-3 mb-3">
-        <div class="text-xs text-dark-400 uppercase tracking-wide">${escapeHtml(t('stats.account_table.title'))}</div>
-        <div class="text-[11px] text-dark-500">${escapeHtml(t('stats.account_table.subtitle', { k: '1.5' }))}</div>
-      </div>
+    <div class="mb-5 last:mb-0">
+      <div class="text-[11px] font-medium uppercase tracking-wide text-dark-500 mb-2">${escapeHtml(_accountTypeSectionTitle(typeId))}</div>
       <div class="overflow-x-auto">
         <table class="w-full min-w-[860px] table-auto">
           <thead>
@@ -525,6 +580,34 @@ function _accountStatsTable(rows = []) {
           <tbody>${bodyRows}</tbody>
         </table>
       </div>
+    </div>`;
+}
+
+function _accountStatsTable(rows = []) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return `
+      <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-5">
+        <div class="text-xs text-dark-400 uppercase tracking-wide mb-3">${escapeHtml(t('stats.account_table.title'))}</div>
+        <div class="empty py-6">${escapeHtml(t('report.no_data'))}</div>
+      </div>`;
+  }
+
+  const orderedTypeIds = [1, 2, 3, 4];
+  const groupedSections = orderedTypeIds.map(typeId => {
+    const sectionRows = rows
+      .filter(row => Number(row.type_id) === typeId)
+      .sort((left, right) => String(left.account_name || '').localeCompare(String(right.account_name || ''), undefined, { sensitivity: 'base' }));
+    return _accountStatsSection(typeId, sectionRows);
+  }).join('');
+
+  return `
+    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-5">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <div class="text-xs text-dark-400 uppercase tracking-wide">${escapeHtml(t('stats.account_table.title'))}</div>
+        <div class="text-[11px] text-dark-500">${escapeHtml(t('stats.account_table.subtitle', { k: '1.5' }))}</div>
+      </div>
+      ${groupedSections}
+      ${_accountStatsLegend()}
     </div>`;
 }
 
