@@ -1,5 +1,6 @@
 """Report and analytics service functions."""
 
+from datetime import datetime
 from math import sqrt
 from typing import Optional
 
@@ -20,6 +21,7 @@ from models import (
 
 from services.errors import NotFoundError
 from services.helpers import (
+    current_month_range,
     current_year_range as shared_current_year_range,
     end_of_month_datetime,
     normalize_account_properties,
@@ -59,6 +61,175 @@ def _std_dev(values: list[float]) -> float:
 
 def _round_or_none(value: Optional[float], digits: int = 4) -> Optional[float]:
     return round(value, digits) if value is not None else None
+
+
+def _month_start(month_str: str) -> str:
+    return f"{month_str}-01 00:00:00"
+
+
+def _month_sequence(start_month: str, end_month: str) -> list[str]:
+    start_year, start_mon = map(int, start_month.split("-"))
+    end_year, end_mon = map(int, end_month.split("-"))
+    months: list[str] = []
+    year = start_year
+    month = start_mon
+    while (year, month) <= (end_year, end_mon):
+        months.append(f"{year:04d}-{month:02d}")
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+    return months
+
+
+def _median(sorted_values: list[float]) -> Optional[float]:
+    if not sorted_values:
+        return None
+    mid = len(sorted_values) // 2
+    if len(sorted_values) % 2 == 1:
+        return sorted_values[mid]
+    return (sorted_values[mid - 1] + sorted_values[mid]) / 2.0
+
+
+def _percentile(sorted_values: list[float], percentile: float) -> Optional[float]:
+    if not sorted_values:
+        return None
+    if len(sorted_values) == 1:
+        return sorted_values[0]
+    position = (len(sorted_values) - 1) * percentile
+    lower = int(position)
+    upper = min(lower + 1, len(sorted_values) - 1)
+    weight = position - lower
+    return sorted_values[lower] * (1 - weight) + sorted_values[upper] * weight
+
+
+def _build_account_stats(
+    conn,
+    *,
+    from_dt: str,
+    to_dt: str,
+    filtered: bool,
+    tag_ids: Optional[list[int]],
+    month_expr: str,
+    tag_filter: str,
+    tag_params: list[int],
+) -> list[dict]:
+    now = datetime.now()
+    current_start_dt, current_end_dt = current_month_range(now)
+    current_month = current_start_dt[:7]
+    end_month = to_dt[:7] if filtered else current_month
+    start_month = from_dt[:7]
+    months = _month_sequence(start_month, end_month) if start_month <= end_month else []
+
+    account_rows = conn.execute(
+        """SELECT a.id, a.name, a.type_id, a.initial_balance,
+                  t.name AS type_name,
+                  COALESCE(s.name, '') AS subtype_name
+           FROM accounts a
+           JOIN types t ON a.type_id = t.id
+           LEFT JOIN subtypes s ON a.subtype_id = s.id
+           WHERE a.type_id <> 5
+             AND LOWER(TRIM(COALESCE(s.name, ''))) <> 'patrimonio'
+           ORDER BY a.type_id, a.name"""
+    ).fetchall()
+
+    totals = conn.execute(
+        f"""WITH month_legs AS (
+               SELECT debit_account AS account_id,
+                      {month_expr} AS month,
+                      amount AS debit_amount,
+                      0 AS credit_amount
+               FROM transactions t
+               WHERE t.date BETWEEN ? AND ?{tag_filter}
+
+               UNION ALL
+
+               SELECT credit_account AS account_id,
+                      {month_expr} AS month,
+                      0 AS debit_amount,
+                      amount AS credit_amount
+               FROM transactions t
+               WHERE t.date BETWEEN ? AND ?{tag_filter}
+           )
+           SELECT account_id,
+                  month,
+                  COALESCE(SUM(debit_amount), 0) AS deb,
+                  COALESCE(SUM(credit_amount), 0) AS cred
+           FROM month_legs
+           GROUP BY account_id, month""",
+        (from_dt, to_dt, *tag_params, from_dt, to_dt, *tag_params),
+    ).fetchall()
+
+    totals_map: dict[tuple[int, str], tuple[float, float]] = {}
+    for row in totals:
+        totals_map[(row["account_id"], row["month"])] = (row["deb"], row["cred"])
+
+    account_stats: list[dict] = []
+    for row in account_rows:
+        monthly_values: list[float] = []
+        for month in months:
+            deb, cred = totals_map.get((row["id"], month), (0.0, 0.0))
+            value = deb - cred if row["type_id"] in {1, 4} else cred - deb
+            monthly_values.append(round(value, 4))
+
+        sorted_values = sorted(monthly_values)
+        mean_value = sum(monthly_values) / len(monthly_values) if monthly_values else None
+        median_value = _median(sorted_values)
+        q1 = _percentile(sorted_values, 0.25)
+        q3 = _percentile(sorted_values, 0.75)
+        iqr = (q3 - q1) if q1 is not None and q3 is not None else None
+        lower_bound = q1 - 1.5 * iqr if iqr is not None and q1 is not None else None
+        upper_bound = q3 + 1.5 * iqr if iqr is not None and q3 is not None else None
+        non_outliers = (
+            [
+                value
+                for value in sorted_values
+                if lower_bound is not None and upper_bound is not None and lower_bound <= value <= upper_bound
+            ]
+            if sorted_values and lower_bound is not None and upper_bound is not None
+            else []
+        )
+        whisker_min = non_outliers[0] if non_outliers else (sorted_values[0] if sorted_values else None)
+        whisker_max = non_outliers[-1] if non_outliers else (sorted_values[-1] if sorted_values else None)
+        current_value = compute_filtered_balance(
+            conn,
+            row["id"],
+            row["type_id"],
+            0.0,
+            current_start_dt,
+            current_end_dt,
+            tag_ids,
+        )
+
+        account_stats.append(
+            {
+                "account_id": row["id"],
+                "account_name": row["name"],
+                "type_id": row["type_id"],
+                "type_name": row["type_name"],
+                "subtype_name": row["subtype_name"],
+                "current": _round_or_none(current_value),
+                "mean": _round_or_none(mean_value),
+                "median": _round_or_none(median_value),
+                "stddev": _round_or_none(_std_dev(monthly_values) if monthly_values else None),
+                "months": months,
+                "values": [_round_or_none(value) for value in monthly_values],
+                "boxplot": {
+                    "k": 1.5,
+                    "lower_bound": _round_or_none(lower_bound),
+                    "upper_bound": _round_or_none(upper_bound),
+                    "min": _round_or_none(whisker_min),
+                    "q1": _round_or_none(q1),
+                    "median": _round_or_none(median_value),
+                    "q3": _round_or_none(q3),
+                    "max": _round_or_none(whisker_max),
+                    "mean": _round_or_none(mean_value),
+                    "current": _round_or_none(current_value),
+                },
+            }
+        )
+
+    return account_stats
 
 
 def _tag_clause(tx_alias: str, tag_ids: Optional[list[int]]) -> tuple[str, list[int]]:
@@ -429,6 +600,7 @@ def get_stats(
     tag_ids: Optional[list[int]] = None,
 ) -> StatsData:
     from_dt, to_dt, _ = resolve_date_range(from_date, to_date)
+    from_dt, to_dt, filtered = resolve_date_range(from_date, to_date)
     tag_filter, tag_params = _tag_clause("t", tag_ids)
     month_expr = month_bucket_sql(conn, "t.date")
 
@@ -651,6 +823,17 @@ def get_stats(
         for row in top_rows
     ]
 
+    account_stats = _build_account_stats(
+        conn,
+        from_dt=from_dt,
+        to_dt=to_dt,
+        filtered=filtered,
+        tag_ids=tag_ids,
+        month_expr=month_expr,
+        tag_filter=tag_filter,
+        tag_params=tag_params,
+    )
+
     months_rows = conn.execute(
         f"""SELECT DISTINCT {month_expr} AS month FROM transactions t
            WHERE date BETWEEN ? AND ?{tag_filter} ORDER BY month""",
@@ -803,6 +986,7 @@ def get_stats(
         income_by_subtype=income_by_subtype,
         asset_composition=asset_composition,
         top_accounts=top_accounts,
+        account_stats=account_stats,
         balance_evolution=balance_evolution,
         income_evolution=income_evolution,
         expense_evolution=expense_evolution,

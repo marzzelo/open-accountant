@@ -280,6 +280,7 @@ class StatsData(BaseModel):
     income_by_subtype: list[dict]  # {subtype, amount}
     asset_composition: list[dict]  # {account, balance}
     top_accounts: list[dict]  # {account, volume, tx_count}
+    account_stats: list[dict]  # {account_id, account_name, type_id, type_name, subtype_name, current, mean, median, stddev, boxplot}
     balance_evolution: list[
         dict
     ]  # {month, account_id, account_name, subtype_name, balance}

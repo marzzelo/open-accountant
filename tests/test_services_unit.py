@@ -468,7 +468,16 @@ def test_reports_service_balance_filters_type_ids(initialized_environment):
     assert filtered_balance.total_patrimonio == 0.0
 
 
-def test_reports_service_stats_summary_and_net_worth_evolution(initialized_environment):
+def test_reports_service_stats_summary_and_net_worth_evolution(
+    initialized_environment, monkeypatch
+):
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 3, 25, 12, 0, 0, tzinfo=tz)
+
+    monkeypatch.setattr(reports_service, "datetime", FixedDateTime)
+
     with get_db() as conn:
         accounts = accounts_service.list_accounts(conn)
         bank = next(item for item in accounts if item.name == "Bank")
@@ -507,6 +516,7 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
                 original_amount=None,
                 fx_rate=None,
                 description="Salary inflow",
+                date="2026-03-05 10:00:00",
             ),
         )
         transactions_service.create_transaction(
@@ -518,6 +528,7 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
                 original_amount=None,
                 fx_rate=None,
                 description="Groceries",
+                date="2026-03-07 10:00:00",
             ),
         )
         transactions_service.create_transaction(
@@ -529,6 +540,7 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
                 original_amount=None,
                 fx_rate=None,
                 description="Card spending moved to debt",
+                date="2026-03-10 10:00:00",
             ),
         )
         transactions_service.create_transaction(
@@ -540,6 +552,7 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
                 original_amount=None,
                 fx_rate=None,
                 description="Bond contribution",
+                date="2026-03-15 10:00:00",
             ),
         )
         transactions_service.create_transaction(
@@ -551,6 +564,7 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
                 original_amount=None,
                 fx_rate=None,
                 description="Mortgage drawdown",
+                date="2026-03-18 10:00:00",
             ),
         )
 
@@ -590,6 +604,15 @@ def test_reports_service_stats_summary_and_net_worth_evolution(initialized_envir
     assert sum(row["balance"] for row in stats.liability_evolution) == pytest.approx(
         800.0
     )
+    account_stats = {row["account_name"]: row for row in stats.account_stats}
+    assert "Capital" not in account_stats
+    assert account_stats["Bank"]["current"] == pytest.approx(1550.0)
+    assert account_stats["Groceries"]["current"] == pytest.approx(250.0)
+    assert account_stats[income_account.name]["current"] == pytest.approx(1200.0)
+    assert account_stats[liability_account.name]["current"] == pytest.approx(300.0)
+    assert account_stats["Bond Ladder"]["months"] == ["2026-01", "2026-02", "2026-03"]
+    assert account_stats["Bond Ladder"]["mean"] == pytest.approx(200.0 / 3.0, rel=1e-4)
+    assert account_stats["Bank"]["boxplot"]["max"] == pytest.approx(1550.0)
     assert refreshed_accounts["Bank"].properties["liquidity_profile"] == "quick"
     assert (
         refreshed_accounts["Bond Ladder"].properties["liquidity_profile"]
@@ -737,6 +760,72 @@ def test_reports_service_stats_liability_evolution_preserves_negative_balances(
         credit_card.name: pytest.approx(300.0),
         backup_card.name: pytest.approx(-50.0),
     }
+
+
+def test_reports_service_account_stats_excludes_subtype_patrimonio_and_uses_real_current_month(
+    initialized_environment,
+    monkeypatch,
+):
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 4, 20, 8, 30, 0, tzinfo=tz)
+
+    monkeypatch.setattr(reports_service, "datetime", FixedDateTime)
+
+    with get_db() as conn:
+        patrimonio_subtype = subtypes_service.create_subtype(
+            conn,
+            SubtypeIn(name="Patrimonio", type_id=1),
+        )
+        hidden_asset = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Hidden Asset",
+                type_id=1,
+                subtype_id=patrimonio_subtype.id,
+                description="Should be excluded",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+        bank = accounts["Bank"]
+        salary = accounts["Salary"]
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=bank.id,
+                credit_account=salary.id,
+                amount=400.0,
+                original_amount=None,
+                fx_rate=None,
+                description="April salary",
+                date="2026-04-10 09:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=hidden_asset.id,
+                credit_account=salary.id,
+                amount=50.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Hidden subtype movement",
+                date="2026-04-11 09:00:00",
+            ),
+        )
+
+        stats = reports_service.get_stats(conn, "2026-03-01", "2026-03-31")
+
+    account_stats = {row["account_name"]: row for row in stats.account_stats}
+    assert "Capital" not in account_stats
+    assert "Hidden Asset" not in account_stats
+    assert account_stats["Bank"]["current"] == pytest.approx(400.0)
+    assert account_stats["Salary"]["current"] == pytest.approx(450.0)
+    assert account_stats["Bank"]["months"] == ["2026-03"]
 
 
 def test_projection_series_adjustments_accept_date_start_dates():

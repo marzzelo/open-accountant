@@ -417,6 +417,117 @@ function _kpiCard({ label, value, note = '', valueClass = 'text-dark-100', infoK
     </div>`;
 }
 
+function _fmtStatNumber(value) {
+  return value == null || Number.isNaN(Number(value)) ? '—' : fmt(value);
+}
+
+function _positionInRange(value, minValue, maxValue) {
+  if (value == null || minValue == null || maxValue == null || Number.isNaN(Number(value))) return null;
+  const start = Number(minValue);
+  const end = Number(maxValue);
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  if (Math.abs(end - start) < 0.0000001) return 0.5;
+  const raw = (Number(value) - start) / (end - start);
+  return Math.min(1, Math.max(0, raw));
+}
+
+function _accountBoxplotSvg(row) {
+  const box = row?.boxplot || {};
+  const lowerBound = box.lower_bound;
+  const upperBound = box.upper_bound;
+  const whiskerMin = box.min;
+  const q1 = box.q1;
+  const median = box.median;
+  const q3 = box.q3;
+  const whiskerMax = box.max;
+  const mean = box.mean;
+  const current = box.current;
+
+  if ([lowerBound, upperBound, whiskerMin, q1, median, q3, whiskerMax, mean].some(value => value == null)) {
+    return `<div class="text-xs text-dark-500">${escapeHtml(t('report.no_data'))}</div>`;
+  }
+
+  const width = 240;
+  const height = 28;
+  const leftPad = 10;
+  const rightPad = 10;
+  const trackWidth = width - leftPad - rightPad;
+  const midY = height / 2;
+  const boxTop = 7;
+  const boxHeight = 14;
+  const whiskerCapHalf = 5;
+
+  const xFor = value => leftPad + trackWidth * _positionInRange(value, lowerBound, upperBound);
+  const whiskerMinX = xFor(whiskerMin);
+  const q1X = xFor(q1);
+  const medianX = xFor(median);
+  const q3X = xFor(q3);
+  const whiskerMaxX = xFor(whiskerMax);
+  const meanX = xFor(mean);
+  const currentRatio = _positionInRange(current, lowerBound, upperBound);
+  const currentX = currentRatio == null ? null : leftPad + trackWidth * currentRatio;
+  const currentIsClamped = current != null && currentRatio != null && (Number(current) < Number(lowerBound) || Number(current) > Number(upperBound));
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" class="w-full h-8 min-w-[220px] overflow-visible" role="img" aria-label="${escapeHtml(t('stats.account_table.boxplot_aria', { account: row.account_name }))}">
+      <line x1="${leftPad}" y1="${midY}" x2="${width - rightPad}" y2="${midY}" stroke="#30363d" stroke-width="1" />
+      <line x1="${whiskerMinX}" y1="${midY}" x2="${q1X}" y2="${midY}" stroke="#8b949e" stroke-width="1.5" />
+      <line x1="${q3X}" y1="${midY}" x2="${whiskerMaxX}" y2="${midY}" stroke="#8b949e" stroke-width="1.5" />
+      <line x1="${whiskerMinX}" y1="${midY - whiskerCapHalf}" x2="${whiskerMinX}" y2="${midY + whiskerCapHalf}" stroke="#8b949e" stroke-width="1.5" />
+      <line x1="${whiskerMaxX}" y1="${midY - whiskerCapHalf}" x2="${whiskerMaxX}" y2="${midY + whiskerCapHalf}" stroke="#8b949e" stroke-width="1.5" />
+      <rect x="${Math.min(q1X, q3X)}" y="${boxTop}" width="${Math.max(1, Math.abs(q3X - q1X))}" height="${boxHeight}" rx="3" fill="#1f2937" stroke="#60a5fa" stroke-width="1.2" />
+      <line x1="${medianX}" y1="${boxTop}" x2="${medianX}" y2="${boxTop + boxHeight}" stroke="#f8fafc" stroke-width="1.5" />
+      <line x1="${meanX}" y1="${boxTop + 2}" x2="${meanX}" y2="${boxTop + boxHeight - 2}" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="2 2" />
+      ${currentX == null ? '' : `<g>
+        <line x1="${currentX}" y1="2" x2="${currentX}" y2="${height - 2}" stroke="${currentIsClamped ? '#f97316' : '#22c55e'}" stroke-width="1.5" />
+        <circle cx="${currentX}" cy="${midY}" r="3.4" fill="${currentIsClamped ? '#f97316' : '#22c55e'}" stroke="#0d1117" stroke-width="1" />
+      </g>`}
+    </svg>`;
+}
+
+function _accountStatsTable(rows = []) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return `
+      <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-5">
+        <div class="text-xs text-dark-400 uppercase tracking-wide mb-3">${escapeHtml(t('stats.account_table.title'))}</div>
+        <div class="empty py-6">${escapeHtml(t('report.no_data'))}</div>
+      </div>`;
+  }
+
+  const bodyRows = rows.map(row => `
+    <tr class="border-t border-dark-700 hover:bg-dark-700/30">
+      <td class="px-3 py-2 text-sm text-dark-100 whitespace-nowrap">${escapeHtml(row.account_name || '—')}</td>
+      <td class="px-3 py-2 text-sm text-right whitespace-nowrap ${_num(row.current) >= 0 ? 'text-dark-100' : 'text-pasivo'}">${escapeHtml(_fmtStatNumber(row.current))}</td>
+      <td class="px-3 py-2 text-sm text-right whitespace-nowrap text-dark-200">${escapeHtml(_fmtStatNumber(row.mean))}</td>
+      <td class="px-3 py-2 text-sm text-right whitespace-nowrap text-dark-200">${escapeHtml(_fmtStatNumber(row.median))}</td>
+      <td class="px-3 py-2 text-sm text-right whitespace-nowrap text-dark-200">${escapeHtml(_fmtStatNumber(row.stddev))}</td>
+      <td class="px-3 py-2 w-full min-w-[240px]">${_accountBoxplotSvg(row)}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-5">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <div class="text-xs text-dark-400 uppercase tracking-wide">${escapeHtml(t('stats.account_table.title'))}</div>
+        <div class="text-[11px] text-dark-500">${escapeHtml(t('stats.account_table.subtitle', { k: '1.5' }))}</div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-[860px] table-auto">
+          <thead>
+            <tr class="border-b border-dark-600">
+              <th class="px-3 py-2 text-left text-[11px] font-medium text-dark-400 uppercase tracking-wide">${escapeHtml(t('stats.account_table.name'))}</th>
+              <th class="px-3 py-2 text-right text-[11px] font-medium text-dark-400 uppercase tracking-wide whitespace-nowrap">${escapeHtml(t('stats.account_table.current'))}</th>
+              <th class="px-3 py-2 text-right text-[11px] font-medium text-dark-400 uppercase tracking-wide whitespace-nowrap">${escapeHtml(t('stats.account_table.mean'))}</th>
+              <th class="px-3 py-2 text-right text-[11px] font-medium text-dark-400 uppercase tracking-wide whitespace-nowrap">${escapeHtml(t('stats.account_table.median'))}</th>
+              <th class="px-3 py-2 text-right text-[11px] font-medium text-dark-400 uppercase tracking-wide whitespace-nowrap">${escapeHtml(t('stats.account_table.stddev'))}</th>
+              <th class="px-3 py-2 text-left text-[11px] font-medium text-dark-400 uppercase tracking-wide w-full">${escapeHtml(t('stats.account_table.boxplot'))}</th>
+            </tr>
+          </thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 function _replaceWithEmpty(canvasId) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
@@ -956,6 +1067,7 @@ const Charts = {
     const projData = await API.get(_buildProjectionQueryFromPrefs(prefs)).catch(() => null);
     const main = document.getElementById('main');
     const summary = statsData.summary || {};
+    const accountStats = Array.isArray(statsData.account_stats) ? statsData.account_stats : [];
     const investmentModel = projData?.investment_model || {};
     const health = projData?.health || {};
     const monthlyCashflow = Array.isArray(statsData.monthly_cashflow) ? statsData.monthly_cashflow : [];
@@ -966,13 +1078,13 @@ const Charts = {
     const avgMonthlyBaseExpense = summary.monthly_essential_expense;
     const avgMonthlyResult = observedMonths > 0 ? _num(summary.net_result) / observedMonths : null;
     const avgMonthlySavings = avgMonthlyResult;
-    const avgMonthlySavingsRate = avgMonthlyIncome ? avgMonthlySavings / avgMonthlyIncome : null;
+    const avgMonthlySavingsToTotalIncome = _num(summary.total_income) ? avgMonthlySavings / _num(summary.total_income) : null;
     const totalAssetsBasicRunway = avgMonthlyBaseExpense ? _num(summary.total_assets) / _num(avgMonthlyBaseExpense) : null;
     const totalAssetsRunway = avgMonthlyExpense ? _num(summary.total_assets) / _num(avgMonthlyExpense) : null;
     const currentMonthNote = currentMonthCashflow?.month || t('report.no_data');
     const avgMonthlyResultClass = _num(avgMonthlyResult) >= 0 ? 'text-ingreso' : 'text-pasivo';
     const avgMonthlySavingsClass = _num(avgMonthlySavings) >= 0 ? 'text-ingreso' : 'text-pasivo';
-    const avgMonthlySavingsRateClass = _num(avgMonthlySavingsRate) >= 0 ? 'text-ingreso' : 'text-pasivo';
+    const avgMonthlySavingsToTotalIncomeClass = _num(avgMonthlySavingsToTotalIncome) >= 0 ? 'text-ingreso' : 'text-pasivo';
     const baseExpenseBasisNote = `${t('stats.kpi.essential_expense')}: ${summary.runway_basis ? t(`stats.runway_basis.${summary.runway_basis}`) : '—'}`;
     const yieldSamples = Number(investmentModel.sample_count || 0);
     const contributionSamples = Number(investmentModel.contrib_sample_count || 0);
@@ -998,10 +1110,11 @@ const Charts = {
         ${_kpiCard({ label: t('stats.kpi.avg_investment_contribution_rate'), value: contributionSamples > 0 ? _fmtPct(investmentModel.contribution_rate) : '—', valueClass: 'text-orange-400', note: t('stats.note.contribution_samples', { count: contributionSamples }) })}
         ${_kpiCard({ label: t('stats.kpi.avg_investment_yield'), value: yieldSamples > 0 ? _fmtPct(investmentModel.yield_rate) : '—', valueClass: 'text-activo', note: t('stats.note.yield_samples', { count: yieldSamples }) })}
         ${_kpiCard({ label: t('stats.kpi.avg_monthly_savings'), value: avgMonthlySavings == null ? '—' : fmt(avgMonthlySavings), valueClass: avgMonthlySavingsClass, note: `${t('stats.kpi.avg_monthly_income')}: ${avgMonthlyIncome == null ? '—' : fmt(avgMonthlyIncome)} · ${t('stats.kpi.avg_monthly_expense')}: ${avgMonthlyExpense == null ? '—' : fmt(avgMonthlyExpense)}` })}
-        ${_kpiCard({ label: t('stats.kpi.avg_monthly_savings_rate'), value: _fmtPct(avgMonthlySavingsRate), valueClass: avgMonthlySavingsRateClass, infoKey: 'savings_rate' })}
+        ${_kpiCard({ label: t('stats.kpi.avg_monthly_savings_to_total_income'), value: _fmtPct(avgMonthlySavingsToTotalIncome), valueClass: avgMonthlySavingsToTotalIncomeClass, note: `${t('report.total_income')}: ${fmt(summary.total_income)}` })}
         ${_kpiCard({ label: t('stats.kpi.total_assets_basic_runway'), value: _fmtMonths(totalAssetsBasicRunway), valueClass: totalAssetsBasicRunway != null && _num(totalAssetsBasicRunway) < 6 ? 'text-pasivo' : 'text-dark-100', note: `${t('stats.kpi.avg_monthly_essential_expense')}: ${avgMonthlyBaseExpense == null ? '—' : fmt(avgMonthlyBaseExpense)}`, infoKey: 'total_assets_basic_runway' })}
         ${_kpiCard({ label: t('stats.kpi.total_assets_total_runway'), value: _fmtMonths(totalAssetsRunway), valueClass: totalAssetsRunway != null && _num(totalAssetsRunway) < 6 ? 'text-pasivo' : 'text-dark-100', note: `${t('stats.kpi.avg_monthly_expense')}: ${avgMonthlyExpense == null ? '—' : fmt(avgMonthlyExpense)}`, infoKey: 'total_runway' })}
       </div>
+      ${_accountStatsTable(accountStats)}
       </div></div>`;
   },
 

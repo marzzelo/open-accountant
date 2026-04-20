@@ -75,6 +75,13 @@ def current_year_range() -> tuple[str, str]:
     return f"{year}-01-01 00:00:00", f"{year}-12-31 23:59:59"
 
 
+def current_month_range(now: datetime | None = None) -> tuple[str, str]:
+    current = now or datetime.now()
+    start = current.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = current.replace(microsecond=0)
+    return start.strftime("%Y-%m-%d %H:%M:%S"), end.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def resolve_date_range(
     from_date: str | None, to_date: str | None
 ) -> tuple[str, str, bool]:

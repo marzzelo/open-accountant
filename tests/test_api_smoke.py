@@ -854,6 +854,8 @@ def test_stats_net_expense_subtypes_ignore_fully_reversed_movements(client):
     assert "avg_monthly_income_recent" in stats["summary"]
     assert "income_evolution" in stats
     assert "expense_evolution" in stats
+    assert "account_stats" in stats
+    assert isinstance(stats["account_stats"], list)
     assert "liability_evolution" in stats
     assert "net_worth_evolution" in stats
 
