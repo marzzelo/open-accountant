@@ -1179,16 +1179,22 @@ const Charts = {
     const avgMonthlyBaseExpense = summary.monthly_essential_expense;
     const avgMonthlyResult = observedMonths > 0 ? _num(summary.net_result) / observedMonths : null;
     const avgMonthlySavings = avgMonthlyResult;
-    const avgMonthlySavingsToTotalIncome = _num(summary.total_income) ? avgMonthlySavings / _num(summary.total_income) : null;
+    const yieldSamples = Number(investmentModel.sample_count || 0);
+    const contributionSamples = Number(investmentModel.contrib_sample_count || 0);
+    const hasAvgMonthlyIncome = avgMonthlyIncome != null && Math.abs(_num(avgMonthlyIncome)) > 0.0000001;
+    const avgInvestmentYieldToAvgMonthlyIncome = yieldSamples > 0 && hasAvgMonthlyIncome
+      ? _num(investmentModel.interest_amount) / _num(avgMonthlyIncome)
+      : null;
+    const avgMonthlySavingsToAvgMonthlyIncome = hasAvgMonthlyIncome
+      ? avgMonthlySavings / _num(avgMonthlyIncome)
+      : null;
     const totalAssetsBasicRunway = avgMonthlyBaseExpense ? _num(summary.total_assets) / _num(avgMonthlyBaseExpense) : null;
     const totalAssetsRunway = avgMonthlyExpense ? _num(summary.total_assets) / _num(avgMonthlyExpense) : null;
     const currentMonthNote = currentMonthCashflow?.month || t('report.no_data');
     const avgMonthlyResultClass = _num(avgMonthlyResult) >= 0 ? 'text-ingreso' : 'text-pasivo';
-    const avgMonthlySavingsClass = _num(avgMonthlySavings) >= 0 ? 'text-ingreso' : 'text-pasivo';
-    const avgMonthlySavingsToTotalIncomeClass = _num(avgMonthlySavingsToTotalIncome) >= 0 ? 'text-ingreso' : 'text-pasivo';
     const baseExpenseBasisNote = `${t('stats.kpi.essential_expense')}: ${summary.runway_basis ? t(`stats.runway_basis.${summary.runway_basis}`) : '—'}`;
-    const yieldSamples = Number(investmentModel.sample_count || 0);
-    const contributionSamples = Number(investmentModel.contrib_sample_count || 0);
+    const avgInvestmentYieldToAvgMonthlyIncomeClass = _num(avgInvestmentYieldToAvgMonthlyIncome) >= 0 ? 'text-activo' : 'text-pasivo';
+    const avgMonthlySavingsToAvgMonthlyIncomeClass = _num(avgMonthlySavingsToAvgMonthlyIncome) >= 0 ? 'text-ingreso' : 'text-pasivo';
 
     destroyCharts();
     _registerSharedKpiInfo(summary, health, monthlyCashflow);
@@ -1209,8 +1215,8 @@ const Charts = {
         ${_kpiCard({ label: t('stats.kpi.avg_investment_yield_amount'), value: yieldSamples > 0 ? fmt(investmentModel.interest_amount) : '—', valueClass: 'text-activo', note: t('stats.note.yield_samples', { count: yieldSamples }) })}
         ${_kpiCard({ label: t('stats.kpi.avg_investment_contribution_rate'), value: contributionSamples > 0 ? _fmtPct(investmentModel.contribution_rate) : '—', valueClass: 'text-orange-400', note: t('stats.note.contribution_samples', { count: contributionSamples }) })}
         ${_kpiCard({ label: t('stats.kpi.avg_investment_yield'), value: yieldSamples > 0 ? _fmtPct(investmentModel.yield_rate) : '—', valueClass: 'text-activo', note: t('stats.note.yield_samples', { count: yieldSamples }) })}
-        ${_kpiCard({ label: t('stats.kpi.avg_monthly_savings'), value: avgMonthlySavings == null ? '—' : fmt(avgMonthlySavings), valueClass: avgMonthlySavingsClass, note: `${t('stats.kpi.avg_monthly_income')}: ${avgMonthlyIncome == null ? '—' : fmt(avgMonthlyIncome)} · ${t('stats.kpi.avg_monthly_expense')}: ${avgMonthlyExpense == null ? '—' : fmt(avgMonthlyExpense)}` })}
-        ${_kpiCard({ label: t('stats.kpi.avg_monthly_savings_to_total_income'), value: _fmtPct(avgMonthlySavingsToTotalIncome), valueClass: avgMonthlySavingsToTotalIncomeClass, note: `${t('report.total_income')}: ${fmt(summary.total_income)}` })}
+        ${_kpiCard({ label: t('stats.kpi.avg_investment_yield_to_avg_monthly_income'), value: _fmtPct(avgInvestmentYieldToAvgMonthlyIncome), valueClass: avgInvestmentYieldToAvgMonthlyIncomeClass, note: `${t('stats.kpi.avg_investment_yield_amount')}: ${yieldSamples > 0 ? fmt(investmentModel.interest_amount) : '—'} · ${t('stats.kpi.avg_monthly_income')}: ${avgMonthlyIncome == null ? '—' : fmt(avgMonthlyIncome)}` })}
+        ${_kpiCard({ label: t('stats.kpi.avg_monthly_savings_to_avg_monthly_income'), value: _fmtPct(avgMonthlySavingsToAvgMonthlyIncome), valueClass: avgMonthlySavingsToAvgMonthlyIncomeClass, note: `${t('stats.kpi.avg_monthly_savings')}: ${avgMonthlySavings == null ? '—' : fmt(avgMonthlySavings)} · ${t('stats.kpi.avg_monthly_income')}: ${avgMonthlyIncome == null ? '—' : fmt(avgMonthlyIncome)}` })}
         ${_kpiCard({ label: t('stats.kpi.total_assets_basic_runway'), value: _fmtMonths(totalAssetsBasicRunway), valueClass: totalAssetsBasicRunway != null && _num(totalAssetsBasicRunway) < 6 ? 'text-pasivo' : 'text-dark-100', note: `${t('stats.kpi.avg_monthly_essential_expense')}: ${avgMonthlyBaseExpense == null ? '—' : fmt(avgMonthlyBaseExpense)}`, infoKey: 'total_assets_basic_runway' })}
         ${_kpiCard({ label: t('stats.kpi.total_assets_total_runway'), value: _fmtMonths(totalAssetsRunway), valueClass: totalAssetsRunway != null && _num(totalAssetsRunway) < 6 ? 'text-pasivo' : 'text-dark-100', note: `${t('stats.kpi.avg_monthly_expense')}: ${avgMonthlyExpense == null ? '—' : fmt(avgMonthlyExpense)}`, infoKey: 'total_runway' })}
       </div>
