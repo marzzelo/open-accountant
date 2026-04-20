@@ -433,6 +433,7 @@ function _positionInRange(value, minValue, maxValue) {
 
 function _accountBoxplotSvg(row) {
   const box = row?.boxplot || {};
+  const stddev = row?.stddev;
   const lowerBound = box.lower_bound;
   const upperBound = box.upper_bound;
   const whiskerMin = box.min;
@@ -443,10 +444,6 @@ function _accountBoxplotSvg(row) {
   const mean = box.mean;
   const current = box.current;
 
-  if ([lowerBound, upperBound, whiskerMin, q1, median, q3, whiskerMax, mean].some(value => value == null)) {
-    return `<div class="text-xs text-dark-500">${escapeHtml(t('report.no_data'))}</div>`;
-  }
-
   const width = 240;
   const height = 28;
   const leftPad = 10;
@@ -456,6 +453,30 @@ function _accountBoxplotSvg(row) {
   const boxTop = 4;
   const boxHeight = 20;
   const whiskerCapHalf = 6;
+  const hasZeroStddev = stddev != null && Number.isFinite(Number(stddev)) && Math.abs(Number(stddev)) < 0.0000001;
+  const currentHasValue = current != null && !Number.isNaN(Number(current));
+  const currentIsClamped = currentHasValue
+    && lowerBound != null
+    && upperBound != null
+    && (Number(current) < Number(lowerBound) || Number(current) > Number(upperBound));
+  const currentMarkerColor = currentIsClamped ? '#ff3700' : '#00ff00';
+
+  if (hasZeroStddev) {
+    const centeredX = leftPad + (trackWidth / 2);
+    const currentTriangle = `${centeredX - 2},0 ${centeredX + 2},0 ${centeredX},8`;
+    return `
+      <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" class="w-full h-8 min-w-[220px] overflow-visible" role="img" aria-label="${escapeHtml(t('stats.account_table.boxplot_aria', { account: row.account_name }))}">
+        <line x1="${leftPad}" y1="${midY}" x2="${width - rightPad}" y2="${midY}" stroke="#30363d" stroke-width="1" />
+        ${currentHasValue ? `<g>
+          <line x1="${centeredX}" y1="4" x2="${centeredX}" y2="${height - 4}" stroke="${currentMarkerColor}" stroke-width="0.5" />
+          <polygon points="${currentTriangle}" fill="${currentMarkerColor}" stroke="#000000" stroke-width="0.2" />
+        </g>` : ''}
+      </svg>`;
+  }
+
+  if ([lowerBound, upperBound, whiskerMin, q1, median, q3, whiskerMax, mean].some(value => value == null)) {
+    return `<div class="text-xs text-dark-500">${escapeHtml(t('report.no_data'))}</div>`;
+  }
 
   const xFor = value => leftPad + trackWidth * _positionInRange(value, lowerBound, upperBound);
   const whiskerMinX = xFor(whiskerMin);
@@ -466,8 +487,6 @@ function _accountBoxplotSvg(row) {
   const meanX = xFor(mean);
   const currentRatio = _positionInRange(current, lowerBound, upperBound);
   const currentX = currentRatio == null ? null : leftPad + trackWidth * currentRatio;
-  const currentIsClamped = current != null && currentRatio != null && (Number(current) < Number(lowerBound) || Number(current) > Number(upperBound));
-  const currentMarkerColor = currentIsClamped ? '#ff3700' : '#00ff00';
   const currentTriangle = currentX == null
     ? ''
     : `${currentX - 2},0 ${currentX + 2},0 ${currentX},8`;
@@ -939,7 +958,6 @@ function _statsChartsMarkup() {
   return `
     <div class="overflow-y-auto flex-1">
     <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-5 xl:px-4 py-6">
-    ${typeof Reports !== 'undefined' ? Reports._tagFilterBar() : ''}
     <div class="flex flex-wrap gap-4 mb-5">
       <label class="inline-flex items-center gap-2 text-xs text-dark-300 select-none cursor-pointer">
         <input type="checkbox"
@@ -1178,7 +1196,6 @@ const Charts = {
     main.innerHTML = `
       <div class="overflow-y-auto flex-1">
       <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-5 xl:px-4 py-6">
-      ${typeof Reports !== 'undefined' ? Reports._tagFilterBar() : ''}
       <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
         ${_kpiCard({ label: t('report.total_assets'), value: fmt(summary.total_assets), valueClass: 'text-activo' })}
         ${_kpiCard({ label: t('report.total_liab'), value: fmt(summary.total_liabilities), valueClass: 'text-pasivo' })}

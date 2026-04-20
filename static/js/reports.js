@@ -292,68 +292,12 @@ const Reports = {
     });
   },
 
-  _selectedTagNames() {
-    const selected = new Set((State.tagFilterIds || []).map(Number));
-    return (State.tags || []).filter(tag => selected.has(Number(tag.id))).map(tag => tag.name);
-  },
-
-  _tagFilterBar() {
-    if (!State.tags?.length) return '';
-
-    const selectedNames = this._selectedTagNames();
-    return `
-      <div class="rounded-xl border border-dark-600 bg-dark-800/70 px-3 py-3 mb-4">
-        <div class="flex items-center justify-between gap-2 mb-3 flex-wrap">
-          <div>
-            <div class="text-[11px] font-semibold uppercase tracking-wide text-dark-400">${escapeHtml(t('report.filter_tags'))}</div>
-            <div class="text-[11px] text-dark-500 mt-1">${escapeHtml(selectedNames.length ? t('report.filter_tags_active', { count: selectedNames.length, tags: selectedNames.join(', ') }) : t('report.filter_tags_none'))}</div>
-          </div>
-          ${State.hasTagFilter ? `<button ${htmlAttrs({ type: 'button', 'data-report-action': 'clear-tag-filters', class: 'text-xs px-3 py-1.5 rounded-lg border border-dark-600 text-dark-300 hover:bg-dark-700 cursor-pointer' })}>${t('filter.clear')}</button>` : ''}
-        </div>
-        <div class="flex flex-wrap gap-2">
-          ${(State.tags || []).map(tag => {
-            const active = (State.tagFilterIds || []).includes(Number(tag.id));
-            const color = normalizeTagColor(tag.color);
-            return `<button ${htmlAttrs({
-              type: 'button',
-              'data-report-action': 'toggle-tag-filter',
-              'data-tag-id': tag.id,
-              'aria-pressed': String(active),
-              class: `inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${active ? 'text-dark-950 shadow-sm' : 'text-dark-300 hover:bg-dark-700'}`,
-              style: active ? `background:${color};border-color:${color};` : `border-color:${color}55;color:${color};background:${color}12;`,
-            })}><span class="h-2 w-2 rounded-full" style="background:${color}"></span>${escapeHtml(tag.name)}</button>`;
-          }).join('')}
-        </div>
-      </div>`;
-  },
-
   async toggleTagFilter(tagId) {
-    const next = new Set((State.tagFilterIds || []).map(Number));
-    if (next.has(tagId)) next.delete(tagId);
-    else next.add(tagId);
-    State.tagFilterIds = [...next];
-
-    if (View.current === 'stats' && typeof Charts !== 'undefined') {
-      await Charts.stats();
-      return;
-    }
-
-    if (typeof this[View.current] === 'function') {
-      await this[View.current]();
-    }
+    await Filter.toggleTagFilter(tagId);
   },
 
   async clearTagFilters() {
-    State.tagFilterIds = [];
-
-    if (View.current === 'stats' && typeof Charts !== 'undefined') {
-      await Charts.stats();
-      return;
-    }
-
-    if (typeof this[View.current] === 'function') {
-      await this[View.current]();
-    }
+    await Filter.clearTagFilters();
   },
 
   async toggleDateSort(view) {
@@ -420,7 +364,6 @@ const Reports = {
 
     main.innerHTML = R.view(`⚖️ ${t('report.balance')}`,
       t('report.period_range', { from: bs.period_from, to: bs.period_to }), `
-      ${this._tagFilterBar()}
       <div class="flex flex-col gap-4 mb-5">
         <div class="flex flex-wrap gap-2">
           ${this._balanceTypeFilterButtons()}
@@ -539,7 +482,7 @@ const Reports = {
 
     main.innerHTML = R.view(`📒 ${t('report.journal')}`,
       t('report.journal_summary', { count: sorted.length, from: expFrom, to: expTo }),
-      `${this._tagFilterBar()}<div class="flex gap-2 flex-wrap mb-4">
+      `<div class="flex gap-2 flex-wrap mb-4">
          ${this._sortToggleButton('journal')}
          ${R.btn('⬇ CSV', this._downloadUrl(`/reports/export/csv${this._reportQuery({ report: 'journal' })}`), true)}
          ${R.btn('⬇ PDF', this._downloadUrl(`/reports/export/pdf${this._reportQuery({ report: 'journal' })}`), true)}
@@ -614,7 +557,6 @@ const Reports = {
       `<span class="block w-full text-center text-3xl sm:text-5xl lg:text-4xl font-black tracking-tight leading-none">${escapeHtml(data.account_name)}</span>`,
       `<span class="block w-full text-center text-sm text-dark-400">📖 ${escapeHtml(t('report.ledger'))} · ${escapeHtml(t('report.ledger_summary', { count: entries.length }))}</span>`,
       `
-      ${this._tagFilterBar()}
       <div class="flex flex-wrap items-center gap-3 mb-4">
         <select ${htmlAttrs({
           'data-report-change': 'ledger-account',

@@ -167,6 +167,7 @@ const API = {
   async reloadTags() {
     State.tags = await this.get('/tags');
     State.syncTagFilters();
+    Filter._syncUi();
   },
 
   async reloadPreferences() {
@@ -556,6 +557,156 @@ const View = {
 const Filter = {
   activePresetKey: null,
 
+  _selectedTagNames() {
+    const selected = new Set((State.tagFilterIds || []).map(Number));
+    return (State.tags || []).filter(tag => selected.has(Number(tag.id))).map(tag => tag.name);
+  },
+
+  _tagFilterSummary(selectedNames = this._selectedTagNames()) {
+    return selectedNames.length
+      ? t('report.filter_tags_active', { count: selectedNames.length, tags: selectedNames.join(', ') })
+      : t('report.filter_tags_none');
+  },
+
+  _tagFilterButtonsMarkup() {
+    return (State.tags || []).map(tag => {
+      const active = (State.tagFilterIds || []).includes(Number(tag.id));
+      const color = normalizeTagColor(tag.color);
+      return `<button type="button"
+        data-filter-action="toggle-tag-filter"
+        data-tag-id="${tag.id}"
+        aria-pressed="${String(active)}"
+        aria-label="${escapeHtml(tag.name)}"
+        class="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${active ? 'text-dark-950 shadow-sm' : 'text-dark-300 hover:bg-dark-700'}"
+        style="${active ? `background:${color};border-color:${color};` : `border-color:${color}55;color:${color};background:${color}12;`}">
+        <span class="h-2 w-2 rounded-full shrink-0" style="background:${color}"></span>${escapeHtml(tag.name)}</button>`;
+    }).join('');
+  },
+
+  _tagFilterTriggerMarkup({ mobile = false } = {}) {
+    if (!State.tags?.length) return '';
+
+    const selectedNames = this._selectedTagNames();
+    const summaryText = this._tagFilterSummary(selectedNames);
+    const selectedCount = selectedNames.length;
+    const triggerClass = State.hasTagFilter
+      ? '!bg-blue-600/20 !border-blue-500/40 !text-blue-300 hover:!bg-blue-600/30'
+      : '';
+
+    return `
+      ${mobile ? '' : '<div class="w-px h-4 bg-dark-600 mx-1 shrink-0"></div>'}
+      <button type="button"
+        data-filter-action="open-tag-filter-modal"
+        data-filter-origin="${mobile ? 'mobile' : 'desktop'}"
+        class="tbtn inline-flex items-center gap-2 ${mobile ? 'w-full justify-between px-3 py-2 text-sm' : 'shrink-0 text-[11px] px-2.5 py-1'} ${triggerClass}"
+        title="${escapeHtml(summaryText)}"
+        aria-label="${escapeHtml(summaryText)}">
+        <span class="inline-flex items-center gap-2 min-w-0">
+          <span class="shrink-0">🎯</span>
+          <span class="truncate">${escapeHtml(t('report.filter_tags'))}</span>
+          ${selectedCount ? `<span class="inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-blue-500/20 border border-blue-500/40 px-1.5 text-[10px] text-blue-300">${selectedCount}</span>` : ''}
+        </span>
+      </button>`;
+  },
+
+  _tagFilterModalMarkup() {
+    const T = window.UI?.T;
+    const selectedNames = this._selectedTagNames();
+    const summaryText = this._tagFilterSummary(selectedNames);
+    const body = !State.tags?.length
+      ? `
+        <div data-filter-modal="tag-filter" class="rounded-xl border border-dashed border-dark-600 bg-dark-800/50 px-4 py-4 text-sm text-dark-400">
+          ${escapeHtml(t('form.tags_empty'))}
+        </div>`
+      : `
+        <div data-filter-modal="tag-filter">
+          <div class="rounded-xl border border-dark-600 bg-dark-800/60 px-4 py-4 mb-4">
+            <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <div>
+                <div class="text-[11px] font-semibold uppercase tracking-wide text-dark-400">${escapeHtml(t('report.filter_tags'))}</div>
+                <div class="text-[11px] text-dark-500 mt-1">${escapeHtml(summaryText)}</div>
+              </div>
+              ${State.hasTagFilter && T ? T.btnGhost(t('filter.clear'), { 'data-filter-action': 'clear-tag-filters' }) : State.hasTagFilter ? `<button type="button" data-filter-action="clear-tag-filters" class="text-xs px-3 py-1.5 rounded-lg border border-dark-600 text-dark-300 hover:bg-dark-700 cursor-pointer">${escapeHtml(t('filter.clear'))}</button>` : ''}
+            </div>
+            <div class="flex flex-wrap gap-2 max-h-[260px] overflow-y-auto pr-1">
+              ${this._tagFilterButtonsMarkup()}
+            </div>
+          </div>
+          <div class="bg-dark-700/50 rounded-xl p-4 border border-dark-600/60">
+            <div class="text-xs text-dark-400 font-semibold uppercase tracking-wide mb-2">${escapeHtml(t('report.filter_tags'))}</div>
+            <p class="text-xs text-dark-500">${escapeHtml(summaryText)}</p>
+          </div>
+        </div>`;
+
+    if (T?.modalShell) {
+      return T.modalShell(`🎯 ${t('report.filter_tags')}`, body, T.btnGhost(t('btn.close'), { 'data-modal-close': true }));
+    }
+
+    return `
+      <div data-filter-modal="tag-filter" class="p-5">
+        <div data-modal-title class="text-base font-semibold text-dark-200 mb-4">🎯 ${escapeHtml(t('report.filter_tags'))}</div>
+        ${body}
+        <div class="flex justify-end pt-4 border-t border-dark-600 mt-5">
+          <button type="button" data-modal-close class="tbtn px-4 py-2 text-sm">${escapeHtml(t('btn.close'))}</button>
+        </div>
+      </div>`;
+  },
+
+  _isTagFilterModalOpen() {
+    const overlay = document.getElementById('modal-overlay');
+    return !!overlay && !overlay.classList.contains('hidden')
+      && !!document.querySelector('#modal-content [data-filter-modal="tag-filter"]');
+  },
+
+  _refreshTagFilterModal(focusSelector = '') {
+    if (!this._isTagFilterModalOpen()) return;
+
+    const modalContent = document.getElementById('modal-content');
+    if (!modalContent) return;
+
+    modalContent.innerHTML = this._tagFilterModalMarkup();
+    Modal._applyAccessibility('');
+    if (focusSelector) {
+      requestAnimationFrame(() => modalContent.querySelector(focusSelector)?.focus());
+    }
+  },
+
+  openTagFilterModal(origin = 'desktop') {
+    if (origin === 'mobile') Nav.close();
+    Modal.open(this._tagFilterModalMarkup(), { wide: true });
+  },
+
+  _renderTagFilterControls() {
+    [
+      { id: 'toolbar-tag-filter-slot', mobile: false },
+      { id: 'mobile-tag-filter-slot', mobile: true },
+    ].forEach(({ id, mobile }) => {
+      const slot = document.getElementById(id);
+      if (!slot) return;
+      slot.innerHTML = this._tagFilterTriggerMarkup({ mobile });
+    });
+  },
+
+  async _refreshCurrentViewForTagFilters() {
+    this._syncUi();
+
+    const reports = getReports();
+    const charts = getCharts();
+    if (View.current === 'stats') {
+      await charts?.stats?.();
+      return;
+    }
+
+    if (View.current === 'indicadores') {
+      await charts?.panel?.();
+      return;
+    }
+
+    if (typeof reports?.[View.current] === 'function') {
+      await reports[View.current]();
+    }
+  },
+
   _syncUi() {
     const filterText = document.getElementById('filter-text');
     if (filterText) {
@@ -564,8 +715,12 @@ const Filter = {
         : t('filter.no_filter');
     }
 
+    this._renderTagFilterControls();
+
+    const hasActiveFilter = State.filtered || State.hasTagFilter;
+
     ['tl-filter', 'mobile-filter-panel'].forEach(id => {
-      document.getElementById(id)?.classList.toggle('filter-controls-active', State.filtered);
+      document.getElementById(id)?.classList.toggle('filter-controls-active', hasActiveFilter);
     });
 
     document.querySelectorAll('.qfilter-btn').forEach(button => {
@@ -573,6 +728,21 @@ const Filter = {
       button.classList.toggle('qfilter-active',
         State.filtered && !!this.activePresetKey && button.dataset.filterKey === this.activePresetKey);
     });
+  },
+
+  async toggleTagFilter(tagId) {
+    const next = new Set((State.tagFilterIds || []).map(Number));
+    if (next.has(tagId)) next.delete(tagId);
+    else next.add(tagId);
+    State.tagFilterIds = [...next];
+    await this._refreshCurrentViewForTagFilters();
+    this._refreshTagFilterModal(`[data-filter-action="toggle-tag-filter"][data-tag-id="${tagId}"]`);
+  },
+
+  async clearTagFilters() {
+    State.tagFilterIds = [];
+    await this._refreshCurrentViewForTagFilters();
+    this._refreshTagFilterModal('[data-modal-close], [data-filter-action="toggle-tag-filter"]');
   },
 
   /* ── Aplicar rango arbitrario ── */
@@ -978,6 +1148,26 @@ const Nav = {
     await View.show(action);
   },
 };
+
+document.addEventListener('click', event => {
+  const action = event.target.closest('[data-filter-action]');
+  if (!action) return;
+
+  event.preventDefault();
+  switch (action.dataset.filterAction) {
+    case 'open-tag-filter-modal':
+      Filter.openTagFilterModal(action.dataset.filterOrigin || 'desktop');
+      break;
+    case 'toggle-tag-filter':
+      Filter.toggleTagFilter(Number(action.dataset.tagId));
+      break;
+    case 'clear-tag-filters':
+      Filter.clearTagFilters();
+      break;
+    default:
+      break;
+  }
+});
 
 /* ─── FILTER (mobile sync) ───────────────────────────────────────── */
 const _FilterApply = Filter.apply.bind(Filter);
