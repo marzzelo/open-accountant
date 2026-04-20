@@ -453,9 +453,9 @@ function _accountBoxplotSvg(row) {
   const rightPad = 10;
   const trackWidth = width - leftPad - rightPad;
   const midY = height / 2;
-  const boxTop = 7;
-  const boxHeight = 14;
-  const whiskerCapHalf = 5;
+  const boxTop = 4;
+  const boxHeight = 20;
+  const whiskerCapHalf = 6;
 
   const xFor = value => leftPad + trackWidth * _positionInRange(value, lowerBound, upperBound);
   const whiskerMinX = xFor(whiskerMin);
@@ -467,24 +467,24 @@ function _accountBoxplotSvg(row) {
   const currentRatio = _positionInRange(current, lowerBound, upperBound);
   const currentX = currentRatio == null ? null : leftPad + trackWidth * currentRatio;
   const currentIsClamped = current != null && currentRatio != null && (Number(current) < Number(lowerBound) || Number(current) > Number(upperBound));
-  const currentMarkerColor = currentIsClamped ? '#f97316' : '#22c55e';
+  const currentMarkerColor = currentIsClamped ? '#ff3700' : '#00ff00';
   const currentTriangle = currentX == null
     ? ''
-    : `${currentX - 4},4 ${currentX + 4},4 ${currentX},9`;
+    : `${currentX - 2},0 ${currentX + 2},0 ${currentX},8`;
 
   return `
     <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" class="w-full h-8 min-w-[220px] overflow-visible" role="img" aria-label="${escapeHtml(t('stats.account_table.boxplot_aria', { account: row.account_name }))}">
       <line x1="${leftPad}" y1="${midY}" x2="${width - rightPad}" y2="${midY}" stroke="#30363d" stroke-width="1" />
-      <line x1="${whiskerMinX}" y1="${midY}" x2="${q1X}" y2="${midY}" stroke="#8b949e" stroke-width="1.5" />
-      <line x1="${q3X}" y1="${midY}" x2="${whiskerMaxX}" y2="${midY}" stroke="#8b949e" stroke-width="1.5" />
-      <line x1="${whiskerMinX}" y1="${midY - whiskerCapHalf}" x2="${whiskerMinX}" y2="${midY + whiskerCapHalf}" stroke="#8b949e" stroke-width="1.5" />
-      <line x1="${whiskerMaxX}" y1="${midY - whiskerCapHalf}" x2="${whiskerMaxX}" y2="${midY + whiskerCapHalf}" stroke="#8b949e" stroke-width="1.5" />
-      <rect x="${Math.min(q1X, q3X)}" y="${boxTop}" width="${Math.max(1, Math.abs(q3X - q1X))}" height="${boxHeight}" rx="3" fill="#1f2937" stroke="#60a5fa" stroke-width="1.2" />
-      <line x1="${medianX}" y1="${boxTop}" x2="${medianX}" y2="${boxTop + boxHeight}" stroke="#f8fafc" stroke-width="1.5" />
-      <line x1="${meanX}" y1="${boxTop + 2}" x2="${meanX}" y2="${boxTop + boxHeight - 2}" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="2 2" />
+      <line x1="${whiskerMinX}" y1="${midY}" x2="${q1X}" y2="${midY}" stroke="#8b949e" stroke-width="0.5" />
+      <line x1="${q3X}" y1="${midY}" x2="${whiskerMaxX}" y2="${midY}" stroke="#8b949e" stroke-width="0.5" />
+      <line x1="${whiskerMinX}" y1="${midY - whiskerCapHalf}" x2="${whiskerMinX}" y2="${midY + whiskerCapHalf}" stroke="#8b949e" stroke-width="0.5" />
+      <line x1="${whiskerMaxX}" y1="${midY - whiskerCapHalf}" x2="${whiskerMaxX}" y2="${midY + whiskerCapHalf}" stroke="#8b949e" stroke-width="0.5" />
+      <rect x="${Math.min(q1X, q3X)}" y="${boxTop}" width="${Math.max(1, Math.abs(q3X - q1X))}" height="${boxHeight}" rx="0" fill="#1f2937" stroke="#27d7ff" stroke-width="0.5" />
+      <line x1="${medianX}" y1="${boxTop}" x2="${medianX}" y2="${boxTop + boxHeight}" stroke="#ffffff" stroke-width="0.3" />
+      <line x1="${meanX}" y1="${boxTop + 1}" x2="${meanX}" y2="${boxTop + boxHeight - 3}" stroke="#ffe100" stroke-width="0.5" stroke-dasharray="2 1" />
       ${currentX == null ? '' : `<g>
-        <line x1="${currentX}" y1="2" x2="${currentX}" y2="${height - 2}" stroke="${currentMarkerColor}" stroke-width="1.75" />
-        <polygon points="${currentTriangle}" fill="${currentMarkerColor}" stroke="#0d1117" stroke-width="0.8" />
+        <line x1="${currentX}" y1="4" x2="${currentX}" y2="${height - 4}" stroke="${currentMarkerColor}" stroke-width="0.5" />
+        <polygon points="${currentTriangle}" fill="${currentMarkerColor}" stroke="#000000" stroke-width="0.2" /> 
       </g>`}
     </svg>`;
 }
