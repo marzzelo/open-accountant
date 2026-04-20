@@ -111,6 +111,7 @@ function _renderSeriesTable() {
 
   const rows = series.map(s => {
     const enabled = s.enabled !== false;
+    const confirmed = s.confirmed === true;
     const typeBadge = _seriesTypeBadge(s.type);
 
     const cells = projMonths.map((m, i) => {
@@ -140,6 +141,16 @@ function _renderSeriesTable() {
                    ${enabled ? 'checked' : ''}
                    onchange="Projections.toggleSeriesEnabled(${s.id}, this.checked)">
             <span>${t('proj.series.enabled_short')}</span>
+          </label>
+          <label class="inline-flex items-center gap-1.5 text-[11px] text-dark-400 mr-1" title="${escapeHtml(t('proj.series.confirmed'))}">
+            <input type="checkbox"
+                   class="h-3.5 w-3.5 rounded border-dark-500 bg-dark-700 text-emerald-500 focus:ring-emerald-500/40"
+                   ${confirmed ? 'checked' : ''}
+                   onchange="Projections.toggleSeriesConfirmed(${s.id}, this.checked)">
+            <span class="inline-flex items-center gap-1">
+              <span aria-hidden="true" class="text-emerald-400 font-semibold">✓</span>
+              <span>${t('proj.series.confirmed_short')}</span>
+            </span>
           </label>
           <button onclick="Projections.openSeriesDialog(${s.id})"
                   class="text-dark-400 hover:text-dark-200 text-xs px-1.5 py-0.5 rounded hover:bg-dark-600">✏️</button>
@@ -377,27 +388,15 @@ function _buildProjectionDatasets(metric, histMonths, projMonths, projData, colo
     .filter(m => histMap[m] != null && !outlierMonths.has(m))
     .map(m => ({ x: m, y: histMap[m] }));
 
-  // 4. Projection (future only) = trend baseline + series adjustment
-  //    When trendSettings is provided (income/expenses), we read the already-computed
-  //    trend line values so that the projection curve always follows the chosen mode
-  //    (linear regression or inflation). Otherwise (savings) we fall back to the
-  //    backend-computed baseline.
+  // 4. Projection (future only) = backend baseline + scenario-only adjustment.
+  //    The backend baseline already incorporates the current trend settings and any
+  //    confirmed series, so plots must anchor to that payload rather than to the
+  //    frontend-computed trend line.
   const adjArr = projData.series_adjustment[metric] || [];
-  let projFull;
-  if (trendSettings && trendDataset) {
-    // trendDataset.data is indexed over allLabels; projected months start at n_hist.
-    projFull = Array(n_hist).fill(null).concat(
-      projMonths.map((_, projIdx) => {
-        const trendVal = trendDataset.data[n_hist + projIdx] ?? 0;
-        return Math.max(0, Math.round((trendVal + (adjArr[projIdx] || 0)) * 100) / 100);
-      })
-    );
-  } else {
-    const baseline = projData.baseline_projection[metric] || [];
-    projFull = Array(n_hist).fill(null).concat(
-      baseline.map((b, i) => Math.max(0, Math.round((b + (adjArr[i] || 0)) * 100) / 100))
-    );
-  }
+  const baseline = projData.baseline_projection[metric] || [];
+  const projFull = Array(n_hist).fill(null).concat(
+    baseline.map((b, i) => Math.max(0, Math.round((b + (adjArr[i] || 0)) * 100) / 100))
+  );
 
   // Expose raw numerical arrays so derived metrics (savings = income - expenses)
   // can subtract them without re-parsing the chart dataset objects.
@@ -930,9 +929,10 @@ function _renderCharts() {
       label,
       type: 'line',
       data,
-      borderColor: color,
-      backgroundColor: color + '14',
-      borderWidth: 2,
+      borderColor: hasActiveSeries ? color + '88' : color,
+      backgroundColor: hasActiveSeries ? color + '0c' : color + '14',
+      borderWidth: hasActiveSeries ? 1.5 : 2,
+      borderDash: hasActiveSeries ? [10, 5] : [],
       pointRadius: 1,
       fill: 'origin',
       tension: 0.3,
@@ -945,14 +945,13 @@ function _renderCharts() {
       label,
       type: 'line',
       data,
-      borderColor: color + '77',
+      borderColor: color,
       backgroundColor: 'transparent',
-      borderWidth: 2,
-      borderDash: [10, 5],
+      borderWidth: 2.5,
       pointRadius: 1.75,
       pointHoverRadius: 2.75,
-      pointBackgroundColor: color + 'aa',
-      pointBorderColor: color + 'aa',
+      pointBackgroundColor: color,
+      pointBorderColor: color,
       pointBorderWidth: 0,
       fill: false,
       tension: 0.25,
@@ -980,7 +979,7 @@ function _renderCharts() {
     const scenarioLabel = label => hasActiveSeries
       ? `${label} (${t('proj.chart.with_series')})`
       : label;
-    const baselineLabel = label => `${label} (${t('proj.chart.without_series')})`;
+    const baselineLabel = label => `${label} (${t('proj.chart.base')})`;
 
     const incScatter  = pickScatterData(incomeResult);
     const incOutliers = pickScatterData(incomeResult, 'crossRot');
@@ -1133,6 +1132,7 @@ function _renderCombinedSummaryTable(displayState = null) {
   const lastIndex = projMonths.length - 1;
   const lastPeriod = projMonths[lastIndex] || '';
   const hasInvestments = projData.investment_model?.enabled === true;
+  const hasComparisonSeries = Boolean(state?.hasActiveSeries);
   const roundDelta = (value) => Math.round(Number(value) * 100) / 100;
   const fmtMoney = (value, { signed = false } = {}) => {
     if (value == null || Number.isNaN(Number(value))) return '—';
@@ -1184,26 +1184,35 @@ function _renderCombinedSummaryTable(displayState = null) {
     }]),
   ];
 
-  const rows = [
-    {
-      label: t('proj.chart.without_series'),
-      tone: 'bg-dark-800/30 text-dark-100',
-      values: metrics.map(metric => metric.baseline),
-      signed: false,
-    },
-    {
-      label: t('proj.chart.with_series'),
-      tone: 'bg-blue-950/10 text-blue-200/90',
-      values: metrics.map(metric => metric.scenario),
-      signed: false,
-    },
-    {
-      label: t('proj.chart.summary_delta'),
-      tone: 'bg-amber-950/10 text-amber-100',
-      values: metrics.map(metric => diffValue(metric.scenario, metric.baseline)),
-      signed: true,
-    },
-  ];
+  const rows = hasComparisonSeries
+    ? [
+        {
+          label: t('proj.chart.base'),
+          tone: 'bg-dark-800/30 text-dark-100',
+          values: metrics.map(metric => metric.baseline),
+          signed: false,
+        },
+        {
+          label: t('proj.chart.with_series'),
+          tone: 'bg-blue-950/10 text-blue-200/90',
+          values: metrics.map(metric => metric.scenario),
+          signed: false,
+        },
+        {
+          label: t('proj.chart.summary_delta'),
+          tone: 'bg-amber-950/10 text-amber-100',
+          values: metrics.map(metric => diffValue(metric.scenario, metric.baseline)),
+          signed: true,
+        },
+      ]
+    : [
+        {
+          label: t('proj.chart.base'),
+          tone: 'bg-dark-800/30 text-dark-100',
+          values: metrics.map(metric => metric.baseline),
+          signed: false,
+        },
+      ];
 
   const headerCells = metrics.map(metric => `
     <th class="px-3 py-2 text-right whitespace-nowrap" style="color: ${metric.color}">${escapeHtml(metric.label)}</th>`).join('');
@@ -1627,6 +1636,20 @@ const Projections = {
     try {
       await API.put(`/projections/series/${id}`, { enabled });
       Toast.show(enabled ? t('proj.series.enabled_on') : t('proj.series.enabled_off'));
+      await _loadData();
+    } catch (e) {
+      Toast.show(e.message, 'err');
+      await _loadData();
+    }
+  },
+
+  async toggleSeriesConfirmed(id, confirmed) {
+    const series = _projState.series.find(item => item.id === id);
+    if (!series || series.confirmed === confirmed) return;
+
+    try {
+      await API.put(`/projections/series/${id}`, { confirmed });
+      Toast.show(confirmed ? t('proj.series.confirmed_on') : t('proj.series.confirmed_off'));
       await _loadData();
     } catch (e) {
       Toast.show(e.message, 'err');

@@ -38,6 +38,7 @@ from services.projections.investments import (
 )
 from services.projections.series import (
     _compute_series_adjustments,
+    _split_series_by_confirmation,
     create_series,
     delete_series,
     get_series,
@@ -51,6 +52,7 @@ __all__ = [
     "_aggregate",
     "_build_slider_config",
     "_compute_series_adjustments",
+    "_split_series_by_confirmation",
     "_estimate_investment_model",
     "_fill_by_regression",
     "_financial_rows",

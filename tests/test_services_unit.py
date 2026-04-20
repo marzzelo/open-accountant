@@ -133,6 +133,7 @@ def test_temporal_output_models_coerce_date_and_datetime_values():
         months=12,
         period_months=1,
         enabled=True,
+        confirmed=False,
         monthly_amount=1000,
         created_at=dt,
     )
@@ -835,12 +836,14 @@ def test_projection_series_service_persists_enabled_state(initialized_environmen
                 months=6,
                 period_months=3,
                 enabled=False,
+                confirmed=True,
                 monthly_amount=500.0,
             ),
         )
 
         assert created["enabled"] is False
         assert created["period_months"] == 3
+        assert created["confirmed"] is True
 
         updated = projections_service.update_series(
             conn,
@@ -850,6 +853,82 @@ def test_projection_series_service_persists_enabled_state(initialized_environmen
 
     assert updated["enabled"] is True
     assert updated["period_months"] == 3
+    assert updated["confirmed"] is True
+
+
+def test_confirmed_series_are_added_to_baseline_projection(
+    initialized_environment, monkeypatch
+):
+    class FixedDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 4, 15)
+
+    monkeypatch.setattr(projections_service, "date", FixedDate)
+
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=accounts["Bank"].id,
+                credit_account=accounts["Salary"].id,
+                amount=5000.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Salary",
+                date="2026-03-05 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=accounts["Groceries"].id,
+                credit_account=accounts["Bank"].id,
+                amount=500.0,
+                original_amount=None,
+                fx_rate=None,
+                description="Food",
+                date="2026-03-08 10:00:00",
+            ),
+        )
+
+        without_series = projections_service.get_projections(conn, 3, 3)
+
+        projections_service.create_series(
+            conn,
+            ProjectionSeriesIn(
+                name="Confirmed boost",
+                type="income",
+                start_date="2026-05-01",
+                months=2,
+                confirmed=True,
+                monthly_amount=300.0,
+            ),
+        )
+        projections_service.create_series(
+            conn,
+            ProjectionSeriesIn(
+                name="Scenario boost",
+                type="income",
+                start_date="2026-05-01",
+                months=2,
+                confirmed=False,
+                monthly_amount=200.0,
+            ),
+        )
+
+        with_series = projections_service.get_projections(conn, 3, 3)
+
+    assert with_series["baseline_projection"]["income"][0] == pytest.approx(
+        without_series["baseline_projection"]["income"][0] + 300.0,
+        rel=1e-4,
+    )
+    assert with_series["series_adjustment"]["income"][:2] == pytest.approx(
+        [200.0, 200.0],
+        rel=1e-4,
+    )
 
 
 def test_tags_service_crud_assignment_and_report_filters(initialized_environment):

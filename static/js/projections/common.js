@@ -71,7 +71,9 @@ window.ProjectionsCommon = (() => {
 
   function hasActiveSeries() {
     const state = getState();
-    return Array.isArray(state?.series) && state.series.some(series => series.enabled !== false);
+    return Array.isArray(state?.series) && state.series.some(
+      series => series.enabled !== false && series.confirmed !== true
+    );
   }
 
   function getLastKnownValue(metric, projData) {

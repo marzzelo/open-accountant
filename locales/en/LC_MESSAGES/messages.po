@@ -1470,6 +1470,12 @@ msgstr "Series enabled"
 msgid "proj.series.enabled_short"
 msgstr "On"
 
+msgid "proj.series.confirmed"
+msgstr "Include in base curves"
+
+msgid "proj.series.confirmed_short"
+msgstr "Base"
+
 msgid "proj.series.start_date"
 msgstr "Start month"
 
@@ -1497,11 +1503,20 @@ msgstr "Series enabled"
 msgid "proj.series.enabled_off"
 msgstr "Series disabled"
 
+msgid "proj.series.confirmed_on"
+msgstr "Series added to base curves"
+
+msgid "proj.series.confirmed_off"
+msgstr "Series removed from base curves"
+
 msgid "proj.chart.historical"
 msgstr "Historical"
 
 msgid "proj.chart.trend"
 msgstr "Trend"
+
+msgid "proj.chart.base"
+msgstr "Base"
 
 msgid "proj.chart.with_series"
 msgstr "With series"

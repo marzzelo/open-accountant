@@ -94,18 +94,10 @@ window.ProjectionsDisplay = (() => {
     const incTrend = incomeResult._raw.trendData || null;
     const expTrend = expensesResult._raw.trendData || null;
 
-    const baselineIncomeProjected = projectedValuesFromSeries(
-      incTrend,
-      nHist,
-      projMonths,
-      projData.baseline_projection?.income || []
-    );
-    const baselineExpenseProjected = projectedValuesFromSeries(
-      expTrend,
-      nHist,
-      projMonths,
-      projData.baseline_projection?.expenses || []
-    );
+    const baselineIncomeProjected = (projData.baseline_projection?.income || [])
+      .map(value => roundProjectionValue(value));
+    const baselineExpenseProjected = (projData.baseline_projection?.expenses || [])
+      .map(value => roundProjectionValue(value));
     const scenarioIncomeProjected = projectedValuesFromSeries(
       incProj,
       nHist,
@@ -119,12 +111,8 @@ window.ProjectionsDisplay = (() => {
       projData.baseline_projection?.expenses || []
     );
 
-    const baselineSavingsProjected = projMonths.map((_, index) =>
-      roundProjectionValue(
-        Number(baselineIncomeProjected[index] || 0)
-        - Number(baselineExpenseProjected[index] || 0)
-      )
-    );
+    const baselineSavingsProjected = (projData.baseline_projection?.savings || [])
+      .map(value => roundProjectionValue(value));
     const scenarioSavingsProjected = projMonths.map((_, index) =>
       roundProjectionValue(
         Number(scenarioIncomeProjected[index] || 0)
@@ -146,11 +134,8 @@ window.ProjectionsDisplay = (() => {
     const currentInvestments = Number(projData.current_balances?.total_investments || 0);
     const hasActiveSeriesValue = hasActiveSeries();
 
-    const baselineAssetsProjected = buildProjectedAssetSeries(
-      currentAssets,
-      baselineSavingsProjected,
-      baselineReturns
-    );
+    const baselineAssetsProjected = (projData.baseline_projection?.assets || [])
+      .map(value => roundProjectionValue(value));
     const scenarioAssetsProjected = buildProjectedAssetSeries(
       currentAssets,
       scenarioSavingsProjected,

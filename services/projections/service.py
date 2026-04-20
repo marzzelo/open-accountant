@@ -35,7 +35,11 @@ from services.projections.investments import (
     _project_investments,
     _resolve_investment_projection_inputs,
 )
-from services.projections.series import _compute_series_adjustments, list_series
+from services.projections.series import (
+    _compute_series_adjustments,
+    _split_series_by_confirmation,
+    list_series,
+)
 
 
 def build_projections(
@@ -311,14 +315,36 @@ def build_projections(
     ]
 
     series_list = list_series(conn)
-    adj = _compute_series_adjustments(series_list, projected_months)
+    baseline_series, scenario_series = _split_series_by_confirmation(series_list)
+    baseline_adj = _compute_series_adjustments(baseline_series, projected_months)
+    adj = _compute_series_adjustments(scenario_series, projected_months)
+
+    effective_baseline_income = [
+        round(baseline_income[index] + baseline_adj["income"][index], 4)
+        for index in range(horizon)
+    ]
+    effective_baseline_expenses = [
+        round(baseline_expenses[index] + baseline_adj["expenses"][index], 4)
+        for index in range(horizon)
+    ]
+    effective_baseline_savings = [
+        round(
+            effective_baseline_income[index] - effective_baseline_expenses[index],
+            4,
+        )
+        for index in range(horizon)
+    ]
+    combined_investment_adj = [
+        round(baseline_adj["investments"][index] + adj["investments"][index], 4)
+        for index in range(horizon)
+    ]
 
     scenario_income = [
-        round(baseline_income[index] + adj["income"][index], 4)
+        round(effective_baseline_income[index] + adj["income"][index], 4)
         for index in range(horizon)
     ]
     scenario_expenses = [
-        round(baseline_expenses[index] + adj["expenses"][index], 4)
+        round(effective_baseline_expenses[index] + adj["expenses"][index], 4)
         for index in range(horizon)
     ]
     scenario_savings = [
@@ -328,12 +354,25 @@ def build_projections(
 
     baseline_investments: list[float] = []
     baseline_non_inv_assets: list[float] = []
+    baseline_detail: list[dict] = []
+    scenario_investments: list[float] = []
+    scenario_non_inv_assets: list[float] = []
     projected_detail: list[dict] = []
-    true_baseline_investments: list[float] = []
-    true_baseline_non_inv_assets: list[float] = []
-    true_baseline_detail: list[dict] = []
     if has_investments:
-        baseline_investments, baseline_non_inv_assets, projected_detail = (
+        baseline_investments, baseline_non_inv_assets, baseline_detail = (
+            _project_investments(
+                current_investment_balance,
+                current_non_inv_assets,
+                investment_projection_inputs["applied_yield_rate"],
+                investment_projection_inputs["applied_contribution_rate"],
+                effective_baseline_income,
+                effective_baseline_expenses,
+                effective_baseline_savings,
+                horizon,
+                investment_adj=baseline_adj["investments"],
+            )
+        )
+        scenario_investments, scenario_non_inv_assets, projected_detail = (
             _project_investments(
                 current_investment_balance,
                 current_non_inv_assets,
@@ -343,31 +382,54 @@ def build_projections(
                 scenario_expenses,
                 scenario_savings,
                 horizon,
-                investment_adj=adj["investments"],
+                investment_adj=combined_investment_adj,
             )
-        )
-        (
-            true_baseline_investments,
-            true_baseline_non_inv_assets,
-            true_baseline_detail,
-        ) = _project_investments(
-            current_investment_balance,
-            current_non_inv_assets,
-            investment_projection_inputs["applied_yield_rate"],
-            investment_projection_inputs["applied_contribution_rate"],
-            baseline_income,
-            baseline_expenses,
-            baseline_savings,
-            horizon,
         )
     else:
         baseline_investments = [round(current_investment_balance, 4)] * horizon
-        true_baseline_investments = list(baseline_investments)
-        cumulative_non_inv_savings = 0.0
+        scenario_investments = list(baseline_investments)
+        baseline_non_inv_balance = current_non_inv_assets
+        scenario_non_inv_balance = current_non_inv_assets
         for index in range(horizon):
-            cumulative_non_inv_savings += scenario_savings[index]
-            value = max(0.0, current_non_inv_assets + cumulative_non_inv_savings)
-            baseline_non_inv_assets.append(round(value, 4))
+            baseline_non_inv_balance = max(
+                0.0,
+                baseline_non_inv_balance + effective_baseline_savings[index],
+            )
+            baseline_non_inv_assets.append(round(baseline_non_inv_balance, 4))
+            baseline_detail.append(
+                {
+                    "opening_investment_balance": round(current_investment_balance, 4),
+                    "interest": 0.0,
+                    "interest_total": 0.0,
+                    "contribution": 0.0,
+                    "projected_income": round(
+                        (
+                            effective_baseline_income[index]
+                            if index < len(effective_baseline_income)
+                            else 0.0
+                        ),
+                        4,
+                    ),
+                    "projected_expense": round(
+                        (
+                            effective_baseline_expenses[index]
+                            if index < len(effective_baseline_expenses)
+                            else 0.0
+                        ),
+                        4,
+                    ),
+                    "net_result": round(
+                        max(0.0, effective_baseline_savings[index]),
+                        4,
+                    ),
+                }
+            )
+
+            scenario_non_inv_balance = max(
+                0.0,
+                scenario_non_inv_balance + scenario_savings[index],
+            )
+            scenario_non_inv_assets.append(round(scenario_non_inv_balance, 4))
             projected_detail.append(
                 {
                     "opening_investment_balance": round(current_investment_balance, 4),
@@ -387,36 +449,27 @@ def build_projections(
                         4,
                     ),
                     "net_result": round(
-                        max(
-                            0.0,
-                            (
-                                scenario_income[index]
-                                if index < len(scenario_income)
-                                else 0.0
-                            )
-                            - (
-                                scenario_expenses[index]
-                                if index < len(scenario_expenses)
-                                else 0.0
-                            ),
-                        ),
+                        max(0.0, scenario_savings[index]),
                         4,
                     ),
                 }
             )
 
-    true_baseline_non_inv = (
-        true_baseline_non_inv_assets if has_investments else baseline_non_inv_assets
-    )
     baseline_assets = [
-        round(true_baseline_non_inv[index] + true_baseline_investments[index], 4)
+        round(baseline_non_inv_assets[index] + baseline_investments[index], 4)
         for index in range(horizon)
     ]
 
     baseline_liabilities = []
     for index in range(horizon):
         value = round(
-            max(0.0, reg_liabilities[1] + reg_liabilities[0] * (n_hist + index)), 4
+            max(
+                0.0,
+                reg_liabilities[1]
+                + reg_liabilities[0] * (n_hist + index)
+                + baseline_adj["liabilities"][index],
+            ),
+            4,
         )
         baseline_liabilities.append(value)
 
@@ -440,7 +493,7 @@ def build_projections(
         for index in range(horizon)
     ]
     scenario_assets = [
-        round(baseline_non_inv_assets[index] + baseline_investments[index], 4)
+        round(scenario_non_inv_assets[index] + scenario_investments[index], 4)
         for index in range(horizon)
     ]
     adj["assets"] = [
@@ -471,7 +524,7 @@ def build_projections(
     baseline_current_assets = [
         round(
             current_assets_only
-            + max(0.0, true_baseline_non_inv[index] - current_non_inv_assets),
+            + max(0.0, baseline_non_inv_assets[index] - current_non_inv_assets),
             4,
         )
         for index in range(horizon)
@@ -487,7 +540,7 @@ def build_projections(
     baseline_quick_assets = [
         round(
             quick_assets
-            + max(0.0, true_baseline_non_inv[index] - current_non_inv_assets),
+            + max(0.0, baseline_non_inv_assets[index] - current_non_inv_assets),
             4,
         )
         for index in range(horizon)
@@ -501,17 +554,11 @@ def build_projections(
         for index in range(horizon)
     ]
     baseline_essential_expense = [
-        round(max(0.0, baseline_expenses[index] * essential_share), 4)
+        round(max(0.0, effective_baseline_expenses[index] * essential_share), 4)
         for index in range(horizon)
     ]
     scenario_essential_expense = [
-        round(
-            max(
-                0.0,
-                (baseline_expenses[index] + adj["expenses"][index]) * essential_share,
-            ),
-            4,
-        )
+        round(max(0.0, scenario_expenses[index] * essential_share), 4)
         for index in range(horizon)
     ]
 
@@ -720,7 +767,7 @@ def build_projections(
         )
         ending_investment_balance = detail_row.get(
             "ending_investment_balance_exact",
-            baseline_investments[index] if index < len(baseline_investments) else None,
+            scenario_investments[index] if index < len(scenario_investments) else None,
         )
         contribution_pct_income = (
             round(contribution_i / projected_income_i * 100, 4)
@@ -824,16 +871,16 @@ def build_projections(
         },
         "projected_months": projected_months,
         "baseline_projection": {
-            "income": baseline_income,
-            "expenses": baseline_expenses,
-            "savings": baseline_savings,
+            "income": effective_baseline_income,
+            "expenses": effective_baseline_expenses,
+            "savings": effective_baseline_savings,
             "assets": baseline_assets,
             "liabilities": baseline_liabilities,
-            "investments": true_baseline_investments,
+            "investments": baseline_investments,
             "returns": [
                 round(row.get("interest_total", 0.0), 4)
                 for row in (
-                    true_baseline_detail
+                    baseline_detail
                     if has_investments
                     else [{"interest_total": 0.0}] * horizon
                 )

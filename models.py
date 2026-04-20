@@ -301,6 +301,7 @@ class ProjectionSeriesIn(BaseModel):
     months: int = Field(..., ge=1)
     period_months: int = Field(1, ge=1)
     enabled: bool = True
+    confirmed: bool = False
     monthly_amount: float = Field(..., gt=0)
 
 
@@ -311,6 +312,7 @@ class ProjectionSeriesUpdate(BaseModel):
     months: Optional[int] = Field(None, ge=1)
     period_months: Optional[int] = Field(None, ge=1)
     enabled: Optional[bool] = None
+    confirmed: Optional[bool] = None
     monthly_amount: Optional[float] = Field(None, gt=0)
 
 
@@ -322,5 +324,6 @@ class ProjectionSeriesOut(TemporalStringMixin, BaseModel):
     months: int
     period_months: int
     enabled: bool
+    confirmed: bool
     monthly_amount: float
     created_at: str

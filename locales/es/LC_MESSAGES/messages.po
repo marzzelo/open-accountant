@@ -1470,6 +1470,12 @@ msgstr "Serie habilitada"
 msgid "proj.series.enabled_short"
 msgstr "Activa"
 
+msgid "proj.series.confirmed"
+msgstr "Incluir en curvas base"
+
+msgid "proj.series.confirmed_short"
+msgstr "Base"
+
 msgid "proj.series.start_date"
 msgstr "Mes de inicio"
 
@@ -1497,11 +1503,20 @@ msgstr "Serie habilitada"
 msgid "proj.series.enabled_off"
 msgstr "Serie deshabilitada"
 
+msgid "proj.series.confirmed_on"
+msgstr "Serie agregada a las curvas base"
+
+msgid "proj.series.confirmed_off"
+msgstr "Serie quitada de las curvas base"
+
 msgid "proj.chart.historical"
 msgstr "Histórico"
 
 msgid "proj.chart.trend"
 msgstr "Tendencia"
+
+msgid "proj.chart.base"
+msgstr "Base"
 
 msgid "proj.chart.with_series"
 msgstr "Con series"

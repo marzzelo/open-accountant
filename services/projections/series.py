@@ -62,6 +62,19 @@ def _compute_series_adjustments(
     }
 
 
+def _split_series_by_confirmation(
+    series_list: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    baseline_series = []
+    scenario_series = []
+    for series in series_list:
+        if bool(series.get("confirmed", False)):
+            baseline_series.append(series)
+        else:
+            scenario_series.append(series)
+    return baseline_series, scenario_series
+
+
 def _row_to_dict(row) -> dict:
     return {
         "id": row["id"],
@@ -71,6 +84,7 @@ def _row_to_dict(row) -> dict:
         "months": row["months"],
         "period_months": row["period_months"],
         "enabled": bool(row["enabled"]),
+        "confirmed": bool(row["confirmed"]),
         "monthly_amount": row["monthly_amount"],
         "created_at": row["created_at"],
     }
@@ -103,9 +117,10 @@ def create_series(conn, data: ProjectionSeriesIn) -> dict:
                months,
                period_months,
                enabled,
+               confirmed,
                monthly_amount
            )
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            RETURNING id""",
         (
             data.name,
@@ -114,6 +129,7 @@ def create_series(conn, data: ProjectionSeriesIn) -> dict:
             data.months,
             data.period_months,
             data.enabled,
+            data.confirmed,
             data.monthly_amount,
         ),
     )
@@ -154,6 +170,7 @@ def delete_series(conn, series_id: int) -> None:
 
 __all__ = [
     "_compute_series_adjustments",
+    "_split_series_by_confirmation",
     "create_series",
     "delete_series",
     "get_series",

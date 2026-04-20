@@ -100,6 +100,7 @@ CREATE TABLE IF NOT EXISTS oacc_projection_series (
     months         INTEGER NOT NULL CHECK(months >= 1),
     period_months  INTEGER NOT NULL DEFAULT 1 CHECK(period_months >= 1),
     enabled        BOOLEAN NOT NULL DEFAULT TRUE,
+    confirmed      BOOLEAN NOT NULL DEFAULT FALSE,
     monthly_amount DOUBLE PRECISION NOT NULL CHECK(monthly_amount > 0),
     created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -252,6 +253,14 @@ def _ensure_projection_series_period_months_column(conn):
     )
 
 
+def _ensure_projection_series_confirmed_column(conn):
+    actual_name = _prefixed_table_name("projection_series")
+    conn.execute(
+        f'ALTER TABLE "{actual_name}" ADD COLUMN IF NOT EXISTS confirmed '
+        "BOOLEAN NOT NULL DEFAULT FALSE"
+    )
+
+
 def _ensure_projection_series_type_check(conn):
     """Widen the CHECK constraint on projection_series.type to include investment/rescue."""
     actual_name = _prefixed_table_name("projection_series")
@@ -274,6 +283,7 @@ def init_db(get_db_func=None):
         _ensure_postgres_identity_column(conn, "subtypes")
         _ensure_projection_series_enabled_column(conn)
         _ensure_projection_series_period_months_column(conn)
+        _ensure_projection_series_confirmed_column(conn)
         _ensure_projection_series_type_check(conn)
         for type_id, type_name in SEED_TYPES:
             conn.execute(

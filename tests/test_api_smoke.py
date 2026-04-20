@@ -346,6 +346,7 @@ def test_init_db_bootstraps_single_database_schema(isolated_paths):
     } <= tx_columns
     assert "enabled" in projection_series_columns
     assert "period_months" in projection_series_columns
+    assert "confirmed" in projection_series_columns
 
 
 def test_projection_series_can_be_toggled_via_api(client):
@@ -363,6 +364,7 @@ def test_projection_series_can_be_toggled_via_api(client):
     created = create_response.json()
     assert created["enabled"] is True
     assert created["period_months"] == 1
+    assert created["confirmed"] is False
 
     disable_response = client.put(
         f"/api/projections/series/{created['id']}",
@@ -376,6 +378,30 @@ def test_projection_series_can_be_toggled_via_api(client):
     listed = next(item for item in list_response.json() if item["id"] == created["id"])
     assert listed["enabled"] is False
     assert listed["period_months"] == 1
+    assert listed["confirmed"] is False
+
+
+def test_projection_series_can_be_confirmed_via_api(client):
+    create_response = client.post(
+        "/api/projections/series",
+        json={
+            "name": "Salary floor",
+            "type": "income",
+            "start_date": "2026-07-01",
+            "months": 3,
+            "monthly_amount": 300.0,
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["confirmed"] is False
+
+    confirm_response = client.put(
+        f"/api/projections/series/{created['id']}",
+        json={"confirmed": True},
+    )
+    assert confirm_response.status_code == 200
+    assert confirm_response.json()["confirmed"] is True
 
 
 def test_reports_and_csv_export_work_for_basic_journal_flow(client):
