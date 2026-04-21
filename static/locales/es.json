@@ -132,6 +132,7 @@
   "stats.account_table.title": "Estadísticas por cuenta",
   "stats.account_table.subtitle": "Boxplot horizontal sin atípicos · k = {k}",
   "stats.account_table.name": "Nombre",
+  "stats.account_table.samples": "Muestras",
   "stats.account_table.current": "Current",
   "stats.account_table.mean": "Media",
   "stats.account_table.median": "Mediana",

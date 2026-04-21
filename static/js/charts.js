@@ -431,6 +431,37 @@ function _positionInRange(value, minValue, maxValue) {
   return Math.min(1, Math.max(0, raw));
 }
 
+function _accountBoxplotTooltip(row, currentMarkerColor) {
+  const box = row?.boxplot || {};
+  const items = [
+    { value: box.lower_bound, color: '#8b949e' },
+    { value: box.min, color: '#8b949e' },
+    { value: box.q1, color: '#27d7ff' },
+    { value: box.median, color: '#ffffff' },
+    { value: box.mean, color: '#ffe100' },
+    { value: box.q3, color: '#27d7ff' },
+    { value: box.current, color: currentMarkerColor },
+    { value: box.upper_bound, color: '#8b949e' },
+  ].filter(item => item.value != null && !Number.isNaN(Number(item.value)));
+
+  if (!items.length) return '';
+
+  return `
+    <div role="tooltip" class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 flex w-max max-w-[min(42rem,calc(100vw-3rem))] -translate-x-1/2 translate-y-1 items-center justify-center rounded-full border border-dark-500 bg-dark-950/95 px-3 py-1.5 text-center text-[11px] font-mono shadow-lg opacity-0 transition duration-150 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">
+      ${items.map((item, index) => `
+        <span style="color:${item.color}">${escapeHtml(_fmtStatNumber(item.value))}</span>${index < items.length - 1 ? '<span class="px-1 text-dark-500">|</span>' : ''}
+      `).join('')}
+    </div>`;
+}
+
+function _accountBoxplotFrame(content, tooltip, ariaLabel) {
+  return `
+    <div class="group relative z-0 w-full min-w-[220px] rounded-md overflow-visible hover:z-40 focus-within:z-40 focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400/60" tabindex="0" aria-label="${ariaLabel}">
+      ${content}
+      ${tooltip}
+    </div>`;
+}
+
 function _accountBoxplotSvg(row) {
   const box = row?.boxplot || {};
   const stddev = row?.stddev;
@@ -460,11 +491,13 @@ function _accountBoxplotSvg(row) {
     && upperBound != null
     && (Number(current) < Number(lowerBound) || Number(current) > Number(upperBound));
   const currentMarkerColor = currentIsClamped ? '#ff3700' : '#00ff00';
+  const tooltip = _accountBoxplotTooltip(row, currentMarkerColor);
+  const ariaLabel = escapeHtml(t('stats.account_table.boxplot_aria', { account: row.account_name }));
 
   if (hasZeroStddev) {
     const centeredX = leftPad + (trackWidth / 2);
     const currentTriangle = `${centeredX - 2},0 ${centeredX + 2},0 ${centeredX},8`;
-    return `
+    const svg = `
       <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" class="w-full h-8 min-w-[220px] overflow-visible" role="img" aria-label="${escapeHtml(t('stats.account_table.boxplot_aria', { account: row.account_name }))}">
         <line x1="${leftPad}" y1="${midY}" x2="${width - rightPad}" y2="${midY}" stroke="#30363d" stroke-width="1" />
         ${currentHasValue ? `<g>
@@ -472,6 +505,7 @@ function _accountBoxplotSvg(row) {
           <polygon points="${currentTriangle}" fill="${currentMarkerColor}" stroke="#000000" stroke-width="0.2" />
         </g>` : ''}
       </svg>`;
+    return _accountBoxplotFrame(svg, tooltip, ariaLabel);
   }
 
   if ([lowerBound, upperBound, whiskerMin, q1, median, q3, whiskerMax, mean].some(value => value == null)) {
@@ -491,7 +525,7 @@ function _accountBoxplotSvg(row) {
     ? ''
     : `${currentX - 2},0 ${currentX + 2},0 ${currentX},8`;
 
-  return `
+  const svg = `
     <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" class="w-full h-8 min-w-[220px] overflow-visible" role="img" aria-label="${escapeHtml(t('stats.account_table.boxplot_aria', { account: row.account_name }))}">
       <line x1="${leftPad}" y1="${midY}" x2="${width - rightPad}" y2="${midY}" stroke="#30363d" stroke-width="1" />
       <line x1="${whiskerMinX}" y1="${midY}" x2="${q1X}" y2="${midY}" stroke="#8b949e" stroke-width="0.5" />
@@ -506,6 +540,8 @@ function _accountBoxplotSvg(row) {
         <polygon points="${currentTriangle}" fill="${currentMarkerColor}" stroke="#000000" stroke-width="0.2" /> 
       </g>`}
     </svg>`;
+
+  return _accountBoxplotFrame(svg, tooltip, ariaLabel);
 }
 
 function _accountTypeLabel(typeId) {
@@ -571,24 +607,28 @@ function _accountStatsLegend() {
 function _accountStatsSection(typeId, rows) {
   if (!rows.length) return '';
 
+  const samplesTitle = escapeHtml(t('stats.account_table.samples'));
+
   const bodyRows = rows.map(row => `
     <tr class="border-t border-dark-700 hover:bg-dark-700/30">
       <td class="px-3 py-2">${_accountNameCell(row)}</td>
+      <td class="px-3 py-2 text-sm text-center whitespace-nowrap text-dark-200">${escapeHtml(String(Number(row.active_months) || 0))}</td>
       <td class="px-3 py-2 text-sm text-right whitespace-nowrap ${_num(row.current) >= 0 ? 'text-dark-100' : 'text-pasivo'}">${escapeHtml(_fmtStatNumber(row.current))}</td>
       <td class="px-3 py-2 text-sm text-right whitespace-nowrap text-dark-200">${escapeHtml(_fmtStatNumber(row.mean))}</td>
       <td class="px-3 py-2 text-sm text-right whitespace-nowrap text-dark-200">${escapeHtml(_fmtStatNumber(row.median))}</td>
       <td class="px-3 py-2 text-sm text-right whitespace-nowrap text-dark-200">${escapeHtml(_fmtStatNumber(row.stddev))}</td>
-      <td class="px-3 py-2 w-full min-w-[240px]">${_accountBoxplotSvg(row)}</td>
+      <td class="relative z-0 px-3 py-2 w-full min-w-[240px] overflow-visible">${_accountBoxplotSvg(row)}</td>
     </tr>`).join('');
 
   return `
     <div class="mb-5 last:mb-0">
       <div class="text-[11px] font-medium uppercase tracking-wide text-dark-500 mb-2">${escapeHtml(_accountTypeSectionTitle(typeId))}</div>
-      <div class="overflow-x-auto">
-        <table class="w-full min-w-[860px] table-auto">
+      <div class="overflow-visible">
+        <table class="w-full min-w-[920px] table-auto">
           <thead>
             <tr class="border-b border-dark-600">
               <th class="px-3 py-2 text-left text-[11px] font-medium text-dark-400 uppercase tracking-wide">${escapeHtml(t('stats.account_table.name'))}</th>
+              <th class="px-3 py-2 text-center text-[11px] font-medium text-dark-400 uppercase tracking-wide whitespace-nowrap w-12" title="${samplesTitle}" aria-label="${samplesTitle}">#</th>
               <th class="px-3 py-2 text-right text-[11px] font-medium text-dark-400 uppercase tracking-wide whitespace-nowrap">${escapeHtml(t('stats.account_table.current'))}</th>
               <th class="px-3 py-2 text-right text-[11px] font-medium text-dark-400 uppercase tracking-wide whitespace-nowrap">${escapeHtml(t('stats.account_table.mean'))}</th>
               <th class="px-3 py-2 text-right text-[11px] font-medium text-dark-400 uppercase tracking-wide whitespace-nowrap">${escapeHtml(t('stats.account_table.median'))}</th>

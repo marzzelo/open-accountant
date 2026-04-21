@@ -132,6 +132,7 @@
   "stats.account_table.title": "Account statistics",
   "stats.account_table.subtitle": "Horizontal boxplot without outliers · k = {k}",
   "stats.account_table.name": "Name",
+  "stats.account_table.samples": "Samples",
   "stats.account_table.current": "Current",
   "stats.account_table.mean": "Mean",
   "stats.account_table.median": "Median",
