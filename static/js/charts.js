@@ -421,6 +421,14 @@ function _fmtStatNumber(value) {
   return value == null || Number.isNaN(Number(value)) ? '—' : fmt(value);
 }
 
+function _fmtTooltipStatNumber(value) {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  return Number(value).toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+}
+
 function _positionInRange(value, minValue, maxValue) {
   if (value == null || minValue == null || maxValue == null || Number.isNaN(Number(value))) return null;
   const start = Number(minValue);
@@ -434,22 +442,29 @@ function _positionInRange(value, minValue, maxValue) {
 function _accountBoxplotTooltip(row, currentMarkerColor) {
   const box = row?.boxplot || {};
   const items = [
-    { value: box.lower_bound, color: '#8b949e' },
-    { value: box.min, color: '#8b949e' },
-    { value: box.q1, color: '#27d7ff' },
-    { value: box.median, color: '#ffffff' },
-    { value: box.mean, color: '#ffe100' },
-    { value: box.q3, color: '#27d7ff' },
-    { value: box.current, color: currentMarkerColor },
-    { value: box.upper_bound, color: '#8b949e' },
-  ].filter(item => item.value != null && !Number.isNaN(Number(item.value)));
+    { key: 'lower_bound', value: box.lower_bound, color: '#8b949e', order: 0 },
+    { key: 'min', value: box.min, color: '#8b949e', order: 1 },
+    { key: 'q1', value: box.q1, color: '#27d7ff', order: 2 },
+    { key: 'median', value: box.median, color: '#ffffff', order: 3 },
+    { key: 'mean', value: box.mean, color: '#ffe100', order: 4 },
+    { key: 'q3', value: box.q3, color: '#27d7ff', order: 5 },
+    { key: 'max', value: box.max, color: '#8b949e', order: 6 },
+    { key: 'upper_bound', value: box.upper_bound, color: '#8b949e', order: 7 },
+    { key: 'current', value: box.current, color: currentMarkerColor, order: 8 },
+  ]
+    .filter(item => item.value != null && !Number.isNaN(Number(item.value)))
+    .sort((left, right) => {
+      const valueCmp = Number(left.value) - Number(right.value);
+      if (Math.abs(valueCmp) > 0.0000001) return valueCmp;
+      return left.order - right.order;
+    });
 
   if (!items.length) return '';
 
   return `
     <div role="tooltip" class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 flex w-max max-w-[min(42rem,calc(100vw-3rem))] -translate-x-1/2 translate-y-1 items-center justify-center rounded-full border border-dark-500 bg-dark-950/95 px-3 py-1.5 text-center text-[11px] font-mono shadow-lg opacity-0 transition duration-150 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">
       ${items.map((item, index) => `
-        <span style="color:${item.color}">${escapeHtml(_fmtStatNumber(item.value))}</span>${index < items.length - 1 ? '<span class="px-1 text-dark-500">|</span>' : ''}
+        <span style="color:${item.color}">${escapeHtml(_fmtTooltipStatNumber(item.value))}</span>${index < items.length - 1 ? '<span class="px-1 text-dark-500">|</span>' : ''}
       `).join('')}
     </div>`;
 }
