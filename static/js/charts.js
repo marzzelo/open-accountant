@@ -566,6 +566,41 @@ function _accountTypeSectionTitle(typeId) {
   return typeKey ? t(`stats.account_table.section.${typeKey}`) : _accountTypeLabel(typeId);
 }
 
+function _accountTypeSectionStyle(typeId) {
+  const styles = {
+    1: {
+      titleClass: 'text-activo',
+      borderClass: 'border-activo/25',
+      headClass: 'text-activo/80',
+      titleBorderClass: 'border-activo/30',
+    },
+    2: {
+      titleClass: 'text-pasivo',
+      borderClass: 'border-pasivo/25',
+      headClass: 'text-pasivo/80',
+      titleBorderClass: 'border-pasivo/30',
+    },
+    3: {
+      titleClass: 'text-ingreso',
+      borderClass: 'border-ingreso/25',
+      headClass: 'text-ingreso/80',
+      titleBorderClass: 'border-ingreso/30',
+    },
+    4: {
+      titleClass: 'text-gasto',
+      borderClass: 'border-gasto/25',
+      headClass: 'text-gasto/80',
+      titleBorderClass: 'border-gasto/30',
+    },
+  };
+  return styles[typeId] || {
+    titleClass: 'text-dark-200',
+    borderClass: 'border-dark-600',
+    headClass: 'text-dark-400',
+    titleBorderClass: 'border-dark-600',
+  };
+}
+
 function _accountNameCell(row) {
   const label = escapeHtml(row.account_name || '—');
   if (typeof Reports === 'undefined' || !row.account_id) {
@@ -608,6 +643,7 @@ function _accountStatsSection(typeId, rows) {
   if (!rows.length) return '';
 
   const samplesTitle = escapeHtml(t('stats.account_table.samples'));
+  const style = _accountTypeSectionStyle(typeId);
 
   const bodyRows = rows.map(row => `
     <tr class="border-t border-dark-700 hover:bg-dark-700/30">
@@ -621,19 +657,21 @@ function _accountStatsSection(typeId, rows) {
     </tr>`).join('');
 
   return `
-    <div class="mb-5 last:mb-0">
-      <div class="text-[11px] font-medium uppercase tracking-wide text-dark-500 mb-2">${escapeHtml(_accountTypeSectionTitle(typeId))}</div>
-      <div class="overflow-visible">
+    <div class="mb-5 last:mb-0 rounded-xl border ${style.borderClass} bg-dark-900/35 p-4 sm:p-5">
+      <div class="mb-4 border-b ${style.titleBorderClass} pb-2.5">
+        <div class="text-lg sm:text-xl font-bold uppercase tracking-[0.1em] ${style.titleClass}">${escapeHtml(_accountTypeSectionTitle(typeId))}</div>
+      </div>
+      <div class="overflow-x-auto overflow-y-visible">
         <table class="w-full min-w-[920px] table-auto">
           <thead>
             <tr class="border-b border-dark-600">
-              <th class="px-3 py-2 text-left text-[11px] font-medium text-dark-400 uppercase tracking-wide">${escapeHtml(t('stats.account_table.name'))}</th>
-              <th class="px-3 py-2 text-center text-[11px] font-medium text-dark-400 uppercase tracking-wide whitespace-nowrap w-12" title="${samplesTitle}" aria-label="${samplesTitle}">#</th>
-              <th class="px-3 py-2 text-right text-[11px] font-medium text-dark-400 uppercase tracking-wide whitespace-nowrap">${escapeHtml(t('stats.account_table.current'))}</th>
-              <th class="px-3 py-2 text-right text-[11px] font-medium text-dark-400 uppercase tracking-wide whitespace-nowrap">${escapeHtml(t('stats.account_table.mean'))}</th>
-              <th class="px-3 py-2 text-right text-[11px] font-medium text-dark-400 uppercase tracking-wide whitespace-nowrap">${escapeHtml(t('stats.account_table.median'))}</th>
-              <th class="px-3 py-2 text-right text-[11px] font-medium text-dark-400 uppercase tracking-wide whitespace-nowrap">${escapeHtml(t('stats.account_table.stddev'))}</th>
-              <th class="px-3 py-2 text-left text-[11px] font-medium text-dark-400 uppercase tracking-wide w-full">${escapeHtml(t('stats.account_table.boxplot'))}</th>
+              <th class="px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide ${style.headClass}">${escapeHtml(t('stats.account_table.name'))}</th>
+              <th class="px-3 py-2 text-center text-[11px] font-medium uppercase tracking-wide whitespace-nowrap w-12 ${style.headClass}" title="${samplesTitle}" aria-label="${samplesTitle}">#</th>
+              <th class="px-3 py-2 text-right text-[11px] font-medium uppercase tracking-wide whitespace-nowrap ${style.headClass}">${escapeHtml(t('stats.account_table.current'))}</th>
+              <th class="px-3 py-2 text-right text-[11px] font-medium uppercase tracking-wide whitespace-nowrap ${style.headClass}">${escapeHtml(t('stats.account_table.mean'))}</th>
+              <th class="px-3 py-2 text-right text-[11px] font-medium uppercase tracking-wide whitespace-nowrap ${style.headClass}">${escapeHtml(t('stats.account_table.median'))}</th>
+              <th class="px-3 py-2 text-right text-[11px] font-medium uppercase tracking-wide whitespace-nowrap ${style.headClass}">${escapeHtml(t('stats.account_table.stddev'))}</th>
+              <th class="px-3 py-2 text-left text-[11px] font-medium uppercase tracking-wide w-full ${style.headClass}">${escapeHtml(t('stats.account_table.boxplot'))}</th>
             </tr>
           </thead>
           <tbody>${bodyRows}</tbody>
@@ -651,7 +689,7 @@ function _accountStatsTable(rows = []) {
       </div>`;
   }
 
-  const orderedTypeIds = [1, 2, 3, 4];
+  const orderedTypeIds = [3, 4, 1, 2];
   const groupedSections = orderedTypeIds.map(typeId => {
     const sectionRows = rows
       .filter(row => Number(row.type_id) === typeId)
@@ -665,7 +703,7 @@ function _accountStatsTable(rows = []) {
         <div class="text-xs text-dark-400 uppercase tracking-wide">${escapeHtml(t('stats.account_table.title'))}</div>
         <div class="text-[11px] text-dark-500">${escapeHtml(t('stats.account_table.subtitle', { k: '1.5' }))}</div>
       </div>
-      ${groupedSections}
+      <div class="space-y-5">${groupedSections}</div>
       ${_accountStatsLegend()}
     </div>`;
 }
