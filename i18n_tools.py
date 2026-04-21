@@ -36,7 +36,7 @@ msgstr ""
 
 def _load_json(lang: str) -> dict:
     path = LOCALES_JS / f"{lang}.json"
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -61,7 +61,7 @@ def _write_po(lang: str, translations: dict, en_keys: dict):
         trans = translations.get(key, "")
         lines.append(f'msgid "{_po_escape(key)}"\n')
         lines.append(f'msgstr "{_po_escape(trans)}"\n\n')
-    with open(po_path, "w") as f:
+    with open(po_path, "w", encoding="utf-8") as f:
         f.writelines(lines)
     print(f"  → {po_path}  ({len(en_keys)} strings)")
 

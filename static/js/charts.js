@@ -441,16 +441,17 @@ function _positionInRange(value, minValue, maxValue) {
 
 function _accountBoxplotTooltip(row, currentMarkerColor) {
   const box = row?.boxplot || {};
+  const shortLabel = key => t(`stats.account_table.tooltip.${key}`);
   const items = [
-    { key: 'lower_bound', value: box.lower_bound, color: '#8b949e', order: 0 },
-    { key: 'min', value: box.min, color: '#8b949e', order: 1 },
-    { key: 'q1', value: box.q1, color: '#27d7ff', order: 2 },
-    { key: 'median', value: box.median, color: '#ffffff', order: 3 },
-    { key: 'mean', value: box.mean, color: '#ffe100', order: 4 },
-    { key: 'q3', value: box.q3, color: '#27d7ff', order: 5 },
-    { key: 'max', value: box.max, color: '#8b949e', order: 6 },
-    { key: 'upper_bound', value: box.upper_bound, color: '#8b949e', order: 7 },
-    { key: 'current', value: box.current, color: currentMarkerColor, order: 8 },
+    { key: 'lower_bound', value: box.lower_bound, color: '#8b949e', order: 0, label: shortLabel('lower_bound') },
+    { key: 'min', value: box.min, color: '#8b949e', order: 1, label: shortLabel('min') },
+    { key: 'q1', value: box.q1, color: '#27d7ff', order: 2, label: shortLabel('q1') },
+    { key: 'median', value: box.median, color: '#ffffff', order: 3, label: shortLabel('median') },
+    { key: 'mean', value: box.mean, color: '#ffe100', order: 4, label: shortLabel('mean') },
+    { key: 'q3', value: box.q3, color: '#27d7ff', order: 5, label: shortLabel('q3') },
+    { key: 'max', value: box.max, color: '#8b949e', order: 6, label: shortLabel('max') },
+    { key: 'upper_bound', value: box.upper_bound, color: '#8b949e', order: 7, label: shortLabel('upper_bound') },
+    { key: 'current', value: box.current, color: currentMarkerColor, order: 8, label: shortLabel('current') },
   ]
     .filter(item => item.value != null && !Number.isNaN(Number(item.value)))
     .sort((left, right) => {
@@ -464,7 +465,10 @@ function _accountBoxplotTooltip(row, currentMarkerColor) {
   return `
     <div role="tooltip" class="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 flex w-max max-w-[min(42rem,calc(100vw-3rem))] -translate-x-1/2 translate-y-1 items-center justify-center rounded-full border border-dark-500 bg-dark-950/95 px-3 py-1.5 text-center text-[11px] font-mono shadow-lg opacity-0 transition duration-150 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100">
       ${items.map((item, index) => `
-        <span style="color:${item.color}">${escapeHtml(_fmtTooltipStatNumber(item.value))}</span>${index < items.length - 1 ? '<span class="px-1 text-dark-500">|</span>' : ''}
+        <span class="inline-flex flex-col items-center leading-none" style="color:${item.color}">
+          <span class="font-sans text-[8px] uppercase tracking-tight opacity-80 mb-[1px]">${escapeHtml(item.label)}</span>
+          <span>${escapeHtml(_fmtTooltipStatNumber(item.value))}</span>
+        </span>${index < items.length - 1 ? '<span class="px-1 text-dark-500">|</span>' : ''}
       `).join('')}
     </div>`;
 }
