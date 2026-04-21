@@ -397,7 +397,7 @@ msgid "stats.account_table.title"
 msgstr "Estadísticas por cuenta"
 
 msgid "stats.account_table.subtitle"
-msgstr "Boxplot horizontal sin atípicos · k = {k}"
+msgstr "Q2 centrado · {mode} · IQR k = {k}"
 
 msgid "stats.account_table.name"
 msgstr "Nombre"
@@ -415,13 +415,25 @@ msgid "stats.account_table.median"
 msgstr "Mediana"
 
 msgid "stats.account_table.stddev"
-msgstr "StdDev"
+msgstr "STTDEV%"
 
 msgid "stats.account_table.boxplot"
 msgstr "Boxplot"
 
 msgid "stats.account_table.boxplot_aria"
 msgstr "Boxplot de la cuenta {account}"
+
+msgid "stats.account_table.limit_mode.label"
+msgstr "Límites"
+
+msgid "stats.account_table.limit_mode.outlier_fence"
+msgstr "Frontera de atípicos (simétrica)"
+
+msgid "stats.account_table.limit_mode.max_whisker"
+msgstr "Bigote mayor sin atípicos"
+
+msgid "stats.account_table.limit_mode.extreme_sample"
+msgstr "Muestra extrema con atípicos"
 
 msgid "stats.account_table.section.asset"
 msgstr "Activo"
@@ -439,7 +451,7 @@ msgid "stats.account_table.legend_title"
 msgstr "Referencia de símbolos y colores"
 
 msgid "stats.account_table.legend.range"
-msgstr "Rango base del boxplot"
+msgstr "Rango visible del boxplot"
 
 msgid "stats.account_table.legend.min"
 msgstr "Min (bigote)"
@@ -452,6 +464,15 @@ msgstr "Mediana"
 
 msgid "stats.account_table.legend.mean"
 msgstr "Media"
+
+msgid "stats.account_table.legend.limit_fences"
+msgstr "Fronteras de atípicos"
+
+msgid "stats.account_table.legend.limit_points"
+msgstr "Fronteras y atípicos visibles"
+
+msgid "stats.account_table.legend.outlier_points"
+msgstr "Atípicos visibles"
 
 msgid "stats.account_table.legend.current"
 msgstr "Saldo actual del mes"

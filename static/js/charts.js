@@ -421,6 +421,14 @@ function _fmtStatNumber(value) {
   return value == null || Number.isNaN(Number(value)) ? '—' : fmt(value);
 }
 
+function _fmtStddevPercent(stddevValue, meanValue) {
+  if (stddevValue == null || meanValue == null) return '—';
+  const stddev = Number(stddevValue);
+  const mean = Math.abs(Number(meanValue));
+  if (!Number.isFinite(stddev) || !Number.isFinite(mean) || mean < 0.0000001) return '—';
+  return _fmtPct(stddev / mean);
+}
+
 function _fmtTooltipStatNumber(value) {
   if (value == null || Number.isNaN(Number(value))) return '—';
   return Number(value).toLocaleString(undefined, {
@@ -437,6 +445,131 @@ function _positionInRange(value, minValue, maxValue) {
   if (Math.abs(end - start) < 0.0000001) return 0.5;
   const raw = (Number(value) - start) / (end - start);
   return Math.min(1, Math.max(0, raw));
+}
+
+const _ACCOUNT_BOXPLOT_LIMIT_MODES = Object.freeze({
+  OUTLIER_FENCE: 'outlier_fence',
+  MAX_WHISKER: 'max_whisker',
+  EXTREME_SAMPLE: 'extreme_sample',
+});
+
+const _ACCOUNT_BOXPLOT_LIMIT_MODE_DEFAULT = _ACCOUNT_BOXPLOT_LIMIT_MODES.OUTLIER_FENCE;
+
+function _finiteOrNull(value) {
+  return value == null || Number.isNaN(Number(value)) ? null : Number(value);
+}
+
+function _normalizeAccountBoxplotLimitMode(value) {
+  switch (String(value || '').trim()) {
+    case _ACCOUNT_BOXPLOT_LIMIT_MODES.OUTLIER_FENCE:
+    case _ACCOUNT_BOXPLOT_LIMIT_MODES.MAX_WHISKER:
+    case _ACCOUNT_BOXPLOT_LIMIT_MODES.EXTREME_SAMPLE:
+      return String(value).trim();
+    default:
+      return _ACCOUNT_BOXPLOT_LIMIT_MODE_DEFAULT;
+  }
+}
+
+function _symmetricRangeAround(centerValue, minTarget, maxTarget) {
+  const center = _finiteOrNull(centerValue);
+  const minValue = _finiteOrNull(minTarget);
+  const maxValue = _finiteOrNull(maxTarget);
+  if (center == null || minValue == null || maxValue == null) return null;
+  const halfSpan = Math.max(Math.abs(center - minValue), Math.abs(maxValue - center));
+  return {
+    min: center - halfSpan,
+    max: center + halfSpan,
+  };
+}
+
+function _dedupeNumericValues(values = []) {
+  const seen = new Set();
+  return values.filter(value => {
+    const numeric = _finiteOrNull(value);
+    if (numeric == null) return false;
+    const key = numeric.toFixed(6);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function _resolveAccountBoxplotGeometry(row, limitMode = _ACCOUNT_BOXPLOT_LIMIT_MODE_DEFAULT) {
+  const box = row?.boxplot || {};
+  const mode = _normalizeAccountBoxplotLimitMode(limitMode);
+  const values = Array.isArray(row?.values)
+    ? row.values.map(value => Number(value)).filter(value => Number.isFinite(value)).sort((left, right) => left - right)
+    : [];
+  const lowerBound = _finiteOrNull(box.lower_bound);
+  const upperBound = _finiteOrNull(box.upper_bound);
+  const whiskerMin = _finiteOrNull(box.min);
+  const q1 = _finiteOrNull(box.q1);
+  const median = _finiteOrNull(box.median);
+  const q3 = _finiteOrNull(box.q3);
+  const whiskerMax = _finiteOrNull(box.max);
+  const mean = _finiteOrNull(box.mean);
+  const current = _finiteOrNull(box.current);
+  const trueMin = values.length ? values[0] : whiskerMin;
+  const trueMax = values.length ? values[values.length - 1] : whiskerMax;
+  const outliers = values.filter(value => {
+    if (lowerBound == null || upperBound == null) return false;
+    return value < lowerBound || value > upperBound;
+  });
+
+  let visibleRange = null;
+  if (mode === _ACCOUNT_BOXPLOT_LIMIT_MODES.MAX_WHISKER) {
+    visibleRange = _symmetricRangeAround(median, whiskerMin, whiskerMax);
+  } else if (mode === _ACCOUNT_BOXPLOT_LIMIT_MODES.EXTREME_SAMPLE) {
+    visibleRange = _symmetricRangeAround(median, trueMin, trueMax);
+  } else {
+    visibleRange = _symmetricRangeAround(median, lowerBound, upperBound);
+  }
+
+  if (!visibleRange) {
+    visibleRange = _symmetricRangeAround(median, whiskerMin, whiskerMax)
+      || _symmetricRangeAround(median, trueMin, trueMax);
+  }
+
+  const visibleMin = _finiteOrNull(visibleRange?.min);
+  const visibleMax = _finiteOrNull(visibleRange?.max);
+  let redFenceMarkers = [];
+  let redOutlierPoints = [];
+
+  if (mode === _ACCOUNT_BOXPLOT_LIMIT_MODES.OUTLIER_FENCE) {
+    if (lowerBound != null) redFenceMarkers.push(lowerBound);
+    if (upperBound != null) redFenceMarkers.push(upperBound);
+    redOutlierPoints.push(...outliers);
+  } else if (mode === _ACCOUNT_BOXPLOT_LIMIT_MODES.EXTREME_SAMPLE) {
+    redOutlierPoints.push(...outliers);
+  }
+
+  redFenceMarkers = _dedupeNumericValues(redFenceMarkers.filter(value => {
+    if (visibleMin == null || visibleMax == null) return false;
+    return value >= visibleMin && value <= visibleMax;
+  }));
+  redOutlierPoints = _dedupeNumericValues(redOutlierPoints.filter(value => {
+    if (visibleMin == null || visibleMax == null) return false;
+    return value >= visibleMin && value <= visibleMax;
+  }));
+
+  return {
+    mode,
+    lowerBound,
+    upperBound,
+    whiskerMin,
+    q1,
+    median,
+    q3,
+    whiskerMax,
+    mean,
+    current,
+    trueMin,
+    trueMax,
+    visibleMin,
+    visibleMax,
+    redFenceMarkers,
+    redOutlierPoints,
+  };
 }
 
 function _accountBoxplotTooltip(row, currentMarkerColor) {
@@ -481,18 +614,18 @@ function _accountBoxplotFrame(content, tooltip, ariaLabel) {
     </div>`;
 }
 
-function _accountBoxplotSvg(row) {
-  const box = row?.boxplot || {};
+function _accountBoxplotSvg(row, limitMode = _ACCOUNT_BOXPLOT_LIMIT_MODE_DEFAULT) {
+  const geometry = _resolveAccountBoxplotGeometry(row, limitMode);
   const stddev = row?.stddev;
-  const lowerBound = box.lower_bound;
-  const upperBound = box.upper_bound;
-  const whiskerMin = box.min;
-  const q1 = box.q1;
-  const median = box.median;
-  const q3 = box.q3;
-  const whiskerMax = box.max;
-  const mean = box.mean;
-  const current = box.current;
+  const lowerBound = geometry.visibleMin;
+  const upperBound = geometry.visibleMax;
+  const whiskerMin = geometry.whiskerMin;
+  const q1 = geometry.q1;
+  const median = geometry.median;
+  const q3 = geometry.q3;
+  const whiskerMax = geometry.whiskerMax;
+  const mean = geometry.mean;
+  const current = geometry.current;
 
   const width = 240;
   const height = 28;
@@ -543,6 +676,14 @@ function _accountBoxplotSvg(row) {
   const currentTriangle = currentX == null
     ? ''
     : `${currentX - 2},0 ${currentX + 2},0 ${currentX},8`;
+  const redFenceSvg = geometry.redFenceMarkers.map(value => {
+    const x = xFor(value);
+    return `<line x1="${x}" y1="${midY - whiskerCapHalf}" x2="${x}" y2="${midY + whiskerCapHalf}" stroke="#ff4d4f" stroke-width="0.6" />`;
+  }).join('');
+  const redOutlierPointSvg = geometry.redOutlierPoints.map(value => {
+    const x = xFor(value);
+    return `<circle cx="${x}" cy="${midY}" r="1.3" fill="#ff4d4f" stroke="#0d1117" stroke-width="0.3" />`;
+  }).join('');
 
   const svg = `
     <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" class="w-full h-8 min-w-[220px] overflow-visible" role="img" aria-label="${escapeHtml(t('stats.account_table.boxplot_aria', { account: row.account_name }))}">
@@ -554,6 +695,8 @@ function _accountBoxplotSvg(row) {
       <rect x="${Math.min(q1X, q3X)}" y="${boxTop}" width="${Math.max(1, Math.abs(q3X - q1X))}" height="${boxHeight}" rx="0" fill="#1f2937" stroke="#27d7ff" stroke-width="0.5" />
       <line x1="${medianX}" y1="${boxTop}" x2="${medianX}" y2="${boxTop + boxHeight}" stroke="#ffffff" stroke-width="0.3" />
       <line x1="${meanX}" y1="${boxTop + 1}" x2="${meanX}" y2="${boxTop + boxHeight - 3}" stroke="#ffe100" stroke-width="0.5" stroke-dasharray="2 1" />
+      ${redFenceSvg}
+      ${redOutlierPointSvg}
       ${currentX == null ? '' : `<g>
         <line x1="${currentX}" y1="4" x2="${currentX}" y2="${height - 4}" stroke="${currentMarkerColor}" stroke-width="0.5" />
         <polygon points="${currentTriangle}" fill="${currentMarkerColor}" stroke="#000000" stroke-width="0.2" /> 
@@ -633,13 +776,24 @@ function _accountNameCell(row) {
       aria-label="${title}">${label}</button>`;
 }
 
-function _accountStatsLegend() {
+function _accountStatsLegend(limitMode = _ACCOUNT_BOXPLOT_LIMIT_MODE_DEFAULT) {
+  const mode = _normalizeAccountBoxplotLimitMode(limitMode);
+  const redFenceSwatch = '<span class="relative inline-block w-4 h-3"><span class="absolute left-1/2 top-0 h-3 w-[1px] -translate-x-1/2 bg-red-500"></span></span>';
+  const redOutlierSwatch = '<span class="inline-flex items-center justify-center w-4 h-3"><span class="inline-block w-[5px] h-[5px] rounded-full bg-red-500 ring-1 ring-dark-950"></span></span>';
   const items = [
     { key: 'range', swatch: '<span class="inline-block w-8 h-[2px] rounded bg-dark-600"></span>' },
     { key: 'min', swatch: '<span class="relative inline-block w-4 h-3"><span class="absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 bg-dark-300"></span></span>' },
     { key: 'q1_q3', swatch: '<span class="inline-block w-8 h-3 rounded-sm border border-blue-400 bg-dark-700"></span>' },
     { key: 'median', swatch: '<span class="relative inline-block w-4 h-3"><span class="absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 bg-slate-50"></span></span>' },
     { key: 'mean', swatch: '<span class="relative inline-block w-4 h-3"><span class="absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 border-l-2 border-dashed border-amber-400"></span></span>' },
+    ...(mode === _ACCOUNT_BOXPLOT_LIMIT_MODES.MAX_WHISKER
+      ? []
+      : mode === _ACCOUNT_BOXPLOT_LIMIT_MODES.OUTLIER_FENCE
+        ? [
+            { key: 'limit_fences', swatch: redFenceSwatch },
+            { key: 'outlier_points', swatch: redOutlierSwatch },
+          ]
+        : [{ key: 'outlier_points', swatch: redOutlierSwatch }]),
     { key: 'current', swatch: '<span class="relative inline-block w-4 h-3"><span class="absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 bg-green-500"></span><span class="absolute left-1/2 top-0 -translate-x-1/2 text-[8px] leading-none text-green-500">▼</span></span>' },
     { key: 'current_clamped', swatch: '<span class="relative inline-block w-4 h-3"><span class="absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 bg-orange-500"></span><span class="absolute left-1/2 top-0 -translate-x-1/2 text-[8px] leading-none text-orange-500">▼</span></span>' },
     { key: 'max', swatch: '<span class="relative inline-block w-4 h-3"><span class="absolute left-1/2 top-0 h-3 w-[2px] -translate-x-1/2 bg-dark-300"></span></span>' },
@@ -658,7 +812,7 @@ function _accountStatsLegend() {
     </div>`;
 }
 
-function _accountStatsSection(typeId, rows) {
+function _accountStatsSection(typeId, rows, limitMode = _ACCOUNT_BOXPLOT_LIMIT_MODE_DEFAULT) {
   if (!rows.length) return '';
 
   const samplesTitle = escapeHtml(t('stats.account_table.samples'));
@@ -671,8 +825,8 @@ function _accountStatsSection(typeId, rows) {
       <td class="px-3 py-2 text-sm text-right whitespace-nowrap ${_num(row.current) >= 0 ? 'text-dark-100' : 'text-pasivo'}">${escapeHtml(_fmtStatNumber(row.current))}</td>
       <td class="px-3 py-2 text-sm text-right whitespace-nowrap text-dark-200">${escapeHtml(_fmtStatNumber(row.mean))}</td>
       <td class="px-3 py-2 text-sm text-right whitespace-nowrap text-dark-200">${escapeHtml(_fmtStatNumber(row.median))}</td>
-      <td class="px-3 py-2 text-sm text-right whitespace-nowrap text-dark-200">${escapeHtml(_fmtStatNumber(row.stddev))}</td>
-      <td class="relative z-0 px-3 py-2 w-full min-w-[240px] overflow-visible">${_accountBoxplotSvg(row)}</td>
+      <td class="px-3 py-2 text-sm text-right whitespace-nowrap text-dark-200">${escapeHtml(_fmtStddevPercent(row.stddev, row.mean))}</td>
+      <td class="relative z-0 px-3 py-2 w-full min-w-[240px] overflow-visible">${_accountBoxplotSvg(row, limitMode)}</td>
     </tr>`).join('');
 
   return `
@@ -699,10 +853,22 @@ function _accountStatsSection(typeId, rows) {
     </div>`;
 }
 
-function _accountStatsTable(rows = []) {
+function _accountStatsTable(rows = [], limitMode = _ACCOUNT_BOXPLOT_LIMIT_MODE_DEFAULT) {
+  const mode = _normalizeAccountBoxplotLimitMode(limitMode);
+  const optionKeys = [
+    _ACCOUNT_BOXPLOT_LIMIT_MODES.OUTLIER_FENCE,
+    _ACCOUNT_BOXPLOT_LIMIT_MODES.MAX_WHISKER,
+    _ACCOUNT_BOXPLOT_LIMIT_MODES.EXTREME_SAMPLE,
+  ];
+  const kValue = rows.find(row => row?.boxplot?.k != null)?.boxplot?.k;
+  const formattedK = kValue == null || Number.isNaN(Number(kValue)) ? '1.5' : Number(kValue).toLocaleString('en-US', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+
   if (!Array.isArray(rows) || rows.length === 0) {
     return `
-      <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-5">
+      <div id="stats-account-table" class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-5">
         <div class="text-xs text-dark-400 uppercase tracking-wide mb-3">${escapeHtml(t('stats.account_table.title'))}</div>
         <div class="empty py-6">${escapeHtml(t('report.no_data'))}</div>
       </div>`;
@@ -713,17 +879,26 @@ function _accountStatsTable(rows = []) {
     const sectionRows = rows
       .filter(row => Number(row.type_id) === typeId)
       .sort((left, right) => String(left.account_name || '').localeCompare(String(right.account_name || ''), undefined, { sensitivity: 'base' }));
-    return _accountStatsSection(typeId, sectionRows);
+    return _accountStatsSection(typeId, sectionRows, mode);
   }).join('');
 
   return `
-    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-5">
-      <div class="flex items-center justify-between gap-3 mb-3">
-        <div class="text-xs text-dark-400 uppercase tracking-wide">${escapeHtml(t('stats.account_table.title'))}</div>
-        <div class="text-[11px] text-dark-500">${escapeHtml(t('stats.account_table.subtitle', { k: '1.5' }))}</div>
+    <div id="stats-account-table" class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-5">
+      <div class="flex flex-wrap items-start justify-between gap-3 mb-3">
+        <div class="min-w-[220px]">
+          <div class="text-xs text-dark-400 uppercase tracking-wide">${escapeHtml(t('stats.account_table.title'))}</div>
+          <div class="text-[11px] text-dark-500 mt-1">${escapeHtml(t('stats.account_table.subtitle', { mode: t(`stats.account_table.limit_mode.${mode}`), k: formattedK }))}</div>
+        </div>
+        <label class="flex max-w-full items-center gap-2 text-xs text-dark-300">
+          <span class="whitespace-nowrap uppercase tracking-wide text-dark-400">${escapeHtml(t('stats.account_table.limit_mode.label'))}</span>
+          <select data-chart-change="account-boxplot-limit-mode"
+                  class="min-w-[220px] rounded-md border border-dark-600 bg-dark-900 px-2.5 py-1.5 text-sm text-dark-100 outline-none transition focus:border-blue-400/70 focus:ring-1 focus:ring-blue-400/40">
+            ${optionKeys.map(option => `<option value="${option}" ${option === mode ? 'selected' : ''}>${escapeHtml(t(`stats.account_table.limit_mode.${option}`))}</option>`).join('')}
+          </select>
+        </label>
       </div>
       <div class="space-y-5">${groupedSections}</div>
-      ${_accountStatsLegend()}
+      ${_accountStatsLegend(mode)}
     </div>`;
 }
 
@@ -1239,6 +1414,7 @@ function _renderStatsCharts(data) {
 
 const Charts = {
   _statsData: null,
+  _accountBoxplotLimitMode: _ACCOUNT_BOXPLOT_LIMIT_MODE_DEFAULT,
 
   _renderStatsView(data) {
     this._statsData = data;
@@ -1259,10 +1435,22 @@ const Charts = {
     _renderStatsCharts(this._statsData);
   },
 
+  setAccountBoxplotLimitMode(value) {
+    this._accountBoxplotLimitMode = _normalizeAccountBoxplotLimitMode(value);
+    if (!this._statsData) return;
+
+    const container = document.getElementById('stats-account-table');
+    if (!container) return;
+
+    const accountStats = Array.isArray(this._statsData.account_stats) ? this._statsData.account_stats : [];
+    container.outerHTML = _accountStatsTable(accountStats, this._accountBoxplotLimitMode);
+  },
+
   async panel() {
     const q = State.buildReportQuery();
     const [statsData, prefs] = await Promise.all([API.get('/reports/stats' + q), API.get('/settings/preferences').catch(() => ({}))]);
     const projData = await API.get(_buildProjectionQueryFromPrefs(prefs)).catch(() => null);
+    this._statsData = statsData;
     const main = document.getElementById('main');
     const summary = statsData.summary || {};
     const accountStats = Array.isArray(statsData.account_stats) ? statsData.account_stats : [];
@@ -1317,7 +1505,7 @@ const Charts = {
         ${_kpiCard({ label: t('stats.kpi.total_assets_basic_runway'), value: _fmtMonths(totalAssetsBasicRunway), valueClass: totalAssetsBasicRunway != null && _num(totalAssetsBasicRunway) < 6 ? 'text-pasivo' : 'text-dark-100', note: `${t('stats.kpi.avg_monthly_essential_expense')}: ${avgMonthlyBaseExpense == null ? '—' : fmt(avgMonthlyBaseExpense)}`, infoKey: 'total_assets_basic_runway' })}
         ${_kpiCard({ label: t('stats.kpi.total_assets_total_runway'), value: _fmtMonths(totalAssetsRunway), valueClass: totalAssetsRunway != null && _num(totalAssetsRunway) < 6 ? 'text-pasivo' : 'text-dark-100', note: `${t('stats.kpi.avg_monthly_expense')}: ${avgMonthlyExpense == null ? '—' : fmt(avgMonthlyExpense)}`, infoKey: 'total_runway' })}
       </div>
-      ${_accountStatsTable(accountStats)}
+        ${_accountStatsTable(accountStats, this._accountBoxplotLimitMode)}
       </div></div>`;
   },
 
@@ -1350,6 +1538,9 @@ document.addEventListener('change', event => {
   if (main && !main.contains(target)) return;
 
   switch (target.dataset.chartChange) {
+    case 'account-boxplot-limit-mode':
+      Charts.setAccountBoxplotLimitMode(target.value);
+      break;
     case 'toggle-stats-y-axis-zero':
       Charts.toggleStatsYAxisZero(target.checked);
       break;

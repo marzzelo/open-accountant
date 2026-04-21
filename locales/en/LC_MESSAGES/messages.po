@@ -397,7 +397,7 @@ msgid "stats.account_table.title"
 msgstr "Account statistics"
 
 msgid "stats.account_table.subtitle"
-msgstr "Horizontal boxplot without outliers · k = {k}"
+msgstr "Centered on Q2 · {mode} · IQR k = {k}"
 
 msgid "stats.account_table.name"
 msgstr "Name"
@@ -415,13 +415,25 @@ msgid "stats.account_table.median"
 msgstr "Median"
 
 msgid "stats.account_table.stddev"
-msgstr "StdDev"
+msgstr "STTDEV%"
 
 msgid "stats.account_table.boxplot"
 msgstr "Boxplot"
 
 msgid "stats.account_table.boxplot_aria"
 msgstr "Boxplot for account {account}"
+
+msgid "stats.account_table.limit_mode.label"
+msgstr "Limits"
+
+msgid "stats.account_table.limit_mode.outlier_fence"
+msgstr "Outlier fence (symmetric)"
+
+msgid "stats.account_table.limit_mode.max_whisker"
+msgstr "Largest whisker without outliers"
+
+msgid "stats.account_table.limit_mode.extreme_sample"
+msgstr "Extreme sample with outliers"
 
 msgid "stats.account_table.section.asset"
 msgstr "Assets"
@@ -439,7 +451,7 @@ msgid "stats.account_table.legend_title"
 msgstr "Symbol and color reference"
 
 msgid "stats.account_table.legend.range"
-msgstr "Boxplot base range"
+msgstr "Visible boxplot range"
 
 msgid "stats.account_table.legend.min"
 msgstr "Min (whisker)"
@@ -452,6 +464,15 @@ msgstr "Median"
 
 msgid "stats.account_table.legend.mean"
 msgstr "Mean"
+
+msgid "stats.account_table.legend.limit_fences"
+msgstr "Outlier fences"
+
+msgid "stats.account_table.legend.limit_points"
+msgstr "Visible fences and outliers"
+
+msgid "stats.account_table.legend.outlier_points"
+msgstr "Visible outliers"
 
 msgid "stats.account_table.legend.current"
 msgstr "Current month balance"
