@@ -1,0 +1,1223 @@
+/* ══════════════════════════════════════════════════════════════════════
+   Open Accountant — Modern Theme Overlay
+   ----------------------------------------------------------------------
+   Carga DESPUÉS de style.css. No redefine clases de Tailwind; solo
+   refina tokens, estados, tipografía y micro‑interacciones.
+   Paleta principal: azul ≈ rgb(0, 161, 255) / #00A1FF
+   ══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Brand / accent ───────────────────────────────────────────────── */
+  --oa-brand:         #00A1FF;
+  --oa-brand-600:     #0086D6;
+  --oa-brand-500:     #1FB0FF;
+  --oa-brand-400:     #4FC3FF;
+  --oa-brand-300:     #8BD6FF;
+  --oa-brand-soft:    rgba(0, 161, 255, 0.12);
+  --oa-brand-softer:  rgba(0, 161, 255, 0.06);
+  --oa-brand-ring:    rgba(0, 161, 255, 0.45);
+
+  /* ── Surfaces (neutros azulados, tono frío) ───────────────────────── */
+  --oa-bg:            #0B1220;
+  --oa-bg-elev-1:     #111A2B;
+  --oa-bg-elev-2:     #172338;
+  --oa-bg-elev-3:     #1E2D47;
+  --oa-line:          #233457;
+  --oa-line-strong:   #2C406A;
+
+  /* ── Text ─────────────────────────────────────────────────────────── */
+  --oa-fg:            #EAF2FB;
+  --oa-fg-dim:        #B7C4D8;
+  --oa-fg-muted:      #8295B0;
+  --oa-fg-faint:      #5A6B88;
+
+  /* ── Semánticos (mantener legibles) ───────────────────────────────── */
+  --oa-success:       #3DDC97;
+  --oa-warning:       #FFB547;
+  --oa-danger:        #FF6B6B;
+
+  /* ── Radii / Shadow / Motion ──────────────────────────────────────── */
+  --oa-radius-sm: 6px;
+  --oa-radius:    10px;
+  --oa-radius-lg: 14px;
+  --oa-radius-xl: 18px;
+
+  --oa-shadow-xs: 0 1px 0 rgba(0,0,0,.25);
+  --oa-shadow-sm: 0 1px 2px rgba(0,0,0,.35), 0 1px 1px rgba(0,0,0,.2);
+  --oa-shadow-md: 0 6px 16px -6px rgba(0,0,0,.45), 0 2px 4px rgba(0,0,0,.28);
+  --oa-shadow-lg: 0 18px 40px -12px rgba(0,0,0,.55), 0 6px 14px rgba(0,0,0,.35);
+  --oa-shadow-brand: 0 8px 24px -8px rgba(0,161,255,.55);
+
+  --oa-ease: cubic-bezier(.2, .8, .2, 1);
+  --oa-dur-1: 120ms;
+  --oa-dur-2: 180ms;
+  --oa-dur-3: 260ms;
+
+  /* Compat con tokens existentes (card accents) */
+  --card-accent: var(--oa-brand);
+}
+
+/* ── Base typography & rendering ───────────────────────────────────── */
+html, body {
+  font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  letter-spacing: -0.005em;
+}
+
+body {
+  background:
+    radial-gradient(1200px 600px at 10% -10%, rgba(0,161,255,0.06), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(0,161,255,0.04), transparent 55%),
+    var(--oa-bg) !important;
+  color: var(--oa-fg) !important;
+}
+
+/* Refinar los grises originales del tema (.bg-dark-*, .text-dark-*) ─── */
+.bg-dark-900 { background-color: var(--oa-bg) !important; }
+.bg-dark-800 { background-color: var(--oa-bg-elev-1) !important; }
+.bg-dark-700 { background-color: var(--oa-bg-elev-2) !important; }
+.bg-dark-600 { background-color: var(--oa-bg-elev-3) !important; }
+
+.border-dark-600 { border-color: var(--oa-line) !important; }
+.border-dark-700 { border-color: var(--oa-line) !important; }
+.border-dark-500 { border-color: var(--oa-line-strong) !important; }
+
+.text-dark-100 { color: var(--oa-fg) !important; }
+.text-dark-200 { color: var(--oa-fg) !important; }
+.text-dark-300 { color: var(--oa-fg-dim) !important; }
+.text-dark-400 { color: var(--oa-fg-muted) !important; }
+.text-dark-500 { color: var(--oa-fg-faint) !important; }
+
+/* Blue button utilities (usados por Tailwind inline) ─────────────── */
+.bg-blue-600 { background-color: var(--oa-brand) !important; }
+.bg-blue-500 { background-color: var(--oa-brand-500) !important; }
+.hover\:bg-blue-500:hover { background-color: var(--oa-brand-500) !important; }
+.hover\:bg-blue-600:hover { background-color: var(--oa-brand-600) !important; }
+.border-blue-500 { border-color: var(--oa-brand) !important; }
+.border-blue-600 { border-color: var(--oa-brand) !important; }
+.text-blue-400 { color: var(--oa-brand-400) !important; }
+.text-blue-500 { color: var(--oa-brand-500) !important; }
+.accent-blue-500 { accent-color: var(--oa-brand) !important; }
+.focus\:border-blue-500:focus { border-color: var(--oa-brand) !important; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Header / Toolbar
+   ══════════════════════════════════════════════════════════════════════ */
+
+header {
+  background: linear-gradient(180deg, var(--oa-bg-elev-1) 0%, var(--oa-bg-elev-1) 70%, rgba(17,26,43,0.92) 100%) !important;
+  border-bottom: 1px solid var(--oa-line) !important;
+  backdrop-filter: saturate(140%) blur(6px);
+  -webkit-backdrop-filter: saturate(140%) blur(6px);
+  box-shadow: 0 1px 0 rgba(255,255,255,.02), var(--oa-shadow-sm);
+}
+
+/* Título app */
+#app-title, #app-title-mobile {
+  letter-spacing: -0.01em;
+  font-weight: 700;
+  color: var(--oa-fg) !important;
+}
+
+/* Toolbar buttons modernizados */
+.tbtn {
+  color: var(--oa-fg-muted);
+  border-radius: var(--oa-radius);
+  font-weight: 500;
+  transition:
+    background-color var(--oa-dur-2) var(--oa-ease),
+    color var(--oa-dur-2) var(--oa-ease),
+    border-color var(--oa-dur-2) var(--oa-ease),
+    box-shadow var(--oa-dur-2) var(--oa-ease),
+    transform var(--oa-dur-1) var(--oa-ease);
+}
+.tbtn:hover {
+  background: var(--oa-bg-elev-2);
+  color: var(--oa-fg);
+  border-color: var(--oa-line);
+}
+.tbtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--oa-bg-elev-1), 0 0 0 4px var(--oa-brand-ring);
+  color: var(--oa-fg);
+}
+.tbtn:active {
+  transform: translateY(0.5px) scale(.98);
+  background: var(--oa-bg-elev-3);
+}
+.tbtn.active {
+  background: var(--oa-brand-soft);
+  border-color: transparent;
+  color: var(--oa-brand-400);
+  box-shadow: inset 0 0 0 1px var(--oa-brand-ring);
+}
+.tbtn[disabled], .tbtn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Nav icon buttons (cuadrados grandes con SVG) */
+.nav-icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  color: var(--oa-fg-muted);
+  position: relative;
+}
+.nav-icon-btn .nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  font-size: 20px;
+  line-height: 1;
+}
+.nav-icon-btn .nav-icon svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 1.75;
+  color: currentColor;
+  display: block;
+}
+.nav-icon-btn:hover .nav-icon { color: var(--oa-fg); }
+.nav-icon-btn.active { color: var(--oa-brand-400); }
+.nav-icon-btn.active .nav-icon { color: var(--oa-brand-400); }
+
+/* Botón primario "+ Account" */
+.nav-icon-btn.\!bg-blue-600,
+.tbtn.\!bg-blue-600 {
+  background: linear-gradient(180deg, var(--oa-brand-500) 0%, var(--oa-brand) 100%) !important;
+  color: #fff !important;
+  border: 1px solid transparent !important;
+  box-shadow: var(--oa-shadow-sm), inset 0 1px 0 rgba(255,255,255,.18);
+}
+.nav-icon-btn.\!bg-blue-600:hover,
+.tbtn.\!bg-blue-600:hover {
+  background: linear-gradient(180deg, var(--oa-brand-400) 0%, var(--oa-brand-500) 100%) !important;
+  box-shadow: var(--oa-shadow-brand);
+}
+.nav-icon-btn.\!bg-blue-600:active {
+  transform: translateY(0.5px);
+  filter: saturate(.9);
+}
+
+/* Separadores verticales en la toolbar */
+header .w-px,
+nav#tl-nav .w-px {
+  background: var(--oa-line) !important;
+}
+
+/* Toolbar board controls & drawer */
+.toolbar-board-controls { border-left-color: var(--oa-line); }
+.board-menu-btn {
+  background: var(--oa-bg-elev-1);
+  border-color: var(--oa-line);
+  color: var(--oa-fg-dim);
+}
+.board-menu-btn:hover {
+  background: var(--oa-bg-elev-2);
+  color: var(--oa-fg);
+  border-color: var(--oa-line-strong);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Filter bar (fechas)
+   ══════════════════════════════════════════════════════════════════════ */
+
+.filter-controls {
+  background: var(--oa-bg-elev-1);
+  border: 1px solid var(--oa-line);
+  border-radius: 12px;
+  box-shadow: var(--oa-shadow-xs);
+}
+.filter-controls.filter-controls-active {
+  background:
+    linear-gradient(180deg, var(--oa-brand-softer) 0%, transparent 70%),
+    var(--oa-bg-elev-1) !important;
+  border-color: var(--oa-brand-ring);
+}
+
+input[type="date"] {
+  background: var(--oa-bg-elev-2) !important;
+  border: 1px solid var(--oa-line) !important;
+  color: var(--oa-fg-dim) !important;
+  border-radius: 8px !important;
+  transition: border-color var(--oa-dur-2) var(--oa-ease), box-shadow var(--oa-dur-2) var(--oa-ease);
+}
+input[type="date"]:hover {
+  border-color: var(--oa-line-strong) !important;
+}
+input[type="date"]:focus {
+  outline: none !important;
+  border-color: var(--oa-brand) !important;
+  box-shadow: 0 0 0 3px var(--oa-brand-soft) !important;
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(.85) sepia(.4) hue-rotate(170deg) saturate(3);
+  cursor: pointer;
+  opacity: .7;
+}
+
+.qfilter-btn {
+  border: 1px solid var(--oa-line);
+  color: var(--oa-fg-muted);
+  background: transparent;
+  border-radius: 999px;
+  font-weight: 500;
+  letter-spacing: .01em;
+}
+.qfilter-btn:hover {
+  background: var(--oa-bg-elev-2);
+  color: var(--oa-fg);
+  border-color: var(--oa-line-strong);
+}
+.qfilter-btn.filter-active {
+  color: var(--oa-brand-400);
+  border-color: var(--oa-brand-ring);
+  background: var(--oa-brand-soft);
+  box-shadow: inset 0 0 0 1px var(--oa-brand-ring);
+}
+.qfilter-btn.qfilter-active {
+  color: #ffe2a3;
+  border-color: #ffb54755;
+  background: rgba(255, 181, 71, 0.10);
+  box-shadow: inset 0 0 0 1px #ffb54755;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Drawer móvil
+   ══════════════════════════════════════════════════════════════════════ */
+
+#nav-drawer aside {
+  background: var(--oa-bg-elev-1) !important;
+  border-left: 1px solid var(--oa-line) !important;
+  box-shadow: -24px 0 48px rgba(0,0,0,.45);
+}
+.drawer-btn {
+  color: var(--oa-fg-dim);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: background var(--oa-dur-2) var(--oa-ease), color var(--oa-dur-2) var(--oa-ease);
+  border-radius: 0;
+}
+.drawer-btn:hover {
+  background: var(--oa-bg-elev-2);
+  color: var(--oa-fg);
+}
+.drawer-btn:focus-visible {
+  outline: none;
+  background: var(--oa-brand-soft);
+  color: var(--oa-brand-400);
+  box-shadow: inset 3px 0 0 var(--oa-brand);
+}
+
+/* Hamburger */
+#tl-hamburger {
+  border-radius: 10px;
+  transition: background var(--oa-dur-2) var(--oa-ease);
+}
+#tl-hamburger:hover { background: var(--oa-bg-elev-2); }
+#tl-hamburger span { background: var(--oa-fg-muted) !important; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Mobile type tabs
+   ══════════════════════════════════════════════════════════════════════ */
+
+#mobile-type-tabs {
+  background: var(--oa-bg-elev-1) !important;
+  border-bottom: 1px solid var(--oa-line) !important;
+}
+
+.mttab {
+  border-radius: 10px 10px 0 0;
+  padding: 10px 6px;
+  color: var(--oa-fg-faint);
+  transition: color var(--oa-dur-2) var(--oa-ease), background var(--oa-dur-2) var(--oa-ease), border-color var(--oa-dur-2) var(--oa-ease);
+}
+.mttab:hover {
+  color: var(--oa-fg-dim);
+  background: var(--oa-bg-elev-2);
+}
+.mttab.active {
+  color: var(--tab-accent, var(--oa-brand-400));
+  border-bottom-color: var(--tab-accent, var(--oa-brand));
+  background: linear-gradient(180deg, transparent 0%, var(--oa-brand-softer) 100%);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Cards
+   ══════════════════════════════════════════════════════════════════════ */
+
+.card {
+  background: linear-gradient(180deg, var(--oa-bg-elev-2) 0%, var(--oa-bg-elev-1) 100%);
+  border: 1px solid var(--oa-line);
+  border-radius: var(--oa-radius-lg);
+  box-shadow: var(--oa-shadow-sm);
+  transition:
+    transform var(--oa-dur-2) var(--oa-ease),
+    box-shadow var(--oa-dur-2) var(--oa-ease),
+    border-color var(--oa-dur-2) var(--oa-ease);
+}
+.card:hover {
+  box-shadow: var(--oa-shadow-md);
+  transform: translateY(-1px);
+}
+.card::before {
+  height: 3px;
+  border-radius: var(--oa-radius-lg) var(--oa-radius-lg) 0 0;
+  opacity: .95;
+}
+
+.card-compact {
+  padding: 12px;
+  gap: 10px;
+}
+.card-compact-name { color: var(--oa-fg); }
+.card-compact-balance { color: var(--oa-fg-dim); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Board view toggle
+   ══════════════════════════════════════════════════════════════════════ */
+
+.board-view-toggle {
+  background: var(--oa-bg-elev-1);
+  border-color: var(--oa-line);
+  padding: 3px;
+}
+.board-view-btn {
+  color: var(--oa-fg-muted);
+  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: .02em;
+  padding: 7px 14px;
+  transition: all var(--oa-dur-2) var(--oa-ease);
+}
+.board-view-btn:hover { color: var(--oa-fg); }
+.board-view-btn.active {
+  background: var(--oa-brand-soft);
+  color: var(--oa-brand-400);
+  box-shadow: inset 0 0 0 1px var(--oa-brand-ring);
+}
+.board-view-btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--oa-brand-ring), 0 0 0 2px var(--oa-brand-soft);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Modal / Toast / Inputs
+   ══════════════════════════════════════════════════════════════════════ */
+
+#modal-overlay {
+  background: rgba(6, 10, 20, 0.72) !important;
+  backdrop-filter: blur(8px) saturate(130%);
+  -webkit-backdrop-filter: blur(8px) saturate(130%);
+}
+.modal-box {
+  background: var(--oa-bg-elev-1) !important;
+  border: 1px solid var(--oa-line) !important;
+  border-radius: var(--oa-radius-xl) !important;
+  box-shadow: var(--oa-shadow-lg), 0 0 0 1px rgba(255,255,255,.02) inset !important;
+}
+
+/* Form inputs en modales y formularios */
+input[type="text"], input[type="number"], input[type="email"],
+input[type="password"], input[type="search"], input[type="tel"],
+input[type="url"], select, textarea {
+  transition: border-color var(--oa-dur-2) var(--oa-ease),
+              box-shadow var(--oa-dur-2) var(--oa-ease),
+              background-color var(--oa-dur-2) var(--oa-ease);
+}
+input:focus, select:focus, textarea:focus {
+  outline: none !important;
+  border-color: var(--oa-brand) !important;
+  box-shadow: 0 0 0 3px var(--oa-brand-soft) !important;
+}
+input[disabled], select[disabled], textarea[disabled],
+button[disabled] {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+/* Toast refinada */
+.toast {
+  background: var(--oa-bg-elev-2);
+  border: 1px solid var(--oa-line-strong);
+  border-radius: 12px;
+  color: var(--oa-fg);
+  box-shadow: var(--oa-shadow-lg);
+  padding: 11px 18px;
+  font-weight: 500;
+}
+.toast.ok  { border-color: var(--oa-success); color: var(--oa-success); }
+.toast.err { border-color: var(--oa-danger); color: var(--oa-danger); }
+
+/* Card ctx menu */
+.card-ctx-menu {
+  background: var(--oa-bg-elev-2);
+  border: 1px solid var(--oa-line-strong);
+  border-radius: 10px;
+  padding: 6px;
+  box-shadow: var(--oa-shadow-lg);
+}
+.card-ctx-menu button {
+  color: var(--oa-fg-dim);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  transition: background var(--oa-dur-1) var(--oa-ease), color var(--oa-dur-1) var(--oa-ease);
+}
+.card-ctx-menu button:hover {
+  background: var(--oa-brand-soft);
+  color: var(--oa-fg);
+}
+.card-ctx-menu button.danger { color: var(--oa-danger); }
+.card-ctx-menu button.danger:hover { background: rgba(255,107,107,.1); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Status bar, FAB, scrollbars
+   ══════════════════════════════════════════════════════════════════════ */
+
+#status-bar {
+  background: var(--oa-bg-elev-1) !important;
+  border-top: 1px solid var(--oa-line) !important;
+  color: var(--oa-fg-muted) !important;
+}
+
+#fab {
+  background: linear-gradient(180deg, var(--oa-brand-500) 0%, var(--oa-brand) 100%) !important;
+  box-shadow: var(--oa-shadow-lg), var(--oa-shadow-brand) !important;
+  transition: transform var(--oa-dur-2) var(--oa-ease), box-shadow var(--oa-dur-2) var(--oa-ease), filter var(--oa-dur-2) var(--oa-ease) !important;
+}
+#fab:hover {
+  filter: brightness(1.08);
+  transform: translateY(-2px) !important;
+}
+#fab:active { transform: translateY(0) scale(.97) !important; }
+
+::-webkit-scrollbar-thumb {
+  background: var(--oa-line-strong);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--oa-brand-ring); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   KPI info, common-tx panel
+   ══════════════════════════════════════════════════════════════════════ */
+
+.kpi-info-btn {
+  border-color: var(--oa-line);
+  color: var(--oa-fg-muted);
+  transition: all var(--oa-dur-2) var(--oa-ease);
+}
+.kpi-info-btn:hover,
+.kpi-info-btn:focus-visible {
+  color: var(--oa-brand-400);
+  border-color: var(--oa-brand-ring);
+  background: var(--oa-brand-soft);
+}
+
+.common-tx-shell {
+  background: var(--oa-bg-elev-1);
+  border-color: var(--oa-line);
+  border-radius: var(--oa-radius-lg);
+}
+.common-tx-heading { color: var(--oa-fg); }
+.common-tx-subtitle, .common-tx-meta, .common-tx-desc,
+.common-tx-chevron { color: var(--oa-fg-muted); }
+.common-tx-card {
+  background: linear-gradient(180deg, var(--oa-bg-elev-2) 0%, var(--oa-bg-elev-1) 100%);
+  border-color: var(--oa-line);
+  border-radius: var(--oa-radius);
+}
+.common-tx-card:hover,
+.common-tx-card:focus-visible {
+  border-color: var(--oa-brand-ring);
+  box-shadow: var(--oa-shadow-md);
+}
+.common-tx-card.pinned {
+  border-color: var(--oa-warning);
+  box-shadow: inset 0 0 0 1px rgba(255,181,71,.3);
+}
+.common-tx-pin {
+  border-color: var(--oa-line);
+  color: var(--oa-fg-muted);
+}
+.common-tx-pin:hover {
+  background: var(--oa-bg-elev-2);
+  color: var(--oa-fg);
+}
+.common-tx-title { color: var(--oa-fg); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Auth overlay
+   ══════════════════════════════════════════════════════════════════════ */
+
+#auth-overlay {
+  background:
+    radial-gradient(1200px 700px at 50% -20%, rgba(0,161,255,.18), transparent 55%),
+    radial-gradient(900px 600px at 10% 110%, rgba(0,161,255,.08), transparent 60%),
+    #070C17 !important;
+}
+#auth-overlay .modal-box,
+#auth-overlay > div {
+  background: linear-gradient(180deg, var(--oa-bg-elev-1) 0%, var(--oa-bg) 100%) !important;
+  border: 1px solid var(--oa-line) !important;
+  box-shadow: var(--oa-shadow-lg), 0 0 0 1px rgba(255,255,255,.03) inset !important;
+}
+#auth-submit {
+  background: linear-gradient(180deg, var(--oa-brand-500) 0%, var(--oa-brand) 100%) !important;
+  box-shadow: var(--oa-shadow-sm), inset 0 1px 0 rgba(255,255,255,.18) !important;
+  letter-spacing: .01em;
+}
+#auth-submit:hover {
+  background: linear-gradient(180deg, var(--oa-brand-400) 0%, var(--oa-brand-500) 100%) !important;
+  box-shadow: var(--oa-shadow-brand) !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Tablas / filas (journal, ledger, reports…)
+   ══════════════════════════════════════════════════════════════════════ */
+
+table { border-collapse: separate; border-spacing: 0; }
+table th {
+  color: var(--oa-fg-muted);
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  font-size: 11px;
+  background: var(--oa-bg-elev-1);
+  border-bottom: 1px solid var(--oa-line) !important;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+table td {
+  border-bottom: 1px solid var(--oa-line);
+  color: var(--oa-fg-dim);
+}
+table tr:hover td {
+  background: rgba(0,161,255,.04);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Botones genéricos (submit / cancel en formularios)
+   ══════════════════════════════════════════════════════════════════════ */
+
+button, .button {
+  transition:
+    background-color var(--oa-dur-2) var(--oa-ease),
+    color var(--oa-dur-2) var(--oa-ease),
+    border-color var(--oa-dur-2) var(--oa-ease),
+    box-shadow var(--oa-dur-2) var(--oa-ease),
+    transform var(--oa-dur-1) var(--oa-ease),
+    filter var(--oa-dur-2) var(--oa-ease);
+}
+button:focus-visible, .button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--oa-bg-elev-1), 0 0 0 4px var(--oa-brand-ring);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Accesibilidad: respetar prefers-reduced-motion
+   ══════════════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Dense scrollbar for Firefox
+   ══════════════════════════════════════════════════════════════════════ */
+
+* {
+  scrollbar-color: var(--oa-line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Vistas internas (Journal, Ledger, Balance, Stats, Indicadores,
+   Proyecciones, Reports, Settings) — refinamiento sobre las clases
+   Tailwind que usa el JS. No se modifica el JS.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Page wrappers comunes (.overflow-y-auto .max-w-screen-2xl …) */
+main h1 {
+  color: var(--oa-fg) !important;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+main h1 + p,
+main .text-xs.text-dark-400 { color: var(--oa-fg-muted) !important; }
+
+/* ── "Tiles" y cards genéricas (rounded-xl con border-dark-600) ──── */
+.rounded-xl.border.border-dark-600,
+.rounded-xl.border.border-dark-700,
+[id="stats-account-table"],
+[id^="ch-"] + *,
+.bg-dark-800.border.border-dark-600.rounded-xl {
+  background:
+    linear-gradient(180deg, var(--oa-bg-elev-2) 0%, var(--oa-bg-elev-1) 100%) !important;
+  border-color: var(--oa-line) !important;
+  border-radius: var(--oa-radius-lg) !important;
+  box-shadow: var(--oa-shadow-xs);
+}
+
+.rounded-xl.border.border-dark-600:hover {
+  /* sutil: no todas quieren hover, aplicamos solo si es clickeable */
+}
+
+/* KPI tiles (charts.js kpiTile) — layout: border + label + value */
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4 > .flex.items-start.justify-between + .text-2xl,
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4 .text-2xl.font-semibold {
+  font-weight: 700;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--oa-fg) !important;
+}
+
+.text-\[10px\].text-dark-400.uppercase,
+.text-\[11px\].text-dark-400.uppercase,
+.text-xs.text-dark-400.uppercase,
+.text-\[10px\].uppercase.tracking-wide.text-dark-500,
+.text-\[11px\].uppercase.tracking-wide.text-dark-500 {
+  color: var(--oa-fg-muted) !important;
+  font-weight: 600 !important;
+  letter-spacing: .08em !important;
+}
+
+/* Valores numéricos monoespaciados → tabulares con Inter */
+.font-mono {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  letter-spacing: 0;
+}
+
+/* ── Tablas internas (journal/ledger/balance) ─────────────────────── */
+.overflow-x-auto.rounded-xl.border.border-dark-600 {
+  border-color: var(--oa-line) !important;
+  background: var(--oa-bg-elev-1);
+  box-shadow: var(--oa-shadow-xs);
+}
+.overflow-x-auto.rounded-xl.border.border-dark-600 table { background: transparent; }
+
+table thead.bg-dark-700 {
+  background: var(--oa-bg-elev-2) !important;
+}
+table thead.bg-dark-700 th {
+  color: var(--oa-fg-muted) !important;
+  border-bottom: 1px solid var(--oa-line) !important;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  font-size: 10.5px;
+  padding: 10px 12px;
+}
+
+table tbody tr {
+  transition: background-color var(--oa-dur-1) var(--oa-ease);
+}
+table tbody tr:hover { background: rgba(0,161,255,.05) !important; }
+table tbody tr:hover td { background: transparent !important; }
+
+table td {
+  border-color: var(--oa-line) !important;
+  color: var(--oa-fg-dim) !important;
+  font-size: 13px;
+  padding: 10px 12px;
+}
+
+/* Filas con hover especial (charts.js) */
+.hover\:bg-dark-700\/30:hover,
+tr.hover\:bg-dark-700\/30:hover {
+  background: rgba(0, 161, 255, 0.05) !important;
+}
+
+/* ── Settings sections (settings.js) ──────────────────────────────── */
+section.bg-dark-750\/40,
+section[class*="bg-dark-750"] {
+  background: var(--oa-bg-elev-1) !important;
+  border: 1px solid var(--oa-line) !important;
+  border-radius: var(--oa-radius-lg) !important;
+  box-shadow: var(--oa-shadow-xs);
+}
+
+section h2, section h3 {
+  color: var(--oa-fg) !important;
+  letter-spacing: -.01em;
+}
+
+/* Settings tabs (pestañas) */
+[id^="spanel-"] {
+  padding-top: 4px;
+}
+
+/* ── Reports — heading grande (ledger account) ────────────────────── */
+.text-3xl.font-black,
+.text-4xl.font-black,
+.text-5xl.font-black {
+  color: var(--oa-fg) !important;
+  letter-spacing: -.025em;
+  font-weight: 800 !important;
+}
+
+/* ── Balance: encabezado de grupo con border-b-2 ──────────────────── */
+.border-b-2.text-center.font-bold.uppercase {
+  background: var(--oa-bg-elev-2) !important;
+  color: var(--oa-fg) !important;
+  letter-spacing: .1em;
+  border-bottom-width: 1px !important;
+  border-bottom-color: var(--oa-line-strong) !important;
+}
+
+/* ── KPI / indicators — valores con color semántico ────────────────── */
+.text-activo    { color: var(--oa-brand-400) !important; }
+.text-pasivo    { color: var(--oa-danger) !important; }
+.text-ingreso   { color: var(--oa-success) !important; }
+.text-gasto     { color: var(--oa-warning) !important; }
+.text-patrimonio{ color: #B69CFF !important; }
+.bg-pasivo\/30  { background: rgba(255,107,107,.22) !important; }
+.border-pasivo\/30 { border-color: rgba(255,107,107,.35) !important; }
+
+/* ── Links y botones "link" en charts (azul clicable) ─────────────── */
+.text-blue-200, .text-blue-300 { color: var(--oa-brand-300) !important; }
+.hover\:text-blue-200:hover    { color: var(--oa-brand-400) !important; }
+a, button.text-blue-300 {
+  text-underline-offset: 3px;
+}
+button.text-blue-300:hover { color: var(--oa-brand-400) !important; }
+
+/* ── Checkboxes/radios Tailwind (reports.js, charts.js) ───────────── */
+input[type="checkbox"].text-blue-500,
+input[type="radio"].text-blue-500,
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--oa-brand);
+  cursor: pointer;
+}
+input.focus\:ring-blue-500\/40:focus {
+  box-shadow: 0 0 0 3px var(--oa-brand-soft) !important;
+  border-color: var(--oa-brand) !important;
+}
+
+/* ── Selects ──────────────────────────────────────────────────────── */
+select {
+  background-color: var(--oa-bg-elev-2) !important;
+  color: var(--oa-fg-dim) !important;
+  border: 1px solid var(--oa-line) !important;
+  border-radius: 8px !important;
+  padding: 6px 10px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--oa-fg-muted) 50%),
+    linear-gradient(135deg, var(--oa-fg-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+}
+select option {
+  background: var(--oa-bg-elev-2);
+  color: var(--oa-fg);
+}
+
+/* ── Chart containers — canvas fondo para legibilidad ─────────────── */
+canvas { max-width: 100%; }
+
+/* ── Tags chips (report.js R.tags) ────────────────────────────────── */
+.flex.flex-wrap.gap-1\.5 > span,
+.flex.flex-wrap.gap-2 > span {
+  /* tags heredan su color inline, no forzamos */
+}
+
+/* ── Stats account-table — refinar bordes de sección ──────────────── */
+.rounded-xl.border.p-4.sm\:p-5 {
+  border-color: var(--oa-line) !important;
+}
+.rounded-xl.border.bg-dark-900\/35,
+.rounded-xl.border[class*="bg-dark-900"] {
+  background: var(--oa-bg-elev-1) !important;
+  border-color: var(--oa-line) !important;
+}
+
+/* ── Sección-título uppercase en stats ────────────────────────────── */
+.text-lg.font-bold.uppercase,
+.text-xl.font-bold.uppercase {
+  letter-spacing: .08em;
+  color: var(--oa-fg) !important;
+}
+
+/* ── Empty states ─────────────────────────────────────────────────── */
+.empty,
+.text-dark-500.text-center {
+  color: var(--oa-fg-muted) !important;
+  font-style: normal;
+}
+
+/* ── Formularios (new account / new transaction / tag modal) ──────── */
+label {
+  color: var(--oa-fg-dim);
+}
+label > span:first-child {
+  color: var(--oa-fg-muted);
+}
+.account-image-preview-panel {
+  background: var(--oa-bg-elev-2);
+  border: 1px solid var(--oa-line);
+  border-radius: var(--oa-radius-lg);
+  padding: 12px;
+}
+.account-image-preview-stage {
+  border-color: var(--oa-line) !important;
+  background:
+    linear-gradient(180deg, var(--oa-bg-elev-1) 0%, var(--oa-bg) 100%);
+  border-radius: var(--oa-radius-lg) !important;
+}
+
+/* ── Modal content padding & separators ───────────────────────────── */
+#modal-content h2,
+#modal-content h3 {
+  color: var(--oa-fg) !important;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+#modal-content .border-t.border-dark-600,
+#modal-content .border-b.border-dark-600 {
+  border-color: var(--oa-line) !important;
+}
+
+/* ── Botón cerrar modal (data-modal-close) ────────────────────────── */
+[data-modal-close].tbtn {
+  padding: 8px 18px;
+  border: 1px solid var(--oa-line);
+  background: var(--oa-bg-elev-2);
+  color: var(--oa-fg-dim);
+  border-radius: 10px;
+  font-weight: 500;
+}
+[data-modal-close].tbtn:hover {
+  background: var(--oa-bg-elev-3);
+  color: var(--oa-fg);
+  border-color: var(--oa-line-strong);
+}
+
+/* ── Bloque de "ecuación balance" (reports.js) ────────────────────── */
+.text-base.font-bold,
+.text-lg.font-bold {
+  letter-spacing: -.01em;
+}
+
+/* ── Projections — trends lines (chart boxes) ─────────────────────── */
+#ch-cashflow, #ch-expense-breakdown, #ch-income-breakdown,
+#ch-asset-pie, #ch-asset-evolution, #ch-income-evolution,
+#ch-expense-evolution, #ch-liability-evolution {
+  filter: saturate(1.05);
+}
+
+/* ── Legend (stats boxplot) ──────────────────────────────────────── */
+.text-\[11px\].font-medium.uppercase.tracking-wide.text-dark-400 {
+  color: var(--oa-fg-muted) !important;
+  letter-spacing: .08em;
+}
+
+/* ── Hovers numéricos — reforzar lectura ─────────────────────────── */
+td.text-right, th.text-right { font-variant-numeric: tabular-nums; }
+
+/* ── Formulario: inputs readonly ──────────────────────────────────── */
+input[readonly], textarea[readonly] {
+  background: var(--oa-bg-elev-1) !important;
+  color: var(--oa-fg-muted) !important;
+}
+
+/* ── Focus para elementos interactivos no-botón (checkbox labels, etc) */
+label:focus-within > span:first-child {
+  color: var(--oa-brand-400);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Tintes por tipo de cuenta (ACTIVO / PASIVO / INGRESO / GASTO / PATRIMONIO)
+   ══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --oa-type-activo:      #4FC3FF;   /* azul */
+  --oa-type-pasivo:      #FF6B6B;   /* rojo */
+  --oa-type-ingreso:     #3DDC97;   /* verde */
+  --oa-type-gasto:       #FFB547;   /* amarillo */
+  --oa-type-patrimonio:  #C996FF;   /* violeta / rosado */
+}
+
+/* ── MAYOR (Ledger) — título grande de la cuenta tintado por tipo ─── */
+/* El título del mayor es un <span class="text-3xl|5xl font-black …">.
+   Lo tintamos según la cuenta activa usando data-type en <body>. */
+body[data-ledger-type="1"] main .text-3xl.font-black,
+body[data-ledger-type="1"] main .text-4xl.font-black,
+body[data-ledger-type="1"] main .text-5xl.font-black {
+  color: var(--oa-type-activo) !important;
+  text-shadow: 0 0 28px rgba(79,195,255,.18);
+}
+body[data-ledger-type="2"] main .text-3xl.font-black,
+body[data-ledger-type="2"] main .text-4xl.font-black,
+body[data-ledger-type="2"] main .text-5xl.font-black {
+  color: var(--oa-type-pasivo) !important;
+  text-shadow: 0 0 28px rgba(255,107,107,.18);
+}
+body[data-ledger-type="3"] main .text-3xl.font-black,
+body[data-ledger-type="3"] main .text-4xl.font-black,
+body[data-ledger-type="3"] main .text-5xl.font-black {
+  color: var(--oa-type-ingreso) !important;
+  text-shadow: 0 0 28px rgba(61,220,151,.18);
+}
+body[data-ledger-type="4"] main .text-3xl.font-black,
+body[data-ledger-type="4"] main .text-4xl.font-black,
+body[data-ledger-type="4"] main .text-5xl.font-black {
+  color: var(--oa-type-gasto) !important;
+  text-shadow: 0 0 28px rgba(255,181,71,.18);
+}
+body[data-ledger-type="5"] main .text-3xl.font-black,
+body[data-ledger-type="5"] main .text-4xl.font-black,
+body[data-ledger-type="5"] main .text-5xl.font-black {
+  color: var(--oa-type-patrimonio) !important;
+  text-shadow: 0 0 28px rgba(201,150,255,.22);
+}
+
+/* Stats account-table section titles: ya usan text-activo/pasivo/…
+   reforzamos los bordes superior/izquierdo con el color del tipo */
+.rounded-xl.border.border-activo\/25  { border-color: rgba(79,195,255,.28) !important; box-shadow: inset 3px 0 0 rgba(79,195,255,.55); }
+.rounded-xl.border.border-pasivo\/25  { border-color: rgba(255,107,107,.30) !important; box-shadow: inset 3px 0 0 rgba(255,107,107,.55); }
+.rounded-xl.border.border-ingreso\/25 { border-color: rgba(61,220,151,.30) !important; box-shadow: inset 3px 0 0 rgba(61,220,151,.55); }
+.rounded-xl.border.border-gasto\/25   { border-color: rgba(255,181,71,.32) !important; box-shadow: inset 3px 0 0 rgba(255,181,71,.55); }
+.border-activo\/30  { border-color: rgba(79,195,255,.35) !important; }
+.border-pasivo\/30  { border-color: rgba(255,107,107,.35) !important; }
+.border-ingreso\/30 { border-color: rgba(61,220,151,.35) !important; }
+.border-gasto\/30   { border-color: rgba(255,181,71,.38) !important; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   INDICADORES — KPI cards tintadas por tipo usando :has()
+   El _kpiCard produce <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
+   con un hijo <div class="text-2xl font-semibold ${valueClass}">
+   Tintamos la tarjeta entera según valueClass del valor.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ACTIVO (azul) */
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4:has(> .text-2xl.text-activo) {
+  border-color: rgba(79,195,255,.30) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(79,195,255,.10), transparent 60%),
+    linear-gradient(180deg, var(--oa-bg-elev-2) 0%, var(--oa-bg-elev-1) 100%) !important;
+  box-shadow: inset 3px 0 0 var(--oa-type-activo), var(--oa-shadow-xs);
+}
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4:has(> .text-2xl.text-activo)
+  .text-\[11px\].text-dark-400.uppercase {
+  color: var(--oa-type-activo) !important;
+  opacity: .85;
+}
+
+/* PASIVO (rojo) */
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4:has(> .text-2xl.text-pasivo) {
+  border-color: rgba(255,107,107,.30) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255,107,107,.10), transparent 60%),
+    linear-gradient(180deg, var(--oa-bg-elev-2) 0%, var(--oa-bg-elev-1) 100%) !important;
+  box-shadow: inset 3px 0 0 var(--oa-type-pasivo), var(--oa-shadow-xs);
+}
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4:has(> .text-2xl.text-pasivo)
+  .text-\[11px\].text-dark-400.uppercase {
+  color: var(--oa-type-pasivo) !important;
+  opacity: .85;
+}
+
+/* INGRESO (verde) */
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4:has(> .text-2xl.text-ingreso) {
+  border-color: rgba(61,220,151,.30) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(61,220,151,.10), transparent 60%),
+    linear-gradient(180deg, var(--oa-bg-elev-2) 0%, var(--oa-bg-elev-1) 100%) !important;
+  box-shadow: inset 3px 0 0 var(--oa-type-ingreso), var(--oa-shadow-xs);
+}
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4:has(> .text-2xl.text-ingreso)
+  .text-\[11px\].text-dark-400.uppercase {
+  color: var(--oa-type-ingreso) !important;
+  opacity: .85;
+}
+
+/* GASTO (amarillo) — usamos .text-gasto si aparece, además de text-orange-400
+   que el JS usa como variante "contribución / gasto amarillo". */
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4:has(> .text-2xl.text-gasto),
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4:has(> .text-2xl.text-orange-400) {
+  border-color: rgba(255,181,71,.32) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255,181,71,.10), transparent 60%),
+    linear-gradient(180deg, var(--oa-bg-elev-2) 0%, var(--oa-bg-elev-1) 100%) !important;
+  box-shadow: inset 3px 0 0 var(--oa-type-gasto), var(--oa-shadow-xs);
+}
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4:has(> .text-2xl.text-gasto)
+  .text-\[11px\].text-dark-400.uppercase,
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4:has(> .text-2xl.text-orange-400)
+  .text-\[11px\].text-dark-400.uppercase {
+  color: var(--oa-type-gasto) !important;
+  opacity: .85;
+}
+.text-orange-400 { color: var(--oa-type-gasto) !important; }
+
+/* PATRIMONIO (violeta / rosado) */
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4:has(> .text-2xl.text-patrimonio) {
+  border-color: rgba(201,150,255,.32) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(201,150,255,.10), transparent 60%),
+    linear-gradient(180deg, var(--oa-bg-elev-2) 0%, var(--oa-bg-elev-1) 100%) !important;
+  box-shadow: inset 3px 0 0 var(--oa-type-patrimonio), var(--oa-shadow-xs);
+}
+.bg-dark-800.border.border-dark-600.rounded-xl.p-4:has(> .text-2xl.text-patrimonio)
+  .text-\[11px\].text-dark-400.uppercase {
+  color: var(--oa-type-patrimonio) !important;
+  opacity: .85;
+}
+
+/* Fallback sin :has() — navegadores antiguos: solo texto coloreado (ya lo hace el JS) */
+@supports not (selector(:has(*))) {
+  /* Sin acento de tarjeta; el color del valor sigue visible. */
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   BALANCE — grupos tintados por tipo
+   reports.js genera:
+     <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden mb-4">
+       <div class="… font-bold uppercase … border-b-2 text-center"
+            style="color:#4fc3f7;border-color:#4fc3f733"> ACTIVO </div>
+       <table>…</table>
+     </div>
+   TYPE_COLORS del JS: 1:#4fc3f7 2:#ef5350 3:#66bb6a 4:#ffd54f 5:#ce93d8
+
+   Estrategia: seleccionamos el wrapper vía :has(> [style*="#XXX"]) para
+   detectar el tipo a partir del color inline del header, y aplicamos
+   un sistema de acentos consistente (borde izquierdo, halo radial,
+   header con fondo tinte) sin tocar el JS.
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Header base: refinar tipografía y fondo */
+.bg-dark-800.border.border-dark-600.rounded-xl.overflow-hidden
+  > .px-4.py-3.font-bold.uppercase.border-b-2 {
+  letter-spacing: .14em;
+  font-weight: 800;
+  font-size: 13px;
+  padding: 14px 16px;
+  background: var(--oa-bg-elev-2);
+  border-bottom-width: 1px !important;
+}
+
+/* ── ACTIVO (type 1) — azul #4fc3f7 ───────────────────────────────── */
+.bg-dark-800.border.border-dark-600.rounded-xl.overflow-hidden:has(> [style*="#4fc3f7"]) {
+  border-color: rgba(79,195,255,.35) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(79,195,255,.09), transparent 55%),
+    var(--oa-bg-elev-1) !important;
+  box-shadow: inset 3px 0 0 var(--oa-type-activo), var(--oa-shadow-xs);
+}
+.bg-dark-800.border.border-dark-600.rounded-xl.overflow-hidden:has(> [style*="#4fc3f7"])
+  > .px-4.py-3.font-bold.uppercase.border-b-2 {
+  color: var(--oa-type-activo) !important;
+  border-color: rgba(79,195,255,.30) !important;
+  background:
+    linear-gradient(180deg, rgba(79,195,255,.08) 0%, transparent 100%),
+    var(--oa-bg-elev-2);
+  text-shadow: 0 0 18px rgba(79,195,255,.22);
+}
+
+/* ── PASIVO (type 2) — rojo #ef5350 ───────────────────────────────── */
+.bg-dark-800.border.border-dark-600.rounded-xl.overflow-hidden:has(> [style*="#ef5350"]) {
+  border-color: rgba(255,107,107,.35) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255,107,107,.09), transparent 55%),
+    var(--oa-bg-elev-1) !important;
+  box-shadow: inset 3px 0 0 var(--oa-type-pasivo), var(--oa-shadow-xs);
+}
+.bg-dark-800.border.border-dark-600.rounded-xl.overflow-hidden:has(> [style*="#ef5350"])
+  > .px-4.py-3.font-bold.uppercase.border-b-2 {
+  color: var(--oa-type-pasivo) !important;
+  border-color: rgba(255,107,107,.30) !important;
+  background:
+    linear-gradient(180deg, rgba(255,107,107,.08) 0%, transparent 100%),
+    var(--oa-bg-elev-2);
+  text-shadow: 0 0 18px rgba(255,107,107,.22);
+}
+
+/* ── INGRESO (type 3) — verde #66bb6a ─────────────────────────────── */
+.bg-dark-800.border.border-dark-600.rounded-xl.overflow-hidden:has(> [style*="#66bb6a"]) {
+  border-color: rgba(61,220,151,.35) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(61,220,151,.09), transparent 55%),
+    var(--oa-bg-elev-1) !important;
+  box-shadow: inset 3px 0 0 var(--oa-type-ingreso), var(--oa-shadow-xs);
+}
+.bg-dark-800.border.border-dark-600.rounded-xl.overflow-hidden:has(> [style*="#66bb6a"])
+  > .px-4.py-3.font-bold.uppercase.border-b-2 {
+  color: var(--oa-type-ingreso) !important;
+  border-color: rgba(61,220,151,.30) !important;
+  background:
+    linear-gradient(180deg, rgba(61,220,151,.08) 0%, transparent 100%),
+    var(--oa-bg-elev-2);
+  text-shadow: 0 0 18px rgba(61,220,151,.22);
+}
+
+/* ── GASTO (type 4) — amarillo #ffd54f ────────────────────────────── */
+.bg-dark-800.border.border-dark-600.rounded-xl.overflow-hidden:has(> [style*="#ffd54f"]) {
+  border-color: rgba(255,181,71,.38) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(255,181,71,.09), transparent 55%),
+    var(--oa-bg-elev-1) !important;
+  box-shadow: inset 3px 0 0 var(--oa-type-gasto), var(--oa-shadow-xs);
+}
+.bg-dark-800.border.border-dark-600.rounded-xl.overflow-hidden:has(> [style*="#ffd54f"])
+  > .px-4.py-3.font-bold.uppercase.border-b-2 {
+  color: var(--oa-type-gasto) !important;
+  border-color: rgba(255,181,71,.32) !important;
+  background:
+    linear-gradient(180deg, rgba(255,181,71,.08) 0%, transparent 100%),
+    var(--oa-bg-elev-2);
+  text-shadow: 0 0 18px rgba(255,181,71,.22);
+}
+
+/* ── PATRIMONIO (type 5) — violeta #ce93d8 ────────────────────────── */
+.bg-dark-800.border.border-dark-600.rounded-xl.overflow-hidden:has(> [style*="#ce93d8"]) {
+  border-color: rgba(201,150,255,.38) !important;
+  background:
+    radial-gradient(circle at 0% 0%, rgba(201,150,255,.09), transparent 55%),
+    var(--oa-bg-elev-1) !important;
+  box-shadow: inset 3px 0 0 var(--oa-type-patrimonio), var(--oa-shadow-xs);
+}
+.bg-dark-800.border.border-dark-600.rounded-xl.overflow-hidden:has(> [style*="#ce93d8"])
+  > .px-4.py-3.font-bold.uppercase.border-b-2 {
+  color: var(--oa-type-patrimonio) !important;
+  border-color: rgba(201,150,255,.30) !important;
+  background:
+    linear-gradient(180deg, rgba(201,150,255,.08) 0%, transparent 100%),
+    var(--oa-bg-elev-2);
+  text-shadow: 0 0 18px rgba(201,150,255,.22);
+}
+
+/* Fila TOTAL en balance: bg-blue-600/5 → adaptamos al brand */
+tr.\!bg-blue-600\/5,
+tr[class*="!bg-blue-600/5"] {
+  background: rgba(0, 161, 255, 0.06) !important;
+}
+tr[class*="!border-t-2"] td {
+  border-top: 1px solid var(--oa-line-strong) !important;
+}
+
+/* ── Responsive tweaks — reducir padding en móvil ─────────────────── */
+@media (max-width: 640px) {
+  table th, table td { padding: 9px 10px; font-size: 12.5px; }
+  .rounded-xl.border.border-dark-600 { border-radius: var(--oa-radius) !important; }
+  main h1 { font-size: 1.15rem; }
+}
