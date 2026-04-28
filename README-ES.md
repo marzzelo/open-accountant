@@ -9,7 +9,7 @@
 [![Release](https://img.shields.io/github/v/release/marzzelo/open-accountant?display_name=tag)](https://github.com/marzzelo/open-accountant/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-Open Accountant es una aplicación de contabilidad personal basada en navegador, construida con FastAPI, SQLite, JavaScript vanilla, Tailwind CSS y Chart.js. Está pensada para autoalojarse en tu propia máquina o red local, con los datos guardados localmente en libros SQLite y sin depender de servicios en la nube.
+Open Accountant es una aplicación de contabilidad personal basada en navegador, construida con FastAPI, PostgreSQL, JavaScript vanilla, Tailwind CSS y Chart.js. Está pensada para autoalojarse en tu propia máquina o red local, y guarda todos los datos de Open Accountant en tablas PostgreSQL con prefijo oacc_ para convivir de forma segura con otras aplicaciones en la misma base.
 
 El proyecto fue desarrollado en gran parte con ayuda de IA, especialmente mediante el sistema de agentes OpenClaw. Los contribuyentes también pueden usar ese flujo, siempre que cada cambio se revise con cuidado y se explique con claridad.
 
@@ -20,7 +20,7 @@ El proyecto fue desarrollado en gran parte con ayuda de IA, especialmente median
 | Área | Detalles |
 | --- | --- |
 | Contabilidad de partida doble | Cada transacción debita una cuenta y acredita otra, por lo que los libros quedan balanceados por construcción |
-| Gestión multi-libro | Crea, activa, renombra, respalda, importa y elimina libros independientes guardados como archivos SQLite separados |
+| Dataset compartido en PostgreSQL | Opera sobre un único dataset en PostgreSQL con prefijo oacc_ para coexistir con otras apps |
 | Tablero Kanban | Vista visual para activos, pasivos, patrimonio, ingresos y gastos con flujos de transferencia por arrastre y pulsación prolongada |
 | Carga inteligente de transacciones | Los formularios aceptan expresiones en el importe, precarga de origen y destino, atajos reutilizables, flujos fijados y modo de saldo objetivo |
 | Registro con monedas | Permite cargar movimientos en ARS o USD usando cotización oficial compra, oficial venta, blue compra, blue venta o tarjeta |
@@ -29,12 +29,12 @@ El proyecto fue desarrollado en gran parte con ayuda de IA, especialmente median
 | Lógica de liquidez robusta | Ratio corriente, prueba ácida, runway y salud de proyecciones siguen funcionando aunque se renombren o eliminen subtipos, porque el backend normaliza e infiere propiedades |
 | Reportes | Balance General, Libro Diario, Libro Mayor y vista de Transacciones con drill-down, ordenamiento y exportación CSV y PDF |
 | Filtros de reportes | El Balance puede ocultar cuentas, mostrar u ocultar secciones en cero y filtrar por tipo contable |
-| Panel estadístico | Tarjetas KPI, análisis de flujo mensual, desgloses de ingresos y gastos, composición de activos, concentración por cuentas y evolución patrimonial |
-| Proyecciones | Proyecciones por regresión para ingresos, gastos, ahorro, activos y pasivos, más series programadas definidas por el usuario |
+| Panel estadístico | Tarjetas KPI, análisis de flujo mensual, desgloses de ingresos y gastos, composición de activos, concentración por cuentas, evolución patrimonial y estadísticas por cuenta con boxplots |
+| Proyecciones | Proyecciones por regresión para ingresos, gastos, ahorro, activos y pasivos, más series programadas y confirmadas definidas por el usuario |
 | Resumen de salud proyectada | Tarjetas con estado actual, final base, final con escenario y delta final para patrimonio, ratios de liquidez y runway |
-| Configuración y preferencias | Cambio de idioma en tiempo real, gestión de cotizaciones, fetch automático desde Bluelytics, preferencias por libro, edición enmascarada de `.env` y sonidos FX opcionales |
+| Configuración y preferencias | Cambio de idioma en tiempo real, gestión de cotizaciones, fetch automático desde Bluelytics, respaldo/recuperación de tablas Open Accountant, edición enmascarada de `.env` y sonidos FX opcionales |
 | UI responsive | Barra de herramientas de escritorio, menú móvil, FAB, modales tipo bottom-sheet y layouts adaptativos |
-| Offline y privado | Los datos viven localmente en archivos SQLite dentro de `data/` y pueden usarse sin servicios externos |
+| Offline y privado | Los datos permanecen bajo tu control en tu despliegue PostgreSQL y no requieren servicios cloud externos |
 | Verificación de integridad | El panel About usa metadatos sellados con HMAC y muestra una alerta si falla la verificación |
 
 ### Vista previa de la interfaz
@@ -135,15 +135,12 @@ El repositorio incluye tests unitarios, smoke tests de API y un workflow de GitH
 
 Después de instalar, se crea un libro demo llamado Home con cuentas sembradas y transacciones anonimizadas para que puedas explorar la interfaz de inmediato.
 
-### Gestión de libros
+### Dataset compartido y respaldos
 
-- Crea nuevos libros desde Settings -> Books
-- Opcionalmente inicia un libro nuevo con cuentas básicas
-- Activa otro libro actual sin reiniciar la interfaz del navegador
-- Renombra libros desde el panel de configuración
-- Descarga backups SQL por libro
-- Importa un volcado SQL en un libro nuevo
-- Mantiene transacciones, cuentas y preferencias de usuario aisladas por libro
+- Open Accountant usa un único dataset activo en PostgreSQL (tablas con prefijo oacc_)
+- Los respaldos desde Settings -> Configuration -> Backup and restore exportan solo tablas de Open Accountant
+- La recuperación reemplaza solo tablas de Open Accountant y no modifica tablas de otras aplicaciones
+- Las acciones de respaldo y recuperación están habilitadas para usuarios administradores
 
 ### Cuentas y clasificación financiera
 
@@ -231,16 +228,18 @@ La vista de estadísticas va más allá de los gráficos básicos y resume la sa
 - Desgloses de ingresos y gastos por subtipo
 - Composición de activos y concentración por cuentas principales
 - Evolución patrimonial a lo largo del periodo seleccionado
+- Tabla de estadísticas por cuenta con boxplots centrados (Q1/Q2/Q3), marcador de media, bigotes y límites de atípicos
+- Modos de límites para boxplots, incluyendo frontera de atípicos y visualización de muestras extremas
 
 <p align="center">
-  <img src="docs/images/stats1.png" alt="Resumen estadístico de Open Accountant" width="70%">
+  <img src="docs/images/stats3.png" alt="Tabla estadística con boxplots en Open Accountant" width="70%">
 </p>
-<p align="center"><em>La cabecera estadística resume ingresos, gastos, ahorro, liquidez y concentración antes de profundizar en la tendencia mensual.</em></p>
+<p align="center"><em>Las estadísticas por cuenta incluyen boxplots, marcadores de tendencia central y límites configurables para analizar dispersión y atípicos.</em></p>
 
 <p align="center">
-  <img src="docs/images/stats2.png" alt="Desgloses estadísticos de Open Accountant" width="70%">
+  <img src="docs/images/stats4.png" alt="Panel estadístico avanzado de Open Accountant" width="70%">
 </p>
-<p align="center"><em>Los desgloses por categoría, la composición de activos y la concentración por cuentas facilitan detectar dependencias estructurales del libro.</em></p>
+<p align="center"><em>El panel estadístico combina contexto KPI, análisis de tendencias y métricas comparativas avanzadas por sección contable.</em></p>
 
 ### Proyecciones financieras
 
@@ -252,18 +251,25 @@ Abre la vista Projections para estimar estados futuros a partir del comportamien
 - Rellena meses históricos dispersos usando regresión para que los faltantes no deformen la tendencia
 - Agrega series futuras programadas para cuotas, bonos o gastos previstos
 - Edita o elimina esas series desde la misma pantalla
+- Confirma o desactiva series para comparar escenarios de planificación rápidamente
 - Compara proyecciones base contra escenarios que incluyen series programadas
 - Revisa tarjetas de salud para el estado actual, el final del caso base, el final con escenario y el delta del escenario
 - Observa cambios proyectados en patrimonio neto, ratio corriente, prueba ácida y runway de liquidez
 
+<p align="center">
+  <img src="docs/images/projections1.png" alt="Vista de proyecciones en Open Accountant" width="70%">
+</p>
+<p align="center"><em>La vista de proyecciones integra ajuste histórico, series de escenario y deltas de salud financiera en un único flujo.</em></p>
+
 ### Configuración, preferencias y automatización
 
-Settings se divide en pestañas de Configuration y Env.
+Settings se divide en pestañas de Configuration, Env y Users.
 
 - Configura host, puerto, nombre de la app e idioma en tiempo real
 - Gestiona las cotizaciones financieras manualmente desde la UI
 - Trae la última cotización oficial y blue desde Bluelytics y deriva automáticamente la cotización tarjeta
-- Guarda la configuración de runtime en la base principal (`oacc_settings` en PostgreSQL, `settings` en el fallback SQLite)
+- Descarga y recupera respaldos completos de Open Accountant desde Configuration
+- Guarda la configuración de runtime en la base principal (`oacc_settings` en PostgreSQL)
 - Migra automáticamente preferencias financieras legacy hacia la configuración global al iniciar
 - Guarda de forma global preferencias como ocultar cuentas o mostrar saldos cero
 - Persiste direcciones de orden en reportes y otras preferencias visuales
@@ -272,16 +278,16 @@ Settings se divide en pestañas de Configuration y Env.
 - Habilita efectos de sonido FX opcionales para arrastre y transiciones
 
 <p align="center">
-  <img src="docs/images/config.png" alt="Configuración y finanzas en Open Accountant" width="70%">
+  <img src="docs/images/settings.png" alt="Panel de configuración en Open Accountant" width="70%">
 </p>
-<p align="center"><em>La configuración centraliza dirección de enlace, cotizaciones, idioma y efectos FX opcionales en un solo panel.</em></p>
+<p align="center"><em>La configuración centraliza parámetros de runtime, cotizaciones, variables de entorno y controles de respaldo/recuperación de tablas Open Accountant.</em></p>
 
 ### Migración a PostgreSQL
 
 - Configura `DATABASE_URL` para usar PostgreSQL en despliegues compartidos
 - La app crea todas sus tablas con prefijo `oacc_` para convivir con otras aplicaciones
 - Usa `scripts/migrate_sqlite_to_postgres.py` como migración independiente y de una sola vez desde SQLite legacy
-- Si `DATABASE_URL` no existe, la app usa un único SQLite local en `data/open_accountant.db`
+- En la arquitectura actual, `DATABASE_URL` es obligatorio en runtime
 
 ### About e integridad
 
@@ -330,7 +336,7 @@ También puedes construir una skill de OpenClaw para consultar saldos, registrar
 
 ## Referencia de configuración
 
-La configuración de runtime se almacena en la base principal. En PostgreSQL vive en `oacc_settings`; en el fallback SQLite vive en `data/open_accountant.db` dentro de `settings`.
+La configuración de runtime se almacena en la base principal, en `oacc_settings` sobre PostgreSQL.
 
 | Key | Default | Descripción |
 | --- | --- | --- |
@@ -372,9 +378,9 @@ python3 i18n_tools.py stats
 
 ## Datos y privacidad
 
-- La información de negocio puede correr sobre PostgreSQL vía `DATABASE_URL` o sobre el fallback SQLite local en `data/open_accountant.db`
+- La información de negocio corre sobre PostgreSQL vía `DATABASE_URL`
 - Por defecto no se envía nada a servicios cloud externos
-- Los archivos `data/*.db` están ignorados por git
+- Los artefactos locales y secretos quedan fuera del control de versiones (por ejemplo mediante `.env` y respaldos locales)
 - En PostgreSQL, las tablas de Open Accountant usan el prefijo `oacc_`
 - El esquema legacy multi-libro fue reemplazado por un único dataset compartido
 

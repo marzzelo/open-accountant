@@ -359,6 +359,56 @@ def test_settings_service_fetch_rates_uses_injected_fetcher():
     assert payload["card"] == 1430.0
 
 
+def test_settings_service_backup_export_and_restore_roundtrip(initialized_environment):
+    with get_db() as conn:
+        cash = conn.execute(
+            "SELECT id FROM accounts WHERE name = ?",
+            ("Cash",),
+        ).fetchone()["id"]
+        salary = conn.execute(
+            "SELECT id FROM accounts WHERE name = ?",
+            ("Salary",),
+        ).fetchone()["id"]
+        conn.execute(
+            """
+            INSERT INTO transactions (
+                debit_account,
+                credit_account,
+                amount,
+                original_amount,
+                original_currency,
+                fx_rate,
+                description,
+                date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (cash, salary, 123.45, 123.45, "ARS", 1.0, "Backup test tx"),
+        )
+
+        tx_count_before = conn.execute(
+            "SELECT COUNT(*) AS total FROM transactions"
+        ).fetchone()["total"]
+        backup = settings_service.export_backup(conn)
+
+        conn.execute("DELETE FROM transactions")
+        tx_count_after_delete = conn.execute(
+            "SELECT COUNT(*) AS total FROM transactions"
+        ).fetchone()["total"]
+        assert tx_count_after_delete == 0
+
+        restored = settings_service.restore_backup(conn, backup)
+        tx_count_after_restore = conn.execute(
+            "SELECT COUNT(*) AS total FROM transactions"
+        ).fetchone()["total"]
+
+    assert backup["format"] == settings_service.BACKUP_FORMAT
+    assert "oacc_transactions" in backup["tables"]
+    assert tx_count_before > 0
+    assert tx_count_after_restore == tx_count_before
+    assert restored["ok"] is True
+    assert "oacc_transactions" in restored["restored_tables"]
+
+
 def test_end_of_month_datetime_handles_short_months():
     assert helpers.end_of_month_datetime("2026-04") == "2026-04-30 23:59:59"
     assert helpers.end_of_month_datetime("2026-02") == "2026-02-28 23:59:59"
@@ -615,8 +665,12 @@ def test_reports_service_stats_summary_and_net_worth_evolution(
     assert account_stats["Bond Ladder"]["mean"] == pytest.approx(200.0, rel=1e-4)
     assert account_stats["Bond Ladder"]["median"] == pytest.approx(200.0, rel=1e-4)
     assert account_stats["Bond Ladder"]["stddev"] == pytest.approx(0.0, rel=1e-4)
-    assert account_stats["Bond Ladder"]["boxplot"]["q1"] == pytest.approx(200.0, rel=1e-4)
-    assert account_stats["Bond Ladder"]["boxplot"]["median"] == pytest.approx(200.0, rel=1e-4)
+    assert account_stats["Bond Ladder"]["boxplot"]["q1"] == pytest.approx(
+        200.0, rel=1e-4
+    )
+    assert account_stats["Bond Ladder"]["boxplot"]["median"] == pytest.approx(
+        200.0, rel=1e-4
+    )
     assert account_stats["Bank"]["boxplot"]["max"] == pytest.approx(1550.0)
     assert refreshed_accounts["Bank"].properties["liquidity_profile"] == "quick"
     assert (

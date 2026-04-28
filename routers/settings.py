@@ -7,6 +7,7 @@ from urllib.request import Request, urlopen
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from auth import require_admin_user
 from database import db_dep
 from services import settings_service
 
@@ -87,3 +88,24 @@ def get_translations(lang: str):
 @router.get("/settings/languages")
 def list_languages():
     return settings_service.list_languages()
+
+
+@router.get("/settings/backup/export")
+def export_backup(
+    _current_user: dict = Depends(require_admin_user),
+    conn=Depends(db_dep),
+):
+    return settings_service.export_backup(conn)
+
+
+class RestoreBackupRequest(BaseModel):
+    backup: dict[str, Any]
+
+
+@router.post("/settings/backup/restore")
+def restore_backup(
+    data: RestoreBackupRequest,
+    _current_user: dict = Depends(require_admin_user),
+    conn=Depends(db_dep),
+):
+    return settings_service.restore_backup(conn, data.backup)

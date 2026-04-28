@@ -100,6 +100,9 @@ const Settings = {
     document.getElementById('env-form')?.addEventListener('submit', e => {
       e.preventDefault(); this._saveEnv();
     });
+    document.getElementById('cfg-backup-export')?.addEventListener('click', () => this._downloadBackup());
+    document.getElementById('cfg-backup-restore')?.addEventListener('click', () => this._openRestoreBackupPicker());
+    document.getElementById('cfg-backup-file')?.addEventListener('change', e => this._restoreBackupFromFile(e));
 
     this._financeManualRateIds().forEach(id => {
       document.getElementById(id)?.addEventListener('input', () => this._handleManualFinanceRateInput());
@@ -142,13 +145,17 @@ const Settings = {
       ...Object.keys(this._config).filter(section => !sectionOrder.includes(section)),
     ];
 
-    const cards = orderedSections
-      .map(section => this._configSectionCard(section, this._config[section] || {}))
-      .join('');
+    const cards = [];
+    orderedSections.forEach(section => {
+      cards.push(this._configSectionCard(section, this._config[section] || {}));
+      if (section === 'general' && State.currentUser?.is_admin) {
+        cards.push(this._backupSectionCard());
+      }
+    });
 
     return `
       <form id="cfg-form" class="flex flex-col gap-5">
-        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">${cards}</div>
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">${cards.join('')}</div>
         <div class="flex items-center gap-3 pt-1">
           <button id="cfg-save-btn" type="submit" disabled
                   class="px-5 py-2 text-sm rounded-lg border transition-colors duration-150
@@ -191,6 +198,22 @@ const Settings = {
         </div>
         ${extras.join('')}
         ${fields ? `<div class="flex flex-col gap-3">${fields}</div>` : ''}
+      </section>`;
+  },
+
+  _backupSectionCard() {
+    return `
+      <section class="bg-dark-750/40 border border-dark-700 rounded-xl p-4 flex flex-col gap-4">
+        <div>
+          <h3 class="text-sm font-semibold text-dark-100">${t('settings.section.backup')}</h3>
+          <p class="text-xs text-dark-500 mt-1">${t('settings.backup.scope_hint')}</p>
+        </div>
+        <div class="flex flex-col gap-2">
+          <button id="cfg-backup-export" type="button" class="tbtn px-4 py-2 text-sm text-left">${t('settings.backup.export_button')}</button>
+          <button id="cfg-backup-restore" type="button" class="tbtn px-4 py-2 text-sm text-left hover:!text-amber-300">${t('settings.backup.restore_button')}</button>
+        </div>
+        <p class="text-[11px] text-dark-500">${t('settings.backup.restore_warning')}</p>
+        <input id="cfg-backup-file" type="file" accept="application/json,.json" class="hidden"/>
       </section>`;
   },
 
@@ -416,6 +439,77 @@ const Settings = {
     if (hiddenInput) hiddenInput.value = rawValue;
     if (label) label.textContent = rawValue ? this._formatConfigTimestamp(rawValue) : '—';
     this._syncConfigSaveButton();
+  },
+
+  _backupFilename() {
+    const stamp = new Date().toISOString().replace(/[.:]/g, '-');
+    return `open-accountant-backup-${stamp}.json`;
+  },
+
+  async _downloadBackup() {
+    const button = document.getElementById('cfg-backup-export');
+    if (button) button.disabled = true;
+    try {
+      const payload = await this._get('/settings/backup/export');
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = this._backupFilename();
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      Toast.show(t('msg.settings_backup_exported'));
+    } catch (e) {
+      Toast.show(t('msg.error_generic', { msg: e.message }), 'error');
+    } finally {
+      if (button) button.disabled = false;
+    }
+  },
+
+  _openRestoreBackupPicker() {
+    const input = document.getElementById('cfg-backup-file');
+    if (!input) return;
+    input.value = '';
+    input.click();
+  },
+
+  async _restoreBackupFromFile(event) {
+    const input = event?.target;
+    const file = input?.files?.[0];
+    if (!file) return;
+
+    const confirmed = await Dialog.confirm({
+      title: t('settings.backup.restore_confirm_title'),
+      message: t('settings.backup.restore_confirm_message'),
+      confirmLabel: t('settings.backup.restore_button'),
+      cancelLabel: t('btn.cancel'),
+      submitTone: 'danger',
+    });
+    if (!confirmed) return;
+
+    const restoreButton = document.getElementById('cfg-backup-restore');
+    if (restoreButton) restoreButton.disabled = true;
+    try {
+      const rawText = await file.text();
+      let backup;
+      try {
+        backup = JSON.parse(rawText);
+      } catch {
+        throw new Error(t('settings.backup.invalid_json'));
+      }
+
+      const response = await this._post('/settings/backup/restore', { backup });
+      await API.loadAll().catch(() => null);
+      await this.render();
+      Toast.show(t('msg.settings_backup_restored', { count: response.restored_total_rows ?? 0 }));
+    } catch (e) {
+      Toast.show(t('msg.error_generic', { msg: e.message }), 'error');
+    } finally {
+      if (input) input.value = '';
+      if (restoreButton) restoreButton.disabled = false;
+    }
   },
 
   _serializeConfigForm() {

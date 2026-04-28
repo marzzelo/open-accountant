@@ -1,13 +1,16 @@
 """Settings and preferences service functions."""
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 import app_config
+import app_version
 from database import (
+    PREFIXED_TABLES,
     get_user_preferences,
     update_user_preferences as save_user_preferences,
 )
@@ -22,6 +25,31 @@ BLUELYTICS_HEADERS = {
     "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
     "Accept": "application/json,text/plain,*/*",
     "Referer": "https://bluelytics.com.ar/",
+}
+
+BACKUP_FORMAT = "open-accountant-backup-v1"
+BACKUP_TABLE_INSERT_ORDER: tuple[str, ...] = (
+    "types",
+    "subtypes",
+    "accounts",
+    "tags",
+    "transactions",
+    "transaction_tags",
+    "users",
+    "auth_sessions",
+    "user_preferences",
+    "settings",
+    "projection_series",
+)
+BACKUP_TABLE_DELETE_ORDER: tuple[str, ...] = tuple(reversed(BACKUP_TABLE_INSERT_ORDER))
+IDENTITY_TABLES: set[str] = {
+    "subtypes",
+    "accounts",
+    "transactions",
+    "tags",
+    "users",
+    "auth_sessions",
+    "projection_series",
 }
 
 
@@ -167,3 +195,167 @@ def list_languages(locales_dir: Path = LOCALES_DIR) -> list[dict[str, str]]:
             }
         )
     return languages
+
+
+def _physical_table_name(logical_table: str) -> str:
+    return f"oacc_{logical_table}"
+
+
+def _open_accountant_physical_tables() -> set[str]:
+    return {_physical_table_name(name) for name in PREFIXED_TABLES}
+
+
+def _existing_open_accountant_tables(conn) -> set[str]:
+    allowed_tables = _open_accountant_physical_tables()
+    rows = conn.execute(
+        """
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = current_schema()
+                    AND table_name LIKE ?
+                """,
+        ("oacc_%",),
+    ).fetchall()
+    return {row["table_name"] for row in rows if row["table_name"] in allowed_tables}
+
+
+def _table_columns(conn, physical_table: str) -> list[str]:
+    rows = conn.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = ?
+        ORDER BY ordinal_position
+        """,
+        (physical_table,),
+    ).fetchall()
+    return [row["column_name"] for row in rows]
+
+
+def _reset_identity_sequence(conn, physical_table: str) -> None:
+    seq_row = conn.execute(
+        "SELECT pg_get_serial_sequence(?, 'id') AS seq_name",
+        (physical_table,),
+    ).fetchone()
+    if not seq_row:
+        return
+
+    seq_name = seq_row.get("seq_name")
+    if not seq_name:
+        return
+
+    next_value = conn.execute(
+        f'SELECT COALESCE(MAX("id"), 0) + 1 AS next_val FROM "{physical_table}"'
+    ).fetchone()["next_val"]
+    conn.execute("SELECT setval(?, ?, false)", (seq_name, int(next_value)))
+
+
+def export_backup(conn) -> dict[str, Any]:
+    existing_tables = _existing_open_accountant_tables(conn)
+    tables: dict[str, list[dict[str, Any]]] = {}
+    row_counts: dict[str, int] = {}
+
+    for logical_table in BACKUP_TABLE_INSERT_ORDER:
+        physical_table = _physical_table_name(logical_table)
+        if physical_table not in existing_tables:
+            continue
+
+        rows = conn.execute(f'SELECT * FROM "{physical_table}"').fetchall()
+        payload_rows = [dict(row) for row in rows]
+        tables[physical_table] = payload_rows
+        row_counts[physical_table] = len(payload_rows)
+
+    return {
+        "format": BACKUP_FORMAT,
+        "app": "open-accountant",
+        "version": app_version.numeric_version(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "tables": tables,
+        "row_counts": row_counts,
+    }
+
+
+def restore_backup(conn, backup: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(backup, dict):
+        raise ValidationError("El respaldo debe ser un objeto JSON válido.")
+
+    if backup.get("format") != BACKUP_FORMAT:
+        raise ValidationError("Formato de respaldo no soportado.")
+
+    tables_payload = backup.get("tables")
+    if not isinstance(tables_payload, dict) or not tables_payload:
+        raise ValidationError("El respaldo no contiene tablas para recuperar.")
+
+    allowed_tables = _open_accountant_physical_tables()
+    invalid_tables = sorted(
+        table_name
+        for table_name in tables_payload.keys()
+        if table_name not in allowed_tables
+    )
+    if invalid_tables:
+        raise ValidationError(
+            "El respaldo contiene tablas no permitidas: " + ", ".join(invalid_tables)
+        )
+
+    existing_tables = _existing_open_accountant_tables(conn)
+    requested_tables = set(tables_payload.keys())
+    target_tables = requested_tables & existing_tables
+    if not target_tables:
+        raise ValidationError(
+            "No se encontraron tablas compatibles de Open Accountant para recuperar."
+        )
+
+    normalized_rows: dict[str, list[dict[str, Any]]] = {}
+    for table_name in target_tables:
+        rows = tables_payload.get(table_name)
+        if not isinstance(rows, list):
+            raise ValidationError(
+                f"La tabla '{table_name}' debe contener una lista de filas."
+            )
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValidationError(
+                    f"La tabla '{table_name}' contiene una fila con formato inválido."
+                )
+        normalized_rows[table_name] = rows
+
+    for logical_table in BACKUP_TABLE_DELETE_ORDER:
+        physical_table = _physical_table_name(logical_table)
+        if physical_table in target_tables:
+            conn.execute(f'DELETE FROM "{physical_table}"')
+
+    restored_counts: dict[str, int] = {}
+    for logical_table in BACKUP_TABLE_INSERT_ORDER:
+        physical_table = _physical_table_name(logical_table)
+        if physical_table not in target_tables:
+            continue
+
+        table_rows = normalized_rows.get(physical_table, [])
+        table_columns = _table_columns(conn, physical_table)
+        restored = 0
+
+        for row in table_rows:
+            insert_columns = [column for column in table_columns if column in row]
+            if not insert_columns:
+                continue
+
+            placeholders = ", ".join("?" for _ in insert_columns)
+            quoted_columns = ", ".join(f'"{column}"' for column in insert_columns)
+            values = tuple(row[column] for column in insert_columns)
+            conn.execute(
+                f'INSERT INTO "{physical_table}" ({quoted_columns}) VALUES ({placeholders})',
+                values,
+            )
+            restored += 1
+
+        restored_counts[physical_table] = restored
+
+        if logical_table in IDENTITY_TABLES and "id" in table_columns:
+            _reset_identity_sequence(conn, physical_table)
+
+    return {
+        "ok": True,
+        "restored_tables": sorted(target_tables),
+        "restored_row_counts": restored_counts,
+        "restored_total_rows": sum(restored_counts.values()),
+    }

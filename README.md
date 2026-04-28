@@ -9,7 +9,7 @@
 [![Release](https://img.shields.io/github/v/release/marzzelo/open-accountant?display_name=tag)](https://github.com/marzzelo/open-accountant/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](LICENSE)
 
-Open Accountant is a browser-based personal accounting application built with FastAPI, SQLite, vanilla JavaScript, Tailwind CSS, and Chart.js. It is designed for self-hosted use on your own machine or local network, with data stored locally in SQLite books and no required cloud services.
+Open Accountant is a browser-based personal accounting application built with FastAPI, PostgreSQL, vanilla JavaScript, Tailwind CSS, and Chart.js. It is designed for self-hosted use on your own machine or local network, with all Open Accountant data stored in PostgreSQL tables prefixed with oacc_ so it can safely coexist with other applications in the same database.
 
 The project has been developed in large part with AI assistance, especially through the OpenClaw agent system. Contributors are welcome to use the same workflow as long as every change is reviewed carefully and explained clearly.
 
@@ -20,7 +20,7 @@ The project has been developed in large part with AI assistance, especially thro
 | Area | Details |
 | --- | --- |
 | Double-entry accounting | Every transaction debits one account and credits another, so books remain balanced by construction |
-| Multi-book management | Create, activate, rename, back up, import, and delete independent accounting books stored as separate SQLite files |
+| Shared PostgreSQL dataset | Operates on a single runtime dataset in PostgreSQL using oacc_ table prefixes for safe coexistence with other apps |
 | Kanban board | Visual board for assets, liabilities, equity, income, and expenses with drag-and-drop and long-press transfer workflows |
 | Smart transaction entry | Transaction forms support amount expressions, source/destination prefill, reusable shortcuts, pinned frequent flows, and direct balance-targeting mode |
 | Currency-aware posting | Record entries in ARS or USD using official buy, official sell, blue buy, blue sell, or card rates |
@@ -29,12 +29,12 @@ The project has been developed in large part with AI assistance, especially thro
 | Resilient liquidity logic | Current ratio, quick ratio, runway, and projection health work even if subtype labels were renamed or deleted, because the backend normalizes and infers account properties |
 | Reports | Balance Sheet, General Journal, General Ledger, and Transactions views with drill-down, sorting, CSV export, and PDF export |
 | Report filters | Balance view can hide account rows, show or hide zero-balance sections, and filter by accounting type |
-| Statistics dashboard | KPI cards, monthly cash-flow analysis, expense and income breakdowns, asset composition, top-account concentration, and net-worth evolution |
-| Projections | Regression-based projections for income, expenses, savings, assets, and liabilities, plus user-defined scheduled series |
+| Statistics dashboard | KPI cards, monthly cash-flow analysis, expense and income breakdowns, asset composition, top-account concentration, net-worth evolution, and per-account boxplot statistics |
+| Projections | Regression-based projections for income, expenses, savings, assets, and liabilities, plus user-defined scheduled and confirmed series |
 | Projection health summary | Current, baseline-end, scenario-end, and delta-end health cards for net worth, liquidity ratios, and runway |
-| Settings and preferences | Runtime language switching, finance-rate management, automatic Bluelytics fetch, per-book UI preferences, masked .env editing, and optional FX sound effects |
+| Settings and preferences | Runtime language switching, finance-rate management, automatic Bluelytics fetch, backup/restore for Open Accountant tables, masked .env editing, and optional FX sound effects |
 | Responsive UI | Desktop toolbar, mobile drawer, FAB actions, bottom-sheet modals, and screen-aware layouts |
-| Offline and private | Data lives locally in SQLite files under data/ and can be used without external services |
+| Offline and private | Data stays under your control in your own PostgreSQL deployment and does not require external cloud services |
 | About integrity check | The About panel is backed by HMAC-sealed metadata and shows a tamper warning if integrity verification fails |
 
 ### Interface preview
@@ -135,15 +135,12 @@ The repository includes unit tests, API smoke tests, and a GitHub Actions workfl
 
 After installation, a demo book named Home is created with seeded accounts and anonymized sample transactions so you can explore the UI immediately.
 
-### Managing books
+### Shared dataset and backups
 
-- Create new books from Settings -> Books
-- Optionally seed a new book with basic accounts
-- Activate a different current book without restarting the browser UI
-- Rename books from the settings panel
-- Download SQL backups per book
-- Import a SQL dump into a new book
-- Keep transactions, accounts, and user preferences isolated per book
+- Open Accountant uses one active dataset in PostgreSQL (tables prefixed with oacc_)
+- Backups from Settings -> Configuration -> Backup and restore export only Open Accountant tables
+- Restore operations replace only Open Accountant tables and do not touch tables from other applications
+- Backup and restore actions are available for administrator users
 
 ### Accounts and financial classification
 
@@ -231,16 +228,18 @@ The statistics view goes beyond basic charts and now summarizes overall financia
 - Income and expense breakdowns by subtype
 - Asset composition and top-account concentration
 - Net-worth evolution across the selected period
+- Account statistics table with centered boxplots (Q1/Q2/Q3), mean marker, whiskers, and outlier bounds
+- Multiple limit modes for boxplots, including outlier fence and extreme-sample visualization
 
 <p align="center">
-  <img src="docs/images/stats1.png" alt="Open Accountant statistics summary" width="70%">
+  <img src="docs/images/stats3.png" alt="Open Accountant statistics table with boxplots" width="70%">
 </p>
-<p align="center"><em>The statistics header summarizes income, expenses, savings rate, liquidity, and concentration before you drill into the monthly trend.</em></p>
+<p align="center"><em>Per-account statistics include boxplots, central tendency markers, and configurable limits to inspect dispersion and outliers.</em></p>
 
 <p align="center">
-  <img src="docs/images/stats2.png" alt="Open Accountant statistics breakdowns" width="70%">
+  <img src="docs/images/stats4.png" alt="Open Accountant statistics panel with advanced metrics" width="70%">
 </p>
-<p align="center"><em>Breakdowns by category, asset composition, and top-account concentration make it easier to spot structural dependencies in the book.</em></p>
+<p align="center"><em>The statistics panel combines KPI context, trend analysis, and advanced comparative metrics for each account section.</em></p>
 
 ### Financial projections
 
@@ -252,18 +251,25 @@ Open the Projections view to estimate future states from historical behavior plu
 - Fill sparse historical months using regression so missing months do not collapse the trend
 - Add scheduled future series for income or expense installments
 - Edit or delete those series from the same screen
+- Confirm or disable projection series to compare planning scenarios quickly
 - Compare baseline projections against scenario projections that include scheduled series
 - Review health summary cards for current state, end-of-baseline, end-of-scenario, and scenario delta
 - See projected changes in net worth, current ratio, quick ratio, and liquidity runway
 
+<p align="center">
+  <img src="docs/images/projections1.png" alt="Open Accountant projections view" width="70%">
+</p>
+<p align="center"><em>The projections view combines historical trend fitting, scenario series, and financial health deltas in one workflow.</em></p>
+
 ### Settings, preferences, and automation
 
-Settings are split into Configuration and Env tabs.
+Settings are split into Configuration, Env, and Users tabs.
 
 - Configure host, port, app name, and language at runtime
 - Manage finance rates manually from the UI
 - Fetch the latest official and blue USD rates from Bluelytics and automatically derive the card rate
-- Store runtime settings in the main database (`oacc_settings` on PostgreSQL, `settings` on SQLite fallback)
+- Download and restore full Open Accountant backups from the Configuration panel
+- Store runtime settings in the main database (`oacc_settings` on PostgreSQL)
 - Migrate legacy finance preferences automatically into the global finance config on startup
 - Store report preferences such as hidden-account and zero-balance toggles globally for the active dataset
 - Persist report sort directions and other UI preferences
@@ -272,16 +278,16 @@ Settings are split into Configuration and Env tabs.
 - Enable optional FX drag-and-drop sounds
 
 <p align="center">
-  <img src="docs/images/config.png" alt="Open Accountant settings and finance configuration" width="70%">
+  <img src="docs/images/settings.png" alt="Open Accountant settings panel" width="70%">
 </p>
-<p align="center"><em>Settings centralize bind address, finance rates, language, and optional FX sound effects in one panel.</em></p>
+<p align="center"><em>Settings centralize runtime configuration, finance rates, environment variables, and backup/restore controls for Open Accountant tables.</em></p>
 
 ### Migration to PostgreSQL
 
 - Set `DATABASE_URL` to a PostgreSQL database to use shared-hosting mode
 - The app stores all application tables with the `oacc_` prefix to coexist with other systems
 - Use `scripts/migrate_sqlite_to_postgres.py` as the independent one-off migration path from legacy SQLite data
-- If `DATABASE_URL` is omitted, the app falls back to a single local SQLite database at `data/open_accountant.db`
+- `DATABASE_URL` is required at runtime in the current architecture
 
 ### About and integrity
 
@@ -330,7 +336,7 @@ You can also build an OpenClaw skill to query balances, register transactions, o
 
 ## Configuration Reference
 
-Runtime settings are stored in the main database. On PostgreSQL they live in `oacc_settings`; on the SQLite fallback they live in `data/open_accountant.db` under `settings`.
+Runtime settings are stored in the main database under `oacc_settings` on PostgreSQL.
 
 | Key | Default | Description |
 | --- | --- | --- |
@@ -372,9 +378,9 @@ python3 i18n_tools.py stats
 
 ## Data and Privacy
 
-- Business data can run on PostgreSQL via `DATABASE_URL`, or on the local SQLite fallback at `data/open_accountant.db`
+- Business data runs on PostgreSQL via `DATABASE_URL`
 - Nothing is sent to an external cloud service by default
-- `data/*.db` files are git-ignored
+- Local artifacts and secrets remain outside source control (for example via `.env` and local backups)
 - On PostgreSQL, Open Accountant tables are prefixed with `oacc_`
 - The legacy multi-book layout is superseded by a single shared dataset
 
