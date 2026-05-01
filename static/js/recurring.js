@@ -42,6 +42,36 @@ const Recurring = {
     return (item.tags || []).map(tag => renderTagBadge(tag)).join('');
   },
 
+  _dateUtcDay(value) {
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    const [, year, month, day] = match.map(Number);
+    return Date.UTC(year, month - 1, day);
+  },
+
+  _daysFromToday(value) {
+    const scheduled = this._dateUtcDay(value);
+    if (scheduled === null) return null;
+    const now = new Date();
+    const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+    return Math.round((today - scheduled) / 86400000);
+  },
+
+  _scheduleOffsetLabel(item) {
+    const status = this._status(item);
+    if (status === 'disabled') return '';
+    const daysFromScheduled = this._daysFromToday(item.effective_alert_date);
+    if (daysFromScheduled === null) return '';
+
+    if (status === 'active') {
+      const count = Math.max(0, daysFromScheduled);
+      return t(count === 1 ? 'recurring.days_overdue_one' : 'recurring.days_overdue_many', { count });
+    }
+
+    const count = Math.max(0, -daysFromScheduled);
+    return t(count === 1 ? 'recurring.days_remaining_one' : 'recurring.days_remaining_many', { count });
+  },
+
   _column(titleKey, items, toneClass) {
     return `
       <section class="min-w-0 rounded-lg border border-dark-600 bg-dark-800/55 flex flex-col overflow-hidden">
@@ -57,6 +87,7 @@ const Recurring = {
 
   _card(item) {
     const status = this._status(item);
+    const scheduleOffsetLabel = this._scheduleOffsetLabel(item);
     const statusClass = status === 'active'
       ? 'text-amber-300 bg-amber-500/10 border-amber-500/30'
       : status === 'disabled'
@@ -81,6 +112,7 @@ const Recurring = {
             <div class="text-right text-[11px] text-dark-400">
               <div>${escapeHtml(t('recurring.alert_day_short', { day: item.alert_day }))}</div>
               <div>${escapeHtml(item.effective_alert_date || '')}</div>
+              ${scheduleOffsetLabel ? `<div class="mt-1 font-semibold ${status === 'active' ? 'text-amber-300' : 'text-blue-300'}">${escapeHtml(scheduleOffsetLabel)}</div>` : ''}
             </div>
           </div>
           <div class="mt-2 flex flex-wrap gap-1.5">${this._tagBadges(item)}</div>

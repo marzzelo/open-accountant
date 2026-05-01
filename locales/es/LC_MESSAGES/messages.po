@@ -183,6 +183,18 @@ msgstr "Habilitada"
 msgid "recurring.next_alert"
 msgstr "Alerta del mes: {date}"
 
+msgid "recurring.days_overdue_one"
+msgstr "{count} día de retraso"
+
+msgid "recurring.days_overdue_many"
+msgstr "{count} días de retraso"
+
+msgid "recurring.days_remaining_one"
+msgstr "{count} día restante"
+
+msgid "recurring.days_remaining_many"
+msgstr "{count} días restantes"
+
 msgid "recurring.alert_label"
 msgstr "{count} transacciones recurrentes activas"
 
