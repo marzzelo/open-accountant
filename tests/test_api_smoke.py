@@ -326,6 +326,8 @@ def test_init_db_bootstraps_single_database_schema(isolated_paths):
         "subtypes",
         "accounts",
         "transactions",
+        "recurring_transactions",
+        "recurring_transaction_tags",
         "users",
         "auth_sessions",
     }
@@ -334,6 +336,7 @@ def test_init_db_bootstraps_single_database_schema(isolated_paths):
         missing = {name for name in expected_tables if not table_exists(conn, name)}
         account_columns = set(table_columns(conn, "accounts"))
         tx_columns = set(table_columns(conn, "transactions"))
+        recurring_columns = set(table_columns(conn, "recurring_transactions"))
         projection_series_columns = set(table_columns(conn, "projection_series"))
 
     assert missing == set()
@@ -344,9 +347,112 @@ def test_init_db_bootstraps_single_database_schema(isolated_paths):
         "fx_rate",
         "fx_source",
     } <= tx_columns
+    assert {
+        "alert_day",
+        "alert_active",
+        "enabled",
+        "last_posted_period",
+        "last_transaction_id",
+    } <= recurring_columns
     assert "enabled" in projection_series_columns
     assert "period_months" in projection_series_columns
     assert "confirmed" in projection_series_columns
+
+
+def test_recurring_transactions_crud_count_and_post_copy_tags(client):
+    accounts = _accounts_by_name(client)
+    tag_response = client.post(
+        "/api/tags",
+        json={"name": "Rent", "color": "#F97316"},
+    )
+    assert tag_response.status_code == 201
+    tag = tag_response.json()
+
+    create_response = client.post(
+        "/api/recurring-transactions",
+        json={
+            "debit_account": accounts["Groceries"]["id"],
+            "credit_account": accounts["Bank"]["id"],
+            "amount": 750.0,
+            "description": "Monthly rent",
+            "alert_day": 1,
+            "alert_active": True,
+            "enabled": True,
+            "tag_ids": [tag["id"]],
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["description"] == "Monthly rent"
+    assert created["is_active"] is True
+    assert created["tags"][0]["name"] == "Rent"
+
+    count_response = client.get("/api/recurring-transactions/active-count")
+    assert count_response.status_code == 200
+    assert count_response.json()["count"] >= 1
+
+    active_response = client.get("/api/recurring-transactions?filter=active")
+    assert active_response.status_code == 200
+    assert any(item["id"] == created["id"] for item in active_response.json())
+
+    post_response = client.post(
+        f"/api/recurring-transactions/{created['id']}/post",
+        json={
+            "original_amount": 800.0,
+            "original_currency": "ARS",
+            "date": "2026-04-30 10:00:00",
+        },
+    )
+    assert post_response.status_code == 200
+    posted = post_response.json()
+    assert posted["transaction"]["amount"] == 800.0
+    assert posted["transaction"]["tags"][0]["name"] == "Rent"
+    assert posted["recurring"]["last_transaction_id"] == posted["transaction"]["id"]
+    assert posted["recurring"]["is_active"] is False
+
+    inactive_response = client.get("/api/recurring-transactions?filter=active")
+    assert inactive_response.status_code == 200
+    assert all(item["id"] != created["id"] for item in inactive_response.json())
+
+    second_post_response = client.post(
+        f"/api/recurring-transactions/{created['id']}/post",
+        json={"original_amount": 810.0, "original_currency": "ARS"},
+    )
+    assert second_post_response.status_code == 200
+    assert second_post_response.json()["transaction"]["amount"] == 810.0
+
+
+def test_recurring_transactions_can_be_marked_done_without_posting(client):
+    accounts = _accounts_by_name(client)
+    create_response = client.post(
+        "/api/recurring-transactions",
+        json={
+            "debit_account": accounts["Utilities"]["id"],
+            "credit_account": accounts["Bank"]["id"],
+            "amount": 95.0,
+            "description": "Manual utility payment",
+            "alert_day": 1,
+            "alert_active": True,
+            "enabled": True,
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["is_active"] is True
+
+    before_transactions = client.get("/api/transactions").json()
+    mark_response = client.post(
+        f"/api/recurring-transactions/{created['id']}/mark-done",
+        json={},
+    )
+    assert mark_response.status_code == 200
+    marked = mark_response.json()
+    assert marked["is_active"] is False
+    assert marked["last_posted_period"]
+    assert marked["last_transaction_id"] is None
+
+    after_transactions = client.get("/api/transactions").json()
+    assert len(after_transactions) == len(before_transactions)
 
 
 def test_projection_series_can_be_toggled_via_api(client):

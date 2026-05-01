@@ -32,6 +32,7 @@ class TemporalStringMixin:
         "updated_at",
         "start_date",
         "expires_at",
+        "last_posted_at",
         mode="before",
         check_fields=False,
     )(_coerce_temporal_to_str)
@@ -236,6 +237,87 @@ class TransactionOut(TemporalStringMixin, BaseModel):
     date: str
     created_at: str
     tags: list[TagSummary] = Field(default_factory=list)
+
+
+# ── Recurring transactions ───────────────────────────────────────────────────
+
+
+class RecurringTransactionIn(BaseModel):
+    debit_account: int
+    credit_account: int
+    tag_ids: list[int] = Field(default_factory=list)
+    amount: Optional[float] = Field(None, gt=0)
+    original_amount: Optional[float] = Field(None, gt=0)
+    original_currency: Optional[str] = None
+    fx_rate: Optional[float] = Field(None, gt=0)
+    fx_source: Optional[str] = None
+    description: str = ""
+    alert_day: int = Field(..., ge=1, le=31)
+    alert_active: bool = True
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def validate_amounts(self):
+        if self.amount is None and self.original_amount is None:
+            raise ValueError("Either amount or original_amount is required")
+        return self
+
+
+class RecurringTransactionUpdate(BaseModel):
+    debit_account: Optional[int] = Field(None, gt=0)
+    credit_account: Optional[int] = Field(None, gt=0)
+    tag_ids: Optional[list[int]] = None
+    amount: Optional[float] = Field(None, gt=0)
+    original_amount: Optional[float] = Field(None, gt=0)
+    original_currency: Optional[str] = None
+    fx_rate: Optional[float] = Field(None, gt=0)
+    fx_source: Optional[str] = None
+    description: Optional[str] = None
+    alert_day: Optional[int] = Field(None, ge=1, le=31)
+    alert_active: Optional[bool] = None
+    enabled: Optional[bool] = None
+
+
+class RecurringTransactionPostIn(BaseModel):
+    amount: Optional[float] = Field(None, gt=0)
+    original_amount: Optional[float] = Field(None, gt=0)
+    original_currency: Optional[str] = None
+    fx_rate: Optional[float] = Field(None, gt=0)
+    fx_source: Optional[str] = None
+    description: Optional[str] = None
+    date: Optional[str] = None
+
+
+class RecurringTransactionOut(TemporalStringMixin, BaseModel):
+    id: int
+    debit_account: int
+    debit_name: str
+    debit_type_id: int
+    credit_account: int
+    credit_name: str
+    credit_type_id: int
+    amount: float
+    original_amount: float
+    original_currency: str
+    fx_rate: float
+    fx_source: Optional[str]
+    description: str
+    alert_day: int
+    alert_active: bool
+    enabled: bool
+    is_active: bool
+    effective_alert_date: str
+    last_posted_period: Optional[str] = None
+    last_posted_at: Optional[str] = None
+    last_transaction_id: Optional[int] = None
+    created_at: str
+    updated_at: str
+    tags: list[TagSummary] = Field(default_factory=list)
+
+
+class RecurringTransactionPostOut(BaseModel):
+    recurring: RecurringTransactionOut
+    transaction: TransactionOut
 
 
 # ── Reports ───────────────────────────────────────────────────────────────────

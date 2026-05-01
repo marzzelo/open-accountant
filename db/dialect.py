@@ -5,6 +5,8 @@ import re
 PREFIXED_TABLES = {
     "auth_sessions",
     "projection_series",
+    "recurring_transaction_tags",
+    "recurring_transactions",
     "transaction_tags",
     "user_preferences",
     "users",

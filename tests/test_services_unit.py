@@ -24,6 +24,8 @@ from models import (
     TagUpdate,
     TransactionIn,
     TransactionOut,
+    RecurringTransactionIn,
+    RecurringTransactionPostIn,
     UserOut,
 )
 from routers import (
@@ -36,6 +38,7 @@ from services import (
     helpers,
     projections_service,
     reports_service,
+    recurring_transactions_service,
     settings_service,
     subtypes_service,
     tags_service,
@@ -357,6 +360,110 @@ def test_settings_service_fetch_rates_uses_injected_fetcher():
     assert payload["official_buy"] == 1000.0
     assert payload["blue_sell"] == 1300.0
     assert payload["card"] == 1430.0
+
+
+def test_recurring_transactions_use_last_day_for_short_months(initialized_environment):
+    now = datetime(2026, 2, 28, 9, 0, 0)
+    with get_db() as conn:
+        accounts = {
+            row["name"]: row["id"]
+            for row in conn.execute("SELECT id, name FROM accounts").fetchall()
+        }
+        created = recurring_transactions_service.create_recurring_transaction(
+            conn,
+            RecurringTransactionIn(
+                debit_account=accounts["Groceries"],
+                credit_account=accounts["Bank"],
+                amount=100.0,
+                description="Month end bill",
+                alert_day=31,
+            ),
+        )
+
+        active = recurring_transactions_service.list_recurring_transactions(
+            conn, "active", now
+        )
+
+    listed = next(item for item in active if item.id == created.id)
+    assert listed.effective_alert_date == "2026-02-28"
+    assert listed.is_active is True
+
+
+def test_posting_recurring_transaction_marks_current_month_but_allows_repost(
+    initialized_environment,
+):
+    with get_db() as conn:
+        accounts = {
+            row["name"]: row["id"]
+            for row in conn.execute("SELECT id, name FROM accounts").fetchall()
+        }
+        tag = tags_service.create_tag(
+            conn, TagIn(name="Utilities recurring", color="#2563EB")
+        )
+        created = recurring_transactions_service.create_recurring_transaction(
+            conn,
+            RecurringTransactionIn(
+                debit_account=accounts["Utilities"],
+                credit_account=accounts["Bank"],
+                amount=120.0,
+                description="Monthly utilities",
+                alert_day=1,
+                tag_ids=[tag.id],
+            ),
+        )
+        first = recurring_transactions_service.post_recurring_transaction(
+            conn, created.id, RecurringTransactionPostIn()
+        )
+        second = recurring_transactions_service.post_recurring_transaction(
+            conn,
+            created.id,
+            RecurringTransactionPostIn(
+                original_amount=125.0,
+                original_currency="ARS",
+            ),
+        )
+        refreshed = recurring_transactions_service.get_recurring_transaction(
+            conn, created.id
+        )
+
+    assert first.transaction.tags[0].name == "Utilities recurring"
+    assert second.transaction.amount == 125.0
+    assert refreshed.last_transaction_id == second.transaction.id
+    assert refreshed.is_active is False
+
+
+def test_recurring_transaction_can_be_marked_done_without_creating_transaction(
+    initialized_environment,
+):
+    with get_db() as conn:
+        accounts = {
+            row["name"]: row["id"]
+            for row in conn.execute("SELECT id, name FROM accounts").fetchall()
+        }
+        created = recurring_transactions_service.create_recurring_transaction(
+            conn,
+            RecurringTransactionIn(
+                debit_account=accounts["Utilities"],
+                credit_account=accounts["Bank"],
+                amount=95.0,
+                description="Manual utility payment",
+                alert_day=1,
+            ),
+        )
+        before_count = conn.execute(
+            "SELECT COUNT(*) AS tx_count FROM transactions"
+        ).fetchone()["tx_count"]
+        marked = recurring_transactions_service.mark_recurring_transaction_done(
+            conn, created.id
+        )
+        after_count = conn.execute(
+            "SELECT COUNT(*) AS tx_count FROM transactions"
+        ).fetchone()["tx_count"]
+
+    assert marked.is_active is False
+    assert marked.last_posted_period is not None
+    assert marked.last_transaction_id is None
+    assert after_count == before_count
 
 
 def test_settings_service_backup_export_and_restore_roundtrip(initialized_environment):

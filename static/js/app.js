@@ -25,6 +25,7 @@ const getBoard = () => window.Board;
 const getReports = () => window.Reports;
 const getCharts = () => window.Charts;
 const getProjections = () => window.Projections;
+const getRecurring = () => window.Recurring;
 const getSettings = () => window.Settings;
 const getAbout = () => window.About;
 const getForms = () => window.Forms;
@@ -39,6 +40,7 @@ const State = {
   tags:       [],
   appConfig:  {},
   appVersion: null,
+  recurringActiveCount: 0,
   filterFrom: null,
   filterTo:   null,
   tagFilterIds: [],
@@ -139,7 +141,7 @@ const API = {
   },
 
   async loadAll() {
-    const [accounts, types, subtypes, tags, version, config, preferences] = await Promise.all([
+    const [accounts, types, subtypes, tags, version, config, preferences, recurringActive] = await Promise.all([
       this.get('/accounts' + State.apiDateParams),
       this.get('/types'),
       this.get('/subtypes'),
@@ -147,6 +149,7 @@ const API = {
       this.loadVersion({ force: true }),
       this.get('/settings/config'),
       this.get('/settings/preferences'),
+      this.get('/recurring-transactions/active-count'),
     ]);
     State.accounts = accounts;
     State.types    = types;
@@ -155,8 +158,10 @@ const API = {
     State.appVersion = version;
     State.appConfig = config || {};
     State.userPreferences = preferences || {};
+    State.recurringActiveCount = Number(recurringActive?.count || 0);
     State.syncTagFilters();
     StatusBar.refresh();
+    RecurringAlert.render();
   },
 
   async reloadAccounts() {
@@ -168,6 +173,12 @@ const API = {
     State.tags = await this.get('/tags');
     State.syncTagFilters();
     Filter._syncUi();
+  },
+
+  async reloadRecurringActiveCount() {
+    const payload = await this.get('/recurring-transactions/active-count');
+    State.recurringActiveCount = Number(payload?.count || 0);
+    RecurringAlert.render();
   },
 
   async reloadPreferences() {
@@ -187,6 +198,7 @@ const AppShell = {
     await Preferences.applyLoaded();
     applyAppVersion();
     await window.I18n.init();
+    RecurringAlert.render();
     StatusBar.startClock();
     StatusBar.refresh();
     Filter._syncUi();
@@ -204,6 +216,7 @@ const AppShell = {
     State.tags = [];
     State.appConfig = {};
     State.userPreferences = {};
+    State.recurringActiveCount = 0;
   },
 };
 
@@ -523,6 +536,7 @@ const View = {
       const reports = getReports();
       const charts = getCharts();
       const projections = getProjections();
+      const recurring = getRecurring();
       const settings = getSettings();
       const about = getAbout();
       switch (name) {
@@ -533,6 +547,7 @@ const View = {
         case 'indicadores': await charts.panel(); break;
         case 'stats':    await charts.stats();    break;
         case 'proyecciones': await projections.render(); break;
+        case 'recurring': await recurring.render(); break;
         case 'subtypes':  await reports.subtypes();  break;
         case 'txlist':    await reports.journal();   break;
         case 'settings':  await settings.render(); break;
@@ -548,8 +563,33 @@ const View = {
     await API.reloadAccounts();
     await API.reloadTags();
     await API.reloadPreferences();
+    await API.reloadRecurringActiveCount();
     await Preferences.applyLoaded();
     await this.show(this.current);
+  },
+};
+
+const RecurringAlert = {
+  render() {
+    const activeCount = Number(State.recurringActiveCount || 0);
+    [
+      ['recurring-alert', 'recurring-alert-count'],
+      ['recurring-alert-mobile', 'recurring-alert-count-mobile'],
+    ].forEach(([buttonId, countId]) => {
+      const button = document.getElementById(buttonId);
+      const count = document.getElementById(countId);
+      if (!button || !count) return;
+      button.classList.toggle('hidden', activeCount <= 0);
+      count.textContent = String(activeCount);
+      button.setAttribute('aria-label', t('recurring.alert_label', { count: activeCount }));
+      button.title = t('recurring.alert_label', { count: activeCount });
+    });
+  },
+
+  async openActive() {
+    const recurring = getRecurring();
+    if (recurring?.setFilter) recurring.setFilter('active', { silent: true });
+    await View.show('recurring');
   },
 };
 
@@ -1233,6 +1273,7 @@ Object.assign(window, {
   Auth,
   Preferences,
   StatusBar,
+  RecurringAlert,
   View,
   Filter,
   Modal,

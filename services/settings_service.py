@@ -40,6 +40,8 @@ BACKUP_TABLE_INSERT_ORDER: tuple[str, ...] = (
     "user_preferences",
     "settings",
     "projection_series",
+    "recurring_transactions",
+    "recurring_transaction_tags",
 )
 BACKUP_TABLE_DELETE_ORDER: tuple[str, ...] = tuple(reversed(BACKUP_TABLE_INSERT_ORDER))
 IDENTITY_TABLES: set[str] = {
@@ -50,6 +52,7 @@ IDENTITY_TABLES: set[str] = {
     "users",
     "auth_sessions",
     "projection_series",
+    "recurring_transactions",
 }
 
 

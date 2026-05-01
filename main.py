@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from auth import require_authenticated_user
 from routers import types, subtypes, accounts, transactions, reports, tags
+from routers import recurring_transactions
 from routers import settings as settings_router, about as about_router
 from routers import projections as projections_router
 from routers import auth as auth_router
@@ -100,6 +101,12 @@ app.include_router(
     transactions.router,
     prefix="/api",
     tags=["Transactions"],
+    dependencies=[Depends(require_authenticated_user)],
+)
+app.include_router(
+    recurring_transactions.router,
+    prefix="/api",
+    tags=["Recurring Transactions"],
     dependencies=[Depends(require_authenticated_user)],
 )
 app.include_router(
