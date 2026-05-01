@@ -2886,3 +2886,33 @@ def test_investment_contributions_exclude_internal_transfers(initialized_environ
     # Capital (5000), internal (300), dividend (50) are all excluded.
     total_contrib = sum(contrib.values())
     assert total_contrib == pytest.approx(1000.0, rel=1e-4)
+
+
+def test_recurring_transactions_service_finds_similar_case_insensitively(
+    initialized_environment,
+):
+    with get_db() as conn:
+        accounts = accounts_service.list_accounts(conn)
+        bank = next(item for item in accounts if item.name == "Bank")
+        salary = next(item for item in accounts if item.name == "Salary")
+
+        created = recurring_transactions_service.create_recurring_transaction(
+            conn,
+            RecurringTransactionIn(
+                debit_account=bank.id,
+                credit_account=salary.id,
+                amount=100.0,
+                description="Monthly transfer",
+                alert_day=10,
+            ),
+        )
+
+        found = recurring_transactions_service.find_similar_recurring_transaction(
+            conn,
+            credit_account=salary.id,
+            debit_account=bank.id,
+            description="  monthly transfer  ",
+        )
+
+    assert found is not None
+    assert found.id == created.id

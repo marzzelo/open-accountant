@@ -174,6 +174,30 @@ def get_recurring_transaction(
     return _rows_to_out(conn, [row], now)[0]
 
 
+def find_similar_recurring_transaction(
+    conn,
+    credit_account: int,
+    debit_account: int,
+    description: str,
+    now: datetime | None = None,
+) -> RecurringTransactionOut | None:
+    normalized_description = (description or "").strip()
+    row = conn.execute(
+        RTX_SELECT
+        + """
+           WHERE rt.credit_account = ?
+             AND rt.debit_account = ?
+             AND LOWER(TRIM(rt.description)) = LOWER(?)
+           ORDER BY rt.id
+           LIMIT 1
+        """,
+        (credit_account, debit_account, normalized_description),
+    ).fetchone()
+    if not row:
+        return None
+    return _rows_to_out(conn, [row], now)[0]
+
+
 def create_recurring_transaction(
     conn, data: RecurringTransactionIn
 ) -> RecurringTransactionOut:

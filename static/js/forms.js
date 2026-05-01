@@ -962,62 +962,62 @@ const Forms = {
     return Math.round(rawAmount * resolvedRate * 100) / 100;
   },
 
-  async _resolveTransactionEntryAmount(rawAmount, { creditId, debitId }) {
+  async _resolveTransactionEntryAmount(rawAmount, { creditId, debitId, silent = false }) {
     const amountState = this._transactionAmountState();
     const forceMode = this._selectedForceBalanceMode();
 
     if (forceMode === 'invalid') {
-      Toast.show(t('msg.force_balance_single_option'), 'err');
+      if (!silent) Toast.show(t('msg.force_balance_single_option'), 'err');
       return null;
     }
 
     if (!amountState.isEmpty && !amountState.isValid) {
-      Toast.show(t('msg.invalid_amount'), 'err');
+      if (!silent) Toast.show(t('msg.invalid_amount'), 'err');
       return null;
     }
 
     if (this._selectedAmountCurrency() !== 'ARS' && this._hasInvalidManualFxRate()) {
-      Toast.show(t('msg.invalid_money_input'), 'err');
+      if (!silent) Toast.show(t('msg.invalid_money_input'), 'err');
       return null;
     }
 
     if (!forceMode) {
       if (!Number.isFinite(rawAmount) || rawAmount <= 0) {
-        Toast.show(t('msg.invalid_amount'), 'err');
+        if (!silent) Toast.show(t('msg.invalid_amount'), 'err');
         return null;
       }
       return rawAmount;
     }
 
     if (!Number.isFinite(rawAmount)) {
-      Toast.show(t('msg.invalid_amount'), 'err');
+      if (!silent) Toast.show(t('msg.invalid_amount'), 'err');
       return null;
     }
 
     const rate = await this._selectedTransactionRate();
     if (this._selectedAmountCurrency() !== 'ARS' && !(Number.isFinite(rate) && rate > 0)) {
-      Toast.show(this._missingCurrencyRateMessage(this._selectedAmountCurrency()), 'err');
+      if (!silent) Toast.show(this._missingCurrencyRateMessage(this._selectedAmountCurrency()), 'err');
       return null;
     }
 
     const computation = this._forcedBalanceComputation(rawAmount, { creditId, debitId, rate });
     if (!computation) {
-      Toast.show(t('msg.invalid_value'), 'err');
+      if (!silent) Toast.show(t('msg.invalid_value'), 'err');
       return null;
     }
 
     const { bookedAmount, originalAmount } = computation;
 
     if (!Number.isFinite(bookedAmount)) {
-      Toast.show(t('msg.invalid_amount'), 'err');
+      if (!silent) Toast.show(t('msg.invalid_amount'), 'err');
       return null;
     }
     if (Math.abs(bookedAmount) < 0.005) {
-      Toast.show(t('msg.force_balance_no_change'), 'err');
+      if (!silent) Toast.show(t('msg.force_balance_no_change'), 'err');
       return null;
     }
     if (bookedAmount < 0) {
-      Toast.show(t('msg.force_balance_conflict'), 'err');
+      if (!silent) Toast.show(t('msg.force_balance_conflict'), 'err');
       return null;
     }
     if (this._selectedAmountCurrency() === 'ARS') return bookedAmount;
@@ -1025,13 +1025,13 @@ const Forms = {
     return originalAmount;
   },
 
-  async _buildTransactionPayload(rawAmount) {
+  async _buildTransactionPayload(rawAmount, { silent = false } = {}) {
     const currency = this._selectedAmountCurrency();
     const meta = this._transactionCurrencyMeta(currency);
     const manualRate = this._selectedFxRate();
 
     if (meta.originalCurrency !== 'ARS' && this._hasInvalidManualFxRate()) {
-      Toast.show(t('msg.invalid_money_input'), 'err');
+      if (!silent) Toast.show(t('msg.invalid_money_input'), 'err');
       return null;
     }
 
@@ -1046,7 +1046,7 @@ const Forms = {
 
     const rate = manualRate || await this._resolveCurrencyRate(currency);
     if (!rate) {
-      Toast.show(this._missingCurrencyRateMessage(currency), 'err');
+      if (!silent) Toast.show(this._missingCurrencyRateMessage(currency), 'err');
       return null;
     }
 
@@ -1060,6 +1060,117 @@ const Forms = {
 
   _transactionSelectionFromTx(tx) {
     return tx.fx_source || tx.original_currency || 'ARS';
+  },
+
+  _recurringButtonContext() {
+    const button = document.getElementById('f-make-recurring-btn');
+    if (!button) return null;
+    return {
+      mode: button.dataset.recurringMode || '',
+      creditId: Number.parseInt(button.dataset.creditId || '', 10),
+      debitId: Number.parseInt(button.dataset.debitId || '', 10),
+      txId: Number.parseInt(button.dataset.txId || '', 10),
+    };
+  },
+
+  _transactionAlertDayPreset() {
+    const dateValue = document.getElementById('f-date')?.value || '';
+    const match = dateValue.match(/^\d{4}-\d{2}-(\d{2})/);
+    if (match) {
+      const day = Number.parseInt(match[1], 10);
+      if (Number.isInteger(day) && day >= 1 && day <= 31) return day;
+    }
+    return new Date().getDate();
+  },
+
+  async _buildRecurringPayloadFromCurrentForm({ silent = false } = {}) {
+    const context = this._recurringButtonContext();
+    if (!context) return null;
+
+    const rawAmount = this._transactionInputAmount();
+    const desc = document.getElementById('f-desc')?.value || '';
+    let creditId = context.creditId;
+    let debitId = context.debitId;
+
+    if (context.mode === 'fab' || context.mode === 'edit') {
+      creditId = Number.parseInt(document.getElementById('f-credit')?.value || '', 10);
+      debitId = Number.parseInt(document.getElementById('f-debit')?.value || '', 10);
+    }
+
+    if (!Number.isInteger(creditId) || !Number.isInteger(debitId)) {
+      if (!silent) Toast.show(t('msg.invalid_value'), 'err');
+      return null;
+    }
+    if (creditId === debitId) {
+      if (!silent) Toast.show(t('msg.same_account'), 'err');
+      return null;
+    }
+
+    const entryAmount = await this._resolveTransactionEntryAmount(rawAmount, {
+      creditId,
+      debitId,
+      silent,
+    });
+    if (entryAmount == null) return null;
+
+    const txPayload = await this._buildTransactionPayload(entryAmount, { silent });
+    if (!txPayload) return null;
+
+    return {
+      credit_account: creditId,
+      debit_account: debitId,
+      tag_ids: this._selectedTagIds(),
+      description: desc,
+      alert_active: true,
+      enabled: true,
+      ...txPayload,
+    };
+  },
+
+  async _syncRecurringButtonState() {
+    const button = document.getElementById('f-make-recurring-btn');
+    if (!button) return;
+    const payload = await this._buildRecurringPayloadFromCurrentForm({ silent: true });
+    button.disabled = !payload;
+  },
+
+  async _makeRecurringFromTransactionForm() {
+    const payload = await this._buildRecurringPayloadFromCurrentForm();
+    if (!payload) return;
+
+    const presetDay = this._transactionAlertDayPreset();
+    const alertDayInput = window.prompt(
+      t('recurring.make_from_transaction_alert_prompt'),
+      String(presetDay)
+    );
+    if (alertDayInput == null) return;
+
+    const alertDay = Number.parseInt(String(alertDayInput).trim(), 10);
+    if (!Number.isInteger(alertDay) || alertDay < 1 || alertDay > 31) {
+      Toast.show(t('recurring.invalid_alert_day'), 'err');
+      return;
+    }
+
+    try {
+      const similar = await API.get(`/recurring-transactions/find-similar?credit_account=${encodeURIComponent(payload.credit_account)}&debit_account=${encodeURIComponent(payload.debit_account)}&description=${encodeURIComponent(payload.description)}`);
+      const recurringPayload = { ...payload, alert_day: alertDay };
+
+      if (similar?.id) {
+        const overwrite = window.confirm(
+          t('recurring.make_from_transaction_duplicate', { id: similar.id })
+        );
+        if (!overwrite) return;
+        await API.put(`/recurring-transactions/${similar.id}`, recurringPayload);
+        Toast.show(t('recurring.make_from_transaction_overwritten'));
+      } else {
+        await API.post('/recurring-transactions', recurringPayload);
+        Toast.show(t('recurring.make_from_transaction_created'));
+      }
+
+      await API.reloadRecurringActiveCount();
+    } catch (e) {
+      Toast.show(e.message, 'err');
+    }
   },
 
   _focusTransactionAmount({ preserveRate = false } = {}) {
@@ -1150,6 +1261,18 @@ const Forms = {
     ).join('');
   },
 
+  _makeRecurringButtonAttrs(context = {}) {
+    return {
+      id: 'f-make-recurring-btn',
+      'data-form-action': 'make-recurring-transaction',
+      'data-recurring-mode': context.mode || '',
+      'data-credit-id': context.creditId ?? '',
+      'data-debit-id': context.debitId ?? '',
+      'data-tx-id': context.txId ?? '',
+      disabled: true,
+    };
+  },
+
   /* ── Nueva transacción (drag & drop) ─────────────────────────── */
   newTransaction(creditId, debitId, preset = {}) {
     const credit = State.accounts.find(a => a.id === creditId);
@@ -1179,11 +1302,17 @@ const Forms = {
       ${this._forcedBalanceField({ creditAccount: credit, debitAccount: debit })}
       ${this._effectiveAmountPreviewField({ creditId, debitId })}
     `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true }) +
+       T.btnGhost(t('btn.make_recurring'), this._makeRecurringButtonAttrs({
+         mode: 'pair',
+         creditId,
+         debitId,
+       })) +
        T.btnSuccess(t('btn.register'), { 'data-form-action': 'save-transaction', 'data-credit-id': creditId, 'data-debit-id': debitId })));
 
     setTimeout(() => {
       this._focusTransactionAmount();
       this._refreshForceBalanceNotes({ creditId, debitId });
+      void this._syncRecurringButtonState();
     }, 80);
   },
 
@@ -1203,11 +1332,13 @@ const Forms = {
       ${this._forcedBalanceField({ creditAccount: firstAccount || null, debitAccount: firstAccount || null })}
       ${this._effectiveAmountPreviewField()}
     `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true }) +
+       T.btnGhost(t('btn.make_recurring'), this._makeRecurringButtonAttrs({ mode: 'fab' })) +
        T.btnSuccess(t('btn.register'), { 'data-form-action': 'save-transaction-fab' })));
 
     setTimeout(() => {
       this._focusTransactionAmount();
       this._refreshForceBalanceNotes();
+      void this._syncRecurringButtonState();
     }, 80);
   },
 
@@ -1299,11 +1430,16 @@ const Forms = {
       ${this._tagSelectionField(selectedTagIds)}
       ${T.group(t('form.label.date'), T.input('f-date', { type: 'datetime-local', val: dtLocal }))}
     `, T.btnGhost(t('btn.cancel'), { 'data-modal-close': true })
+      + T.btnGhost(t('btn.make_recurring'), this._makeRecurringButtonAttrs({
+        mode: 'edit',
+        txId: tx.id,
+      }))
       + T.btnPrimary(t('btn.save'), { 'data-form-action': 'update-transaction', 'data-tx-id': tx.id })));
 
     setTimeout(() => {
       this._bindEditTransactionFxInputs();
       this._focusTransactionAmount({ preserveRate: true });
+      void this._syncRecurringButtonState();
     }, 40);
   },
 
@@ -1540,6 +1676,9 @@ document.addEventListener('click', event => {
     case 'save-transaction-fab':
       Forms._saveTransactionFAB();
       break;
+    case 'make-recurring-transaction':
+      Forms._makeRecurringFromTransactionForm();
+      break;
     case 'add-subtype':
       Forms._addSubtype();
       break;
@@ -1578,6 +1717,8 @@ document.addEventListener('click', event => {
     default:
       break;
   }
+
+  void Forms._syncRecurringButtonState();
 });
 
 document.addEventListener('change', async event => {
@@ -1604,6 +1745,8 @@ document.addEventListener('change', async event => {
     default:
       break;
   }
+
+  void Forms._syncRecurringButtonState();
 });
 
 document.addEventListener('input', event => {
@@ -1619,4 +1762,6 @@ document.addEventListener('input', event => {
     }
     Forms._refreshTransactionEffectiveAmountNote();
   }
+
+  void Forms._syncRecurringButtonState();
 });

@@ -1118,3 +1118,32 @@ def test_settings_finance_endpoint_returns_usd_rates(client, monkeypatch):
     assert response.json()["blue_sell"] == 1425
     assert response.json()["card"] == 1840.8
     assert response.json()["last_update"] == "2026-03-16T11:16:04.488756-03:00"
+
+
+def test_api_can_find_similar_recurring_transaction(client):
+    accounts = _accounts_by_name(client)
+    create_response = client.post(
+        "/api/recurring-transactions",
+        json={
+            "debit_account": accounts["Bank"]["id"],
+            "credit_account": accounts["Salary"]["id"],
+            "amount": 250.0,
+            "description": "Monthly transfer",
+            "alert_day": 5,
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+
+    find_response = client.get(
+        "/api/recurring-transactions/find-similar",
+        params={
+            "credit_account": accounts["Salary"]["id"],
+            "debit_account": accounts["Bank"]["id"],
+            "description": " monthly transfer ",
+        },
+    )
+    assert find_response.status_code == 200
+    payload = find_response.json()
+    assert payload is not None
+    assert payload["id"] == created["id"]

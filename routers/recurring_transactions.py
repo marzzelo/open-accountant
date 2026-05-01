@@ -34,6 +34,24 @@ def active_count(conn=Depends(db_dep)):
 
 
 @router.get(
+    "/recurring-transactions/find-similar",
+    response_model=RecurringTransactionOut | None,
+)
+def find_similar_recurring_transaction(
+    credit_account: int,
+    debit_account: int,
+    description: str = "",
+    conn=Depends(db_dep),
+):
+    return recurring_transactions_service.find_similar_recurring_transaction(
+        conn,
+        credit_account=credit_account,
+        debit_account=debit_account,
+        description=description,
+    )
+
+
+@router.get(
     "/recurring-transactions/{recurring_id}",
     response_model=RecurringTransactionOut,
 )
