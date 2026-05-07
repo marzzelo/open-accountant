@@ -43,7 +43,11 @@ const R = {
   </tr>`,
 
   btn: (label, href, download = false) => `
-    <a href="${href}" ${download ? 'download' : ''}
+    <a ${htmlAttrs({
+      href,
+      download,
+      'data-report-download': download ? 'true' : null,
+    })}
        class="inline-flex items-center gap-1.5 px-4 py-2 border border-dark-600 rounded-lg
               text-dark-400 hover:text-dark-300 hover:bg-dark-700 text-xs font-sans
               no-underline transition-all cursor-pointer">
@@ -72,6 +76,40 @@ const Reports = {
   },
   _downloadUrl(path) {
     return buildApiUrl(path);
+  },
+
+  _downloadFilename(response, fallbackName) {
+    const disposition = response.headers.get('content-disposition') || '';
+    const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    if (utf8Match) return decodeURIComponent(utf8Match[1]);
+
+    const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+    if (asciiMatch) return asciiMatch[1];
+
+    return fallbackName;
+  },
+
+  async _downloadExport(url) {
+    const response = await fetch(url, { credentials: 'same-origin' });
+    if (!response.ok) {
+      const raw = await response.text().catch(() => 'Unknown error');
+      try {
+        const payload = JSON.parse(raw);
+        throw new Error(payload.detail || payload.message || raw || 'Unknown error');
+      } catch {
+        throw new Error(raw || 'Unknown error');
+      }
+    }
+
+    const blob = await response.blob();
+    const link = document.createElement('a');
+    const objectUrl = URL.createObjectURL(blob);
+    link.href = objectUrl;
+    link.download = this._downloadFilename(response, 'report-download');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
   },
 
   _reportQuery(extra = {}) {
@@ -612,6 +650,18 @@ const Reports = {
 };
 
 document.addEventListener('click', event => {
+  const downloadLink = event.target.closest('[data-report-download="true"]');
+  if (downloadLink) {
+    const main = document.getElementById('main');
+    if (main && !main.contains(downloadLink)) return;
+
+    event.preventDefault();
+    Reports._downloadExport(downloadLink.href).catch(error => {
+      Toast.show(t('msg.error_generic', { msg: error.message }), 'error');
+    });
+    return;
+  }
+
   const action = event.target.closest('[data-report-action]');
   if (!action) return;
 
