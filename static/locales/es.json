@@ -156,7 +156,7 @@
   "stats.kpi.avg_monthly_savings_to_total_income": "Ahorro mensual promedio / ingreso total",
   "stats.kpi.avg_monthly_savings_to_avg_monthly_income": "Ahorro mensual promedio / ingreso mensual promedio",
   "stats.kpi.avg_monthly_savings_to_avg_monthly_salary": "Ahorro mensual promedio / salario mensual promedio",
-  "stats.kpi.total_salary": "Total Salary",
+  "stats.kpi.total_salary": "Monthly avg total Salary",
   "stats.kpi.total_assets_basic_runway": "Meses de gastos básicos promedio cubiertos por el Activo total",
   "stats.kpi.total_assets_total_runway": "Meses de gastos totales promedio cubiertos por el Activo total",
   "stats.kpi.current_assets": "Activos corrientes",

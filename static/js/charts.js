@@ -1489,7 +1489,7 @@ const Charts = {
       <div class="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-5 xl:px-4 py-6">
       <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
         ${_kpiCard({ label: t('report.total_assets'), value: fmt(summary.total_assets), valueClass: 'text-activo' })}
-          ${_kpiCard({ label: t('stats.kpi.total_salary'), value: fmt(summary.total_liabilities), valueClass: 'text-pasivo' })}
+          ${_kpiCard({ label: t('stats.kpi.total_salary'), value: avgMonthlyIncome == null ? '—' : fmt(avgMonthlyIncome), valueClass: 'text-ingreso' })}
         ${_kpiCard({ label: t('stats.kpi.current_month_income'), value: currentMonthCashflow ? fmt(currentMonthCashflow.ingresos) : '—', valueClass: 'text-ingreso', note: currentMonthNote })}
         ${_kpiCard({ label: t('stats.kpi.current_month_expense'), value: currentMonthCashflow ? fmt(currentMonthCashflow.gastos) : '—', valueClass: 'text-pasivo', note: currentMonthNote })}
         ${_kpiCard({ label: t('stats.kpi.avg_monthly_income'), value: avgMonthlyIncome == null ? '—' : fmt(avgMonthlyIncome), valueClass: 'text-ingreso' })}

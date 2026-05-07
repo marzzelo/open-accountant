@@ -156,7 +156,7 @@
   "stats.kpi.avg_monthly_savings_to_total_income": "Average monthly savings / total income",
   "stats.kpi.avg_monthly_savings_to_avg_monthly_income": "Average monthly savings / average monthly income",
   "stats.kpi.avg_monthly_savings_to_avg_monthly_salary": "Average monthly savings / average monthly salary",
-  "stats.kpi.total_salary": "Total Salary",
+  "stats.kpi.total_salary": "Monthly avg total Salary",
   "stats.kpi.total_assets_basic_runway": "Months of average basic expenses covered by total assets",
   "stats.kpi.total_assets_total_runway": "Months of average total expenses covered by total assets",
   "stats.kpi.current_assets": "Current assets",
