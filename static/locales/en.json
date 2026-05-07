@@ -139,6 +139,7 @@
   "stats.kpi.current_month_income": "Current month income",
   "stats.kpi.current_month_expense": "Current month expenses",
   "stats.kpi.avg_monthly_income": "Average monthly income",
+  "stats.kpi.avg_monthly_liabilities": "Average monthly liabilities",
   "stats.kpi.avg_monthly_expense": "Average monthly expenses",
   "stats.kpi.avg_monthly_essential_expense": "Average monthly base expense",
   "stats.kpi.avg_monthly_result": "Average monthly result",

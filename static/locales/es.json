@@ -139,6 +139,7 @@
   "stats.kpi.current_month_income": "Ingresos mes actual",
   "stats.kpi.current_month_expense": "Gastos mes actual",
   "stats.kpi.avg_monthly_income": "Ingreso mensual promedio",
+  "stats.kpi.avg_monthly_liabilities": "Pasivos mensuales promedio",
   "stats.kpi.avg_monthly_expense": "Gasto mensual promedio",
   "stats.kpi.avg_monthly_essential_expense": "Gasto mensual base promedio",
   "stats.kpi.avg_monthly_result": "Resultado mensual promedio",

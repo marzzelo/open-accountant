@@ -1457,10 +1457,15 @@ const Charts = {
     const investmentModel = projData?.investment_model || {};
     const health = projData?.health || {};
     const monthlyCashflow = Array.isArray(statsData.monthly_cashflow) ? statsData.monthly_cashflow : [];
+    const netWorthEvolution = Array.isArray(statsData.net_worth_evolution) ? statsData.net_worth_evolution : [];
     const observedMonths = monthlyCashflow.length;
+    const observedLiabilityMonths = netWorthEvolution.length;
     const currentMonthCashflow = observedMonths > 0 ? monthlyCashflow[observedMonths - 1] : null;
     const avgMonthlyIncome = observedMonths > 0 ? _num(summary.total_income) / observedMonths : null;
     const avgMonthlyExpense = observedMonths > 0 ? _num(summary.total_expense) / observedMonths : null;
+    const avgMonthlyLiabilities = observedLiabilityMonths > 0
+      ? netWorthEvolution.reduce((sum, point) => sum + _num(point.liabilities), 0) / observedLiabilityMonths
+      : null;
     const avgMonthlyBaseExpense = summary.monthly_essential_expense;
     const avgMonthlyResult = observedMonths > 0 ? _num(summary.net_result) / observedMonths : null;
     const avgMonthlySavings = avgMonthlyResult;
@@ -1492,7 +1497,7 @@ const Charts = {
           ${_kpiCard({ label: t('stats.kpi.total_salary'), value: avgMonthlyIncome == null ? '—' : fmt(avgMonthlyIncome), valueClass: 'text-ingreso' })}
         ${_kpiCard({ label: t('stats.kpi.current_month_income'), value: currentMonthCashflow ? fmt(currentMonthCashflow.ingresos) : '—', valueClass: 'text-ingreso', note: currentMonthNote })}
         ${_kpiCard({ label: t('stats.kpi.current_month_expense'), value: currentMonthCashflow ? fmt(currentMonthCashflow.gastos) : '—', valueClass: 'text-pasivo', note: currentMonthNote })}
-        ${_kpiCard({ label: t('stats.kpi.avg_monthly_income'), value: avgMonthlyIncome == null ? '—' : fmt(avgMonthlyIncome), valueClass: 'text-ingreso' })}
+        ${_kpiCard({ label: t('stats.kpi.avg_monthly_liabilities'), value: avgMonthlyLiabilities == null ? '—' : fmt(avgMonthlyLiabilities), valueClass: 'text-pasivo' })}
         ${_kpiCard({ label: t('stats.kpi.avg_monthly_expense'), value: avgMonthlyExpense == null ? '—' : fmt(avgMonthlyExpense), valueClass: 'text-pasivo' })}
         ${_kpiCard({ label: t('stats.kpi.avg_monthly_essential_expense'), value: avgMonthlyBaseExpense == null ? '—' : fmt(avgMonthlyBaseExpense), valueClass: 'text-pasivo', note: baseExpenseBasisNote })}
         ${_kpiCard({ label: t('stats.kpi.avg_monthly_result'), value: avgMonthlyResult == null ? '—' : fmt(avgMonthlyResult), valueClass: avgMonthlyResultClass })}
