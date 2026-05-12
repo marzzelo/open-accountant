@@ -90,19 +90,17 @@ def build_projections(
         for index in range(len(all_hist_months))
     ]
 
-    asset_bal_map = _get_monthly_balances(conn, history_start, history_end, type_id=1)
-    liab_bal_map = _get_monthly_balances(conn, history_start, history_end, type_id=2)
-    hist_assets_sparse = [asset_bal_map.get(month, None) for month in all_hist_months]
-    hist_liabilities_sparse = [
-        liab_bal_map.get(month, None) for month in all_hist_months
-    ]
-
-    hist_assets_filled = _fill_by_regression(hist_assets_sparse)
-    hist_liabilities_filled = _fill_by_regression(hist_liabilities_sparse)
-
     asset_accounts = _financial_rows(conn, 1)
     liab_accounts = _financial_rows(conn, 2)
     expense_accounts = _financial_rows(conn, 4)
+    asset_month_presence = _get_monthly_balances(
+        conn, history_start, history_end, type_id=1
+    )
+    liab_bal_map = _get_monthly_balances(conn, history_start, history_end, type_id=2)
+    hist_liabilities_sparse = [
+        liab_bal_map.get(month, None) for month in all_hist_months
+    ]
+    hist_liabilities_filled = _fill_by_regression(hist_liabilities_sparse)
     current_assets = sum(
         compute_balance(
             conn, account["id"], account["type_id"], account["initial_balance"]
@@ -120,6 +118,7 @@ def build_projections(
     quick_assets = 0.0
     current_fixed_assets = 0.0
     current_liabilities_only = 0.0
+    non_fixed_asset_accounts = []
     for account in asset_accounts:
         balance = compute_balance(
             conn, account["id"], account["type_id"], account["initial_balance"]
@@ -132,10 +131,33 @@ def build_projections(
         )
         if props.get("liquidity_profile") == "fixed":
             current_fixed_assets += balance
+        else:
+            non_fixed_asset_accounts.append(account)
         if balance > 0 and props.get("liquidity_profile") in {"quick", "current"}:
             current_assets_only += balance
         if balance > 0 and props.get("liquidity_profile") == "quick":
             quick_assets += balance
+
+    asset_bal_map: dict[str, float] = {}
+    for month in all_hist_months:
+        if month not in asset_month_presence:
+            continue
+        month_end = end_of_month_datetime(month)
+        total = 0.0
+        for account in non_fixed_asset_accounts:
+            balance = compute_filtered_balance(
+                conn,
+                account["id"],
+                account["type_id"],
+                account["initial_balance"],
+                history_start,
+                month_end,
+            )
+            total += balance
+        asset_bal_map[month] = round(total, 4)
+
+    hist_assets_sparse = [asset_bal_map.get(month, None) for month in all_hist_months]
+    hist_assets_filled = _fill_by_regression(hist_assets_sparse)
 
     for account in liab_accounts:
         balance = compute_balance(

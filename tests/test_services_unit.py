@@ -1400,6 +1400,10 @@ def test_fixed_assets_are_excluded_from_operational_stats_and_projection_health(
         updated_stats.summary["top_asset_name_excluding_fixed"]
         == baseline_stats.summary["top_asset_name_excluding_fixed"]
     )
+    assert updated_stats.net_worth_evolution == baseline_stats.net_worth_evolution
+    assert all(
+        row["account_name"] != "Garage" for row in updated_stats.balance_evolution
+    )
 
     assert updated_projections["current_balances"][
         "total_fixed_assets"
@@ -1408,6 +1412,14 @@ def test_fixed_assets_are_excluded_from_operational_stats_and_projection_health(
         "total_assets_excluding_fixed"
     ] == pytest.approx(
         baseline_projections["current_balances"]["total_assets_excluding_fixed"]
+    )
+    assert (
+        updated_projections["historical"]["assets"]
+        == baseline_projections["historical"]["assets"]
+    )
+    assert (
+        updated_projections["baseline_projection"]["assets"]
+        == baseline_projections["baseline_projection"]["assets"]
     )
     assert updated_projections["health"]["current"]["net_worth"] == pytest.approx(
         baseline_projections["health"]["current"]["net_worth"]

@@ -841,7 +841,9 @@ function _renderCharts() {
   // trend settings can be adjusted in the frontend, so the charted asset curve
   // needs to evolve from the previous projected assets plus displayed savings
   // plus projected investment return for each future month.
-  const currentAssets = projData.current_balances?.total_assets ?? 0;
+  const currentAssets = projData.current_balances?.total_assets_excluding_fixed
+    ?? projData.current_balances?.total_assets
+    ?? 0;
   const n_hist = histMonths.length;
   const projectedReturns = (projData.investment_detail || [])
     .filter(row => row.is_projected)

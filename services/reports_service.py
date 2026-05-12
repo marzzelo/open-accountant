@@ -746,6 +746,7 @@ def get_stats(
     expense_accounts = _financial_rows(conn, 4)
     asset_composition = []
     asset_composition_excluding_fixed = []
+    non_fixed_asset_ids = set()
     total_assets = 0.0
     total_assets_excluding_fixed = 0.0
     current_assets = 0.0
@@ -770,6 +771,7 @@ def get_stats(
         total_assets += balance
         if liquidity_profile != "fixed":
             total_assets_excluding_fixed += balance
+            non_fixed_asset_ids.add(account["id"])
         if balance > 0 and liquidity_profile in {"quick", "current"}:
             current_assets += balance
         if balance > 0 and liquidity_profile == "quick":
@@ -894,16 +896,17 @@ def get_stats(
                 month_end,
                 tag_ids,
             )
-            month_assets += balance
-            balance_evolution.append(
-                {
-                    "month": month,
-                    "account_id": account["id"],
-                    "account_name": account["name"],
-                    "subtype_name": account["subtype_name"],
-                    "balance": balance,
-                }
-            )
+            if account["id"] in non_fixed_asset_ids:
+                month_assets += balance
+                balance_evolution.append(
+                    {
+                        "month": month,
+                        "account_id": account["id"],
+                        "account_name": account["name"],
+                        "subtype_name": account["subtype_name"],
+                        "balance": balance,
+                    }
+                )
 
         for account in liability_accounts:
             balance = compute_filtered_balance(
