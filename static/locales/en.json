@@ -276,6 +276,7 @@
   "form.classification.asset_quick": "Quick / cash",
   "form.classification.asset_current": "Current",
   "form.classification.asset_non_current": "Non-current",
+  "form.classification.asset_fixed": "Fixed / immovable",
   "form.classification.liability_term": "Liability term",
   "form.classification.liability_current": "Short-term",
   "form.classification.liability_long_term": "Long-term",

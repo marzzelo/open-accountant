@@ -276,6 +276,7 @@
   "form.classification.asset_quick": "Rápido / caja",
   "form.classification.asset_current": "Corriente",
   "form.classification.asset_non_current": "No corriente",
+  "form.classification.asset_fixed": "Fijo / inamovible",
   "form.classification.liability_term": "Plazo del pasivo",
   "form.classification.liability_current": "Corto plazo",
   "form.classification.liability_long_term": "Largo plazo",

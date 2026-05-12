@@ -736,9 +736,14 @@ def test_reports_service_stats_summary_and_net_worth_evolution(
     assert stats.summary["net_result"] == 950.0
     assert stats.summary["savings_rate"] == pytest.approx(950.0 / 1200.0, rel=1e-4)
     assert stats.summary["total_assets"] == 1750.0
+    assert stats.summary["total_assets_excluding_fixed"] == 1750.0
     assert stats.summary["total_liabilities"] == 800.0
     assert stats.summary["net_worth"] == 950.0
+    assert stats.summary["net_worth_excluding_fixed"] == 950.0
     assert stats.summary["debt_ratio"] == pytest.approx(800.0 / 1750.0, rel=1e-4)
+    assert stats.summary["debt_ratio_excluding_fixed"] == pytest.approx(
+        800.0 / 1750.0, rel=1e-4
+    )
     assert stats.summary["current_assets"] == 1550.0
     assert stats.summary["quick_assets"] == 1550.0
     assert stats.summary["current_liabilities"] == 300.0
@@ -754,6 +759,10 @@ def test_reports_service_stats_summary_and_net_worth_evolution(
     )
     assert stats.summary["top_asset_name"] == "Bank"
     assert stats.summary["top_asset_share"] == pytest.approx(1550.0 / 1750.0, rel=1e-4)
+    assert stats.summary["top_asset_name_excluding_fixed"] == "Bank"
+    assert stats.summary["top_asset_share_excluding_fixed"] == pytest.approx(
+        1550.0 / 1750.0, rel=1e-4
+    )
     assert stats.summary["top_expense_name"] == expense_account.subtype_name
     assert stats.summary["top_expense_share"] == 1.0
     assert sum(row["amount"] for row in stats.income_evolution) == pytest.approx(1200.0)
@@ -796,6 +805,8 @@ def test_reports_service_stats_summary_and_net_worth_evolution(
         1550.0 / 300.0, rel=1e-4
     )
     assert projections["health"]["delta_end"]["net_worth"] == 0.0
+    assert projections["current_balances"]["total_assets_excluding_fixed"] == 1750.0
+    assert projections["current_balances"]["total_fixed_assets"] == 0.0
 
 
 def test_reports_service_stats_income_evolution_preserves_negative_subtype_months(
@@ -1306,6 +1317,101 @@ def test_account_properties_auto_infer_without_subtypes(initialized_environment)
     assert mortgage.properties["liability_term"] == "long_term"
     assert rent.properties["expense_profile"] == "essential"
     assert cash_reserve.properties["board_image_url"] == helpers.BOARD_IMAGE_DEFAULT_URL
+
+
+def test_account_properties_infer_fixed_liquidity_for_fixed_assets(
+    initialized_environment,
+):
+    with get_db() as conn:
+        fixed_asset = accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Office Building",
+                type_id=1,
+                subtype_id=4,
+                description="Fixed asset",
+                initial_balance=0.0,
+                properties="{}",
+            ),
+        )
+
+    assert fixed_asset.properties["liquidity_profile"] == "fixed"
+
+
+def test_reports_service_stats_exposes_total_assets_excluding_fixed(
+    initialized_environment,
+):
+    with get_db() as conn:
+        baseline_stats = reports_service.get_stats(conn)
+        accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Garage",
+                type_id=1,
+                subtype_id=4,
+                description="Immovable asset",
+                initial_balance=400.0,
+                properties='{"liquidity_profile":"fixed"}',
+            ),
+        )
+        updated_stats = reports_service.get_stats(conn)
+
+    assert updated_stats.summary["total_assets"] == pytest.approx(
+        baseline_stats.summary["total_assets"] + 400.0
+    )
+    assert updated_stats.summary["total_assets_excluding_fixed"] == pytest.approx(
+        baseline_stats.summary["total_assets_excluding_fixed"]
+    )
+
+
+def test_fixed_assets_are_excluded_from_operational_stats_and_projection_health(
+    initialized_environment,
+):
+    with get_db() as conn:
+        baseline_stats = reports_service.get_stats(conn)
+        baseline_projections = projections_service.get_projections(conn, 3, 3)
+        accounts_service.create_account(
+            conn,
+            AccountIn(
+                name="Garage",
+                type_id=1,
+                subtype_id=4,
+                description="Immovable asset",
+                initial_balance=400.0,
+                properties='{"liquidity_profile":"fixed"}',
+            ),
+        )
+        updated_stats = reports_service.get_stats(conn)
+        updated_projections = projections_service.get_projections(conn, 3, 3)
+
+    assert updated_stats.summary["total_assets"] == pytest.approx(
+        baseline_stats.summary["total_assets"] + 400.0
+    )
+    assert updated_stats.summary["total_assets_excluding_fixed"] == pytest.approx(
+        baseline_stats.summary["total_assets_excluding_fixed"]
+    )
+    assert updated_stats.summary["net_worth_excluding_fixed"] == pytest.approx(
+        baseline_stats.summary["net_worth_excluding_fixed"]
+    )
+    assert updated_stats.summary["debt_ratio_excluding_fixed"] == pytest.approx(
+        baseline_stats.summary["debt_ratio_excluding_fixed"]
+    )
+    assert (
+        updated_stats.summary["top_asset_name_excluding_fixed"]
+        == baseline_stats.summary["top_asset_name_excluding_fixed"]
+    )
+
+    assert updated_projections["current_balances"][
+        "total_fixed_assets"
+    ] == pytest.approx(400.0)
+    assert updated_projections["current_balances"][
+        "total_assets_excluding_fixed"
+    ] == pytest.approx(
+        baseline_projections["current_balances"]["total_assets_excluding_fixed"]
+    )
+    assert updated_projections["health"]["current"]["net_worth"] == pytest.approx(
+        baseline_projections["health"]["current"]["net_worth"]
+    )
 
 
 def test_account_board_image_round_trip_and_update_preserves_custom_image(

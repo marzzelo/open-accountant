@@ -121,8 +121,7 @@ def _build_account_stats(
     start_month = from_dt[:7]
     months = _month_sequence(start_month, end_month) if start_month <= end_month else []
 
-    account_rows = conn.execute(
-        """SELECT a.id, a.name, a.type_id, a.initial_balance,
+    account_rows = conn.execute("""SELECT a.id, a.name, a.type_id, a.initial_balance,
                   t.name AS type_name,
                   COALESCE(s.name, '') AS subtype_name
            FROM accounts a
@@ -130,8 +129,7 @@ def _build_account_stats(
            LEFT JOIN subtypes s ON a.subtype_id = s.id
            WHERE a.type_id <> 5
              AND LOWER(TRIM(COALESCE(s.name, ''))) <> 'patrimonio'
-           ORDER BY a.type_id, a.name"""
-    ).fetchall()
+           ORDER BY a.type_id, a.name""").fetchall()
 
     totals = conn.execute(
         f"""WITH month_legs AS (
@@ -196,13 +194,23 @@ def _build_account_stats(
             [
                 value
                 for value in sorted_values
-                if lower_bound is not None and upper_bound is not None and lower_bound <= value <= upper_bound
+                if lower_bound is not None
+                and upper_bound is not None
+                and lower_bound <= value <= upper_bound
             ]
             if sorted_values and lower_bound is not None and upper_bound is not None
             else []
         )
-        whisker_min = non_outliers[0] if non_outliers else (sorted_values[0] if sorted_values else None)
-        whisker_max = non_outliers[-1] if non_outliers else (sorted_values[-1] if sorted_values else None)
+        whisker_min = (
+            non_outliers[0]
+            if non_outliers
+            else (sorted_values[0] if sorted_values else None)
+        )
+        whisker_max = (
+            non_outliers[-1]
+            if non_outliers
+            else (sorted_values[-1] if sorted_values else None)
+        )
         current_value = compute_filtered_balance(
             conn,
             row["id"],
@@ -223,7 +231,9 @@ def _build_account_stats(
                 "current": _round_or_none(current_value),
                 "mean": _round_or_none(mean_value),
                 "median": _round_or_none(median_value),
-                "stddev": _round_or_none(_std_dev(active_month_values) if active_month_values else None),
+                "stddev": _round_or_none(
+                    _std_dev(active_month_values) if active_month_values else None
+                ),
                 "active_months": active_month_count,
                 "months": active_month_labels,
                 "values": [_round_or_none(value) for value in active_month_values],
@@ -389,16 +399,14 @@ def get_balance(
     from_dt, to_dt, filtered = resolve_date_range(from_date, to_date)
     type_map: dict = {}
 
-    rows = conn.execute(
-        """SELECT a.id, a.name, a.type_id, a.subtype_id,
+    rows = conn.execute("""SELECT a.id, a.name, a.type_id, a.subtype_id,
                   a.initial_balance,
                   t.name AS type_name,
                   COALESCE(s.name, 'Sin subtipo') AS subtype_name
            FROM accounts a
            JOIN types t ON a.type_id = t.id
            LEFT JOIN subtypes s ON a.subtype_id = s.id
-           ORDER BY a.type_id, s.name, a.name"""
-    ).fetchall()
+           ORDER BY a.type_id, s.name, a.name""").fetchall()
 
     for row in rows:
         if type_ids is not None and row["type_id"] not in type_ids:
@@ -737,7 +745,9 @@ def get_stats(
     liability_accounts = _financial_rows(conn, 2)
     expense_accounts = _financial_rows(conn, 4)
     asset_composition = []
+    asset_composition_excluding_fixed = []
     total_assets = 0.0
+    total_assets_excluding_fixed = 0.0
     current_assets = 0.0
     quick_assets = 0.0
     for account in asset_accounts:
@@ -750,7 +760,6 @@ def get_stats(
             to_dt,
             tag_ids,
         )
-        total_assets += balance
         asset_properties = normalize_account_properties(
             account["properties"],
             type_id=1,
@@ -758,6 +767,9 @@ def get_stats(
             subtype_name=account["subtype_name"],
         )
         liquidity_profile = asset_properties.get("liquidity_profile")
+        total_assets += balance
+        if liquidity_profile != "fixed":
+            total_assets_excluding_fixed += balance
         if balance > 0 and liquidity_profile in {"quick", "current"}:
             current_assets += balance
         if balance > 0 and liquidity_profile == "quick":
@@ -769,7 +781,17 @@ def get_stats(
                     "balance": round(balance, 4),
                 }
             )
+            if liquidity_profile != "fixed":
+                asset_composition_excluding_fixed.append(
+                    {
+                        "account": account["name"],
+                        "balance": round(balance, 4),
+                    }
+                )
     asset_composition.sort(key=lambda item: item["balance"], reverse=True)
+    asset_composition_excluding_fixed.sort(
+        key=lambda item: item["balance"], reverse=True
+    )
 
     total_liabilities = 0.0
     current_liabilities = 0.0
@@ -918,13 +940,26 @@ def get_stats(
     net_result = sum(row["neto"] for row in monthly_cashflow)
     monthly_nets = [row["neto"] for row in monthly_cashflow]
     top_asset = asset_composition[0] if asset_composition else None
+    top_asset_excluding_fixed = (
+        asset_composition_excluding_fixed[0]
+        if asset_composition_excluding_fixed
+        else None
+    )
     top_expense = expenses_by_subtype[0] if expenses_by_subtype else None
     savings_rate = _safe_ratio(net_result, total_income)
     debt_ratio = _safe_ratio(total_liabilities, total_assets)
+    debt_ratio_excluding_fixed = _safe_ratio(
+        total_liabilities, total_assets_excluding_fixed
+    )
     current_ratio = _safe_ratio(current_assets, current_liabilities)
     quick_ratio = _safe_ratio(quick_assets, current_liabilities)
     top_asset_share = (
         _safe_ratio(top_asset["balance"], total_assets) if top_asset else None
+    )
+    top_asset_share_excluding_fixed = (
+        _safe_ratio(top_asset_excluding_fixed["balance"], total_assets_excluding_fixed)
+        if top_asset_excluding_fixed
+        else None
     )
     top_expense_share = (
         _safe_ratio(top_expense["amount"], total_expense) if top_expense else None
@@ -974,12 +1009,17 @@ def get_stats(
         "avg_monthly_income_recent": _round_or_none(avg_monthly_income_recent),
         "avg_monthly_expense_recent": _round_or_none(avg_monthly_expense_recent),
         "total_assets": round(total_assets, 4),
+        "total_assets_excluding_fixed": round(total_assets_excluding_fixed, 4),
         "total_liabilities": round(total_liabilities, 4),
         "net_worth": round(total_assets - total_liabilities, 4),
+        "net_worth_excluding_fixed": round(
+            total_assets_excluding_fixed - total_liabilities, 4
+        ),
         "current_assets": round(current_assets, 4),
         "quick_assets": round(quick_assets, 4),
         "current_liabilities": round(current_liabilities, 4),
         "debt_ratio": _round_or_none(debt_ratio),
+        "debt_ratio_excluding_fixed": _round_or_none(debt_ratio_excluding_fixed),
         "current_ratio": _round_or_none(current_ratio),
         "quick_ratio": _round_or_none(quick_ratio),
         "monthly_essential_expense": _round_or_none(monthly_essential_expense),
@@ -988,6 +1028,12 @@ def get_stats(
         "runway_basis": runway_expense_basis,
         "top_asset_name": top_asset["account"] if top_asset else None,
         "top_asset_share": _round_or_none(top_asset_share),
+        "top_asset_name_excluding_fixed": (
+            top_asset_excluding_fixed["account"] if top_asset_excluding_fixed else None
+        ),
+        "top_asset_share_excluding_fixed": _round_or_none(
+            top_asset_share_excluding_fixed
+        ),
         "top_expense_name": top_expense["subtype"] if top_expense else None,
         "top_expense_share": _round_or_none(top_expense_share),
     }

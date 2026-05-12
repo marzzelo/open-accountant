@@ -378,6 +378,7 @@ const Forms = {
           { value: 'quick', label: t('form.classification.asset_quick') },
           { value: 'current', label: t('form.classification.asset_current') },
           { value: 'non_current', label: t('form.classification.asset_non_current') },
+          { value: 'fixed', label: t('form.classification.asset_fixed') },
         ],
       };
     }

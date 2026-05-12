@@ -118,6 +118,7 @@ def build_projections(
 
     current_assets_only = 0.0
     quick_assets = 0.0
+    current_fixed_assets = 0.0
     current_liabilities_only = 0.0
     for account in asset_accounts:
         balance = compute_balance(
@@ -129,6 +130,8 @@ def build_projections(
             name=account["name"],
             subtype_name=account["subtype_name"],
         )
+        if props.get("liquidity_profile") == "fixed":
+            current_fixed_assets += balance
         if balance > 0 and props.get("liquidity_profile") in {"quick", "current"}:
             current_assets_only += balance
         if balance > 0 and props.get("liquidity_profile") == "quick":
@@ -176,7 +179,8 @@ def build_projections(
         current_investment_balance += compute_balance(
             conn, account["id"], account["type_id"], account["initial_balance"]
         )
-    current_non_inv_assets = current_assets - current_investment_balance
+    current_assets_excluding_fixed = current_assets - current_fixed_assets
+    current_non_inv_assets = current_assets_excluding_fixed - current_investment_balance
 
     inv_lookback = investment_lookback_months or history_months
     inv_data_y, inv_data_m = _add_months(today.year, today.month, -inv_lookback)
@@ -597,7 +601,7 @@ def build_projections(
     )
     current_health = _health_point(
         today_ym,
-        net_worth=current_assets - current_liabilities,
+        net_worth=current_assets_excluding_fixed - current_liabilities,
         current_assets_val=current_assets_only,
         quick_assets_val=quick_assets,
         current_liabilities_val=current_liabilities_only,
@@ -606,7 +610,7 @@ def build_projections(
     baseline_end = _health_point(
         projected_months[-1] if projected_months else today_ym,
         net_worth=(
-            baseline_net_worth[-1]
+            baseline_net_worth[-1] - current_fixed_assets
             if baseline_net_worth
             else current_health["net_worth"]
         ),
@@ -632,7 +636,7 @@ def build_projections(
     scenario_end = _health_point(
         projected_months[-1] if projected_months else today_ym,
         net_worth=(
-            scenario_net_worth[-1]
+            scenario_net_worth[-1] - current_fixed_assets
             if scenario_net_worth
             else current_health["net_worth"]
         ),
@@ -889,6 +893,8 @@ def build_projections(
         "series_adjustment": adj,
         "current_balances": {
             "total_assets": round(current_assets, 4),
+            "total_assets_excluding_fixed": round(current_assets_excluding_fixed, 4),
+            "total_fixed_assets": round(current_fixed_assets, 4),
             "total_liabilities": round(current_liabilities, 4),
             "total_investments": round(current_investment_balance, 4),
         },

@@ -233,7 +233,11 @@ window.ProjectionsDisplay = (() => {
     const currentBackend = backendHealth.current || {};
     const assumptions = backendHealth.assumptions || {};
     const currentBalances = projData.current_balances || {};
-    const currentAssetsTotal = Number(currentBalances.total_assets || 0);
+    const currentAssetsTotal = Number(
+      currentBalances.total_assets_excluding_fixed ?? currentBalances.total_assets ?? 0
+    );
+    const currentFixedAssets = Number(currentBalances.total_fixed_assets || 0);
+    const currentAssetsTotalFull = Number(currentBalances.total_assets || 0);
     const currentLiabilitiesTotal = Number(currentBalances.total_liabilities || 0);
     const currentInvestments = Number(currentBalances.total_investments || 0);
     const currentNonInvestmentAssets = currentAssetsTotal - currentInvestments;
@@ -255,7 +259,7 @@ window.ProjectionsDisplay = (() => {
       ...currentBackend,
       assets: roundProjectionValue(currentAssetsTotal),
       liabilities: roundProjectionValue(currentLiabilitiesTotal),
-      net_worth: roundProjectionValue(currentBackend.net_worth),
+      net_worth: roundProjectionValue(currentAssetsTotal - currentLiabilitiesTotal),
       current_assets: roundProjectionValue(currentAssetsBucket),
       quick_assets: roundProjectionValue(currentQuickAssets),
       current_liabilities: roundProjectionValue(currentBackend.current_liabilities || 0),
@@ -266,7 +270,8 @@ window.ProjectionsDisplay = (() => {
       if (!displayState.projMonths.length) return current;
 
       const lastIndex = displayState.projMonths.length - 1;
-      const totalAssets = Number(assetsSeries[lastIndex] || currentAssetsTotal);
+      const totalAssetsFull = Number(assetsSeries[lastIndex] || currentAssetsTotalFull);
+      const totalAssets = roundProjectionValue(totalAssetsFull - currentFixedAssets);
       const totalLiabilities = Number(liabilitiesSeries[lastIndex] || 0);
       const projectedInvestmentsEnd = Number(projectedInvestments[lastIndex] || currentInvestments);
       const projectedNonInvestmentAssets = totalAssets - projectedInvestmentsEnd;

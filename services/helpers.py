@@ -10,8 +10,7 @@ from typing import Any
 
 from services.errors import NotFoundError
 
-
-ASSET_LIQUIDITY_VALUES = {"quick", "current", "non_current"}
+ASSET_LIQUIDITY_VALUES = {"quick", "current", "non_current", "fixed"}
 LIABILITY_TERM_VALUES = {"current", "long_term"}
 EXPENSE_PROFILE_VALUES = {"essential", "discretionary"}
 BOARD_IMAGE_DEFAULT_URL = "/images/account-tile-default.svg"
@@ -27,15 +26,19 @@ _QUICK_ASSET_HINTS = (
     "mercado pago",
     "digital wallet",
 )
-_NON_CURRENT_ASSET_HINTS = (
+_FIXED_ASSET_HINTS = (
     "fixed asset",
-    "investment",
-    "investments",
     "property",
     "vehicle",
     "equipment",
     "house",
     "land",
+)
+_NON_CURRENT_ASSET_HINTS = (
+    "investment",
+    "investments",
+    "bond",
+    "retirement",
 )
 _LONG_TERM_LIABILITY_HINTS = (
     "long-term",
@@ -197,6 +200,8 @@ def infer_asset_liquidity(name: str, subtype_name: str | None = None) -> str:
     text = _hint_text(name, subtype_name)
     if any(token in text for token in _QUICK_ASSET_HINTS):
         return "quick"
+    if any(token in text for token in _FIXED_ASSET_HINTS):
+        return "fixed"
     if any(token in text for token in _NON_CURRENT_ASSET_HINTS):
         return "non_current"
     return "current"

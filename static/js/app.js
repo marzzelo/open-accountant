@@ -444,6 +444,10 @@ const StatusBar = {
       .reduce((total, account) => total + (Number(account.balance) || 0), 0);
   },
 
+  _isFixedAsset(account) {
+    return account?.type_id === 1 && account?.properties?.liquidity_profile === 'fixed';
+  },
+
   _isDisponibilidad(account) {
     if (account.type_id !== 1) return false;
     const subtypeName = String(account.subtype_name || '').toLowerCase();
@@ -453,7 +457,7 @@ const StatusBar = {
 
   _metrics() {
     const currentAssets = this._sumAccounts(account => this._isDisponibilidad(account));
-    const totalAssets = this._sumAccounts(account => account.type_id === 1);
+    const totalAssets = this._sumAccounts(account => account.type_id === 1 && !this._isFixedAsset(account));
     const totalLiabilities = this._sumAccounts(account => account.type_id === 2);
     const totalIncome = this._sumAccounts(account => account.type_id === 3);
     const totalExpense = this._sumAccounts(account => account.type_id === 4);
