@@ -68,6 +68,9 @@ TEST_BOARD_IMAGE_DATA_URL = (
 def test_server_host_and_port_env_override_settings(
     initialized_environment, monkeypatch
 ):
+    monkeypatch.delenv("HOST", raising=False)
+    monkeypatch.delenv("PORT", raising=False)
+
     assert app_config.server_host() == "127.0.0.1"
     assert app_config.server_port() == 5999
 
