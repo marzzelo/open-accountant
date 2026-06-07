@@ -560,14 +560,38 @@ const Settings = {
     if (isValid) this._setFinanceLastUpdate(hasValue ? new Date().toISOString() : '');
   },
 
+  _financeValuesFromRateResponse(data = {}) {
+    const lastUpdate = data.last_update || new Date().toISOString();
+    return {
+      usd_official_buy_ars: Number(data.official_buy || 0).toFixed(2),
+      usd_official_sell_ars: Number(data.official_sell || 0).toFixed(2),
+      usd_blue_buy_ars: Number(data.blue_buy || 0).toFixed(2),
+      usd_blue_sell_ars: Number(data.blue_sell || 0).toFixed(2),
+      usd_card_ars: Number(data.card || 0).toFixed(2),
+      usd_official_last_update: lastUpdate,
+    };
+  },
+
+  _applyFetchedFinanceValues(values = {}) {
+    this._syncingFinanceRate = true;
+    this._applyNormalizedFinanceValues(values);
+    this._syncDerivedFinanceRates();
+    this._syncFinanceRateValidation();
+    this._setFinanceLastUpdate(values.usd_official_last_update || '');
+    this._syncingFinanceRate = false;
+  },
+
+  _setRefreshRatesActionBusy(isBusy) {
+    document.querySelectorAll('[data-action="refresh-usd-rates"]').forEach(button => {
+      button.disabled = isBusy;
+      button.classList.toggle('opacity-60', isBusy);
+      button.classList.toggle('cursor-not-allowed', isBusy);
+    });
+  },
+
   async fetchOfficialDollarRate() {
     const button = document.getElementById('cfg-finance-fetch-rate');
-    const officialBuyInput = document.getElementById('cfg-finance-usd-official-buy-ars');
-    const officialSellInput = document.getElementById('cfg-finance-usd-official-sell-ars');
-    const blueBuyInput = document.getElementById('cfg-finance-usd-blue-buy-ars');
-    const blueSellInput = document.getElementById('cfg-finance-usd-blue-sell-ars');
-    const cardInput = document.getElementById('cfg-finance-usd-card-ars');
-    if (!button || !officialBuyInput || !officialSellInput || !blueBuyInput || !blueSellInput || !cardInput) return;
+    if (!button) return;
 
     const previousLabel = button.textContent;
     button.disabled = true;
@@ -575,25 +599,38 @@ const Settings = {
 
     try {
       const data = await this._get('/settings/finance/usd-rates');
-      this._syncingFinanceRate = true;
-      officialBuyInput.value = Number(data.official_buy || 0).toFixed(2);
-      officialSellInput.value = Number(data.official_sell || 0).toFixed(2);
-      blueBuyInput.value = Number(data.blue_buy || 0).toFixed(2);
-      blueSellInput.value = Number(data.blue_sell || 0).toFixed(2);
-      cardInput.value = Number(data.card || 0).toFixed(2);
-      this._syncFinanceRateValidation();
-      this._setFinanceLastUpdate(data.last_update || new Date().toISOString());
+      this._applyFetchedFinanceValues(this._financeValuesFromRateResponse(data));
       Toast.show(t('msg.official_dollar_loaded'));
     } catch (e) {
       Toast.show(t('msg.error_generic', {msg: e.message}), 'error');
     } finally {
-      this._syncingFinanceRate = false;
       button.disabled = false;
       button.textContent = previousLabel;
     }
   },
 
-  async _saveConfig() {
+  async refreshAndSaveDollarRates() {
+    this._setRefreshRatesActionBusy(true);
+    try {
+      const rates = await this._get('/settings/finance/usd-rates');
+      const financeValues = this._financeValuesFromRateResponse(rates);
+      if (document.getElementById('cfg-form')) {
+        this._applyFetchedFinanceValues(financeValues);
+        await this._saveConfig({ successMessage: t('msg.official_dollar_saved') });
+      } else {
+        const response = await this._put('/settings/config', { finance: financeValues });
+        this._config = response.config || this._config;
+        if (typeof State !== 'undefined') State.appConfig = this._config;
+        Toast.show(t('msg.official_dollar_saved'));
+      }
+    } catch (e) {
+      Toast.show(t('msg.error_generic', { msg: e.message }), 'error');
+    } finally {
+      this._setRefreshRatesActionBusy(false);
+    }
+  },
+
+  async _saveConfig({ successMessage } = {}) {
     const financeValues = this._normalizedFinanceConfigValues();
     if (financeValues == null) {
       Toast.show(t('msg.invalid_money_input'), 'error');
@@ -628,7 +665,7 @@ const Settings = {
       }
       this._configFormSnapshot = this._serializeConfigForm();
       this._syncConfigSaveButton();
-      Toast.show(t('msg.config_saved'));
+      Toast.show(successMessage || t('msg.config_saved'));
     } catch (e) { Toast.show(t('msg.error_generic', {msg: e.message}), 'error'); }
   },
 

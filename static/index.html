@@ -142,6 +142,12 @@
         <circle cx="12" cy="12" r="9"/>
         <path d="M12 16v-5M12 8h.01"/>
       </symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M20 11a8 8 0 00-14.9-3"/>
+        <path d="M4 4v5h5"/>
+        <path d="M4 13a8 8 0 0014.9 3"/>
+        <path d="M20 20v-5h-5"/>
+      </symbol>
       <!-- Calendar -->
       <symbol id="i-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
         <rect x="3.5" y="5" width="17" height="16" rx="2"/>
@@ -225,6 +231,10 @@
       <button class="tbtn nav-icon-btn" data-view="settings" data-i18n-title="nav.settings" title="Settings" aria-label="Settings" onclick="View.show('settings')">
         <span class="nav-icon" aria-hidden="true"><svg><use href="#i-settings"/></svg></span>
         <span class="nav-label" data-i18n="nav.settings">Settings</span>
+      </button>
+      <button class="tbtn nav-icon-btn" data-action="refresh-usd-rates" data-i18n-title="nav.refresh_usd_rates" title="Refresh USD" aria-label="Refresh USD" onclick="Settings.refreshAndSaveDollarRates()">
+        <span class="nav-icon" aria-hidden="true"><svg><use href="#i-refresh"/></svg></span>
+        <span class="nav-label" data-i18n="nav.refresh_usd_rates">Refresh USD</span>
       </button>
       <button class="tbtn nav-icon-btn" data-view="about" data-i18n-title="nav.about" title="About" aria-label="About" onclick="View.show('about')">
         <span class="nav-icon" aria-hidden="true"><svg><use href="#i-about"/></svg></span>
@@ -329,6 +339,7 @@
       <button class="drawer-btn" onclick="Nav.go('tags')"><span class="inline-flex"><svg width="18" height="18"><use href="#i-tags"/></svg></span> <span data-i18n="nav.tags">Tags</span></button>
       <hr class="border-dark-600 my-1">
       <button class="drawer-btn" onclick="Nav.go('settings')"><span class="inline-flex"><svg width="18" height="18"><use href="#i-settings"/></svg></span> <span data-i18n='nav.settings'>Settings</span></button>
+      <button class="drawer-btn" data-action="refresh-usd-rates" onclick="Nav.close(); Settings.refreshAndSaveDollarRates()"><span class="inline-flex"><svg width="18" height="18"><use href="#i-refresh"/></svg></span> <span data-i18n='nav.refresh_usd_rates'>Refresh USD</span></button>
       <button class="drawer-btn" onclick="Nav.go('about')"><span class="inline-flex"><svg width="18" height="18"><use href="#i-about"/></svg></span> <span data-i18n='nav.about'>About</span></button>
     </nav>
     <div class="border-t border-dark-600 px-4 py-4 flex flex-col gap-2">
@@ -504,7 +515,7 @@
 <script src="/js/projections/display.js?v=2.0.1.20260417"></script>
 <script src="/js/projections.js?v=2.0.1.20260417"></script>
 <script src="/js/about.js?v=2.0.1.20260417"></script>
-<script src="/js/settings.js?v=2.0.1.20260428.1"></script>
+<script src="/js/settings.js?v=2.0.1.20260607.1"></script>
 <script src="/js/fx.js?v=2.0.1"></script>
 <script src="/js/theme-hooks.js?v=2.0.1.20260423.1"></script>
 </body>
