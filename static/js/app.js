@@ -206,6 +206,12 @@ const AppShell = {
     await View.show('board');
     getFX()?.init?.();
     this._booted = true;
+
+    // Auto-refresh foreign-currency rates on load (equivalent to the
+    // Finance "GET ALL" button). Fire-and-forget so it never blocks boot.
+    if (typeof Settings !== 'undefined' && typeof Settings.refreshAndSaveDollarRates === 'function') {
+      Promise.resolve(Settings.refreshAndSaveDollarRates()).catch(() => {});
+    }
   },
 
   reset() {

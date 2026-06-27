@@ -1089,3 +1089,4 @@ const Board = {
 };
 
 window.Board = Board;
+window.CommonTx = CommonTx;

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PGPASSWORD=postgres psql -h localhost -U postgres -d open_accountant -c \"SELECT key, left\\(value,200\\) FROM oacc_user_preferences WHERE key LIKE '%pin%' OR key LIKE '%common%';\")"
+    ]
+  }
+}
