@@ -74,6 +74,20 @@ const Reports = {
     ledger: 'desc',
     txlist: 'desc',
   },
+
+  // Active transaction search filter for the journal view, or null when off.
+  // Shape: { query: string, from: string, to: string, fields: string[] }
+  journalSearch: null,
+
+  // Fields the search dialog can restrict to (all selected by default).
+  SEARCH_FIELDS: [
+    { key: 'date', label: 'report.col.date' },
+    { key: 'debit', label: 'report.col.debit' },
+    { key: 'credit', label: 'report.col.credit' },
+    { key: 'amount', label: 'report.col.amount' },
+    { key: 'description', label: 'report.col.description' },
+    { key: 'tags', label: 'report.col.tags' },
+  ],
   _downloadUrl(path) {
     return buildApiUrl(path);
   },
@@ -482,12 +496,131 @@ const Reports = {
     }
   },
 
+  /* ── Búsqueda de transacciones ────────────────────────────────── */
+  _searchActiveFields(search = this.journalSearch) {
+    const fields = search?.fields;
+    if (Array.isArray(fields) && fields.length) return fields;
+    return this.SEARCH_FIELDS.map(f => f.key);
+  },
+
+  async _fetchJournalData() {
+    // When a search is active, honour its (optional) period instead of the
+    // global date filter — an empty period means "any date".
+    if (this.journalSearch) {
+      const params = new URLSearchParams();
+      params.set('from', this.journalSearch.from || '1900-01-01');
+      params.set('to', this.journalSearch.to || '2999-12-31');
+      if (State.hasTagFilter) params.set('tag_ids', State.tagFilterIds.join(','));
+      return API.get(`/reports/journal?${params.toString()}`);
+    }
+    return API.get('/reports/journal' + this._reportQuery());
+  },
+
+  _applySearchFilter(rows) {
+    if (!this.journalSearch) return rows;
+    const query = String(this.journalSearch.query || '').trim().toLowerCase();
+    if (!query) return rows;
+
+    const fields = this._searchActiveFields();
+    const matches = value => String(value ?? '').toLowerCase().includes(query);
+
+    return rows.filter(r => {
+      if (fields.includes('date') && matches(r.date)) return true;
+      if (fields.includes('debit') && matches(r.debit_name)) return true;
+      if (fields.includes('credit') && matches(r.credit_name)) return true;
+      if (fields.includes('amount') && (matches(r.amount) || matches(r.original_amount))) return true;
+      if (fields.includes('description') && matches(r.description)) return true;
+      if (fields.includes('tags') && (r.tags || []).some(tag => matches(tag.name))) return true;
+      return false;
+    });
+  },
+
+  openSearchModal() {
+    const search = this.journalSearch || {};
+    const activeFields = this._searchActiveFields(search);
+    const inputCls = 'w-full bg-dark-700 border border-dark-600 rounded-lg text-dark-300 '
+      + 'text-sm px-3 py-2.5 font-sans outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30';
+
+    const fieldChecks = this.SEARCH_FIELDS.map(field => `
+      <label class="inline-flex items-center gap-2 text-xs text-dark-300 select-none cursor-pointer">
+        <input type="checkbox" id="tx-search-field-${field.key}" data-search-field
+               class="h-3.5 w-3.5 rounded border-dark-500 bg-dark-700 text-blue-500 focus:ring-blue-500/40"
+               ${activeFields.includes(field.key) ? 'checked' : ''}>
+        <span>${escapeHtml(t(field.label))}</span>
+      </label>`).join('');
+
+    const body = `
+      <form data-modal-submit-form class="p-5 space-y-5">
+        <div>
+          <label class="block text-xs text-dark-400 mb-1.5" for="tx-search-query">${escapeHtml(t('search.query_label'))}</label>
+          <input id="tx-search-query" type="text" data-modal-autofocus
+                 value="${escapeHtml(search.query || '')}"
+                 placeholder="${escapeHtml(t('search.query_placeholder'))}"
+                 class="${inputCls}">
+        </div>
+
+        <div>
+          <div class="text-xs text-dark-400 mb-1.5">${escapeHtml(t('search.period_label'))}</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input id="tx-search-from" type="date" value="${escapeHtml(search.from || '')}"
+                   aria-label="${escapeHtml(t('search.date_from'))}" class="${inputCls}">
+            <input id="tx-search-to" type="date" value="${escapeHtml(search.to || '')}"
+                   aria-label="${escapeHtml(t('search.date_to'))}" class="${inputCls}">
+          </div>
+          <p class="text-[11px] text-dark-500 mt-1.5">${escapeHtml(t('search.dates_hint'))}</p>
+        </div>
+
+        <div>
+          <div class="text-xs text-dark-400 mb-2">${escapeHtml(t('search.fields_label'))}</div>
+          <div class="flex flex-wrap gap-x-5 gap-y-2">${fieldChecks}</div>
+        </div>
+      </form>`;
+
+    Modal.open(body, {
+      title: `🔍 ${t('search.title')}`,
+      wide: true,
+      submitLabel: t('search.apply'),
+      cancelLabel: t('btn.cancel'),
+      onSubmit: () => this._submitSearch(),
+    });
+  },
+
+  _submitSearch() {
+    const query = document.getElementById('tx-search-query')?.value.trim() || '';
+    const from = document.getElementById('tx-search-from')?.value || '';
+    const to = document.getElementById('tx-search-to')?.value || '';
+    const fields = this.SEARCH_FIELDS
+      .map(f => f.key)
+      .filter(key => document.getElementById(`tx-search-field-${key}`)?.checked);
+
+    if (!fields.length) {
+      Toast.show(t('search.no_fields'), 'err');
+      return false;
+    }
+    if (from && to && from > to) {
+      Toast.show(t('search.invalid_range'), 'err');
+      return false;
+    }
+
+    // Nothing to filter by → behave as "clear".
+    this.journalSearch = (!query && !from && !to) ? null : { query, from, to, fields };
+    View.show('journal');
+    return true;
+  },
+
+  clearSearch() {
+    this.journalSearch = null;
+    return this.journal();
+  },
+
   /* ── Libro Diario ─────────────────────────────────────────────── */
   async journal() {
-    const data = await API.get('/reports/journal' + this._reportQuery());
+    const searchActive = !!this.journalSearch;
+    const rawData = await this._fetchJournalData();
+    const data = this._applySearchFilter(rawData);
     const main = document.getElementById('main');
-    const expFrom = State.filterFrom || `${new Date().getFullYear()}-01-01`;
-    const expTo   = State.filterTo   || `${new Date().getFullYear()}-12-31`;
+    const expFrom = (searchActive ? this.journalSearch.from : State.filterFrom) || `${new Date().getFullYear()}-01-01`;
+    const expTo   = (searchActive ? this.journalSearch.to : State.filterTo)   || `${new Date().getFullYear()}-12-31`;
     const sorted = this._sortByDate(data, 'journal');
 
     const rows = sorted.map(r => R.row([
@@ -518,10 +651,26 @@ const Reports = {
         })}</div>` },
     ])).join('');
 
-    main.innerHTML = R.view(`📒 ${t('report.journal')}`,
-      t('report.journal_summary', { count: sorted.length, from: expFrom, to: expTo }),
+    const filterIcon = searchActive
+      ? ` <span class="inline-flex align-middle text-blue-400" title="${escapeHtml(t('search.filtered_title'))}" aria-label="${escapeHtml(t('search.filtered_title'))}"><svg width="18" height="18"><use href="#i-search"/></svg></span>`
+      : '';
+    const summary = searchActive
+      ? t('search.result_summary', { count: sorted.length, query: this.journalSearch.query || '—' })
+      : t('report.journal_summary', { count: sorted.length, from: expFrom, to: expTo });
+    const clearSearchBtn = searchActive
+      ? R.actionBtn(`✕ ${t('search.clear_filter')}`,
+          'tbtn px-3 py-2 text-xs !bg-blue-600/20 !border-blue-500/50 !text-blue-300 hover:!bg-blue-600/40',
+          { 'data-report-action': 'clear-search', title: t('search.clear_filter'), 'aria-label': t('search.clear_filter') })
+      : '';
+
+    main.innerHTML = R.view(`📒 ${t('report.journal')}${filterIcon}`,
+      summary,
       `<div class="flex gap-2 flex-wrap mb-4">
          ${this._sortToggleButton('journal')}
+         ${R.actionBtn(`🔍 ${t('nav.search')}`,
+            'tbtn px-3 py-2 text-xs',
+            { 'data-report-action': 'open-search', title: t('search.title'), 'aria-label': t('search.title') })}
+         ${clearSearchBtn}
          ${R.btn('⬇ CSV', this._downloadUrl(`/reports/export/csv${this._reportQuery({ report: 'journal' })}`), true)}
          ${R.btn('⬇ PDF', this._downloadUrl(`/reports/export/pdf${this._reportQuery({ report: 'journal' })}`), true)}
        </div>` +
@@ -692,6 +841,12 @@ document.addEventListener('click', event => {
       break;
     case 'open-ledger':
       Reports.openLedger(Number(action.dataset.accountId));
+      break;
+    case 'open-search':
+      Reports.openSearchModal();
+      break;
+    case 'clear-search':
+      Reports.clearSearch();
       break;
     default:
       break;

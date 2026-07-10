@@ -157,6 +157,11 @@
       <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M18 6L6 18M6 6l12 12"/>
       </symbol>
+      <!-- Search (magnifier) -->
+      <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"/>
+        <path d="M21 21l-4.3-4.3"/>
+      </symbol>
     </defs>
   </svg>
 </head>
@@ -226,6 +231,10 @@
       <button class="tbtn nav-icon-btn" data-i18n-title="nav.tags" title="Tags" aria-label="Tags" onclick="Forms.tagModal()">
         <span class="nav-icon" aria-hidden="true"><svg><use href="#i-tags"/></svg></span>
         <span class="nav-label" data-i18n="nav.tags">Tags</span>
+      </button>
+      <button class="tbtn nav-icon-btn" data-i18n-title="nav.search" title="Search" aria-label="Search" onclick="Reports.openSearchModal()">
+        <span class="nav-icon" aria-hidden="true"><svg><use href="#i-search"/></svg></span>
+        <span class="nav-label" data-i18n="nav.search">Search</span>
       </button>
       <div class="w-px h-5 bg-dark-600 mx-1 shrink-0"></div>
       <button class="tbtn nav-icon-btn" data-view="settings" data-i18n-title="nav.settings" title="Settings" aria-label="Settings" onclick="View.show('settings')">
@@ -337,6 +346,7 @@
       <button class="drawer-btn font-semibold text-blue-400" onclick="Nav.go('new-account')"><span class="inline-flex"><svg width="18" height="18"><use href="#i-plus"/></svg></span> <span data-i18n='form.new_account'>＋ New Account</span></button>
       <button class="drawer-btn" onclick="Nav.go('subtypes')"><span class="inline-flex"><svg width="18" height="18"><use href="#i-subtypes"/></svg></span> <span data-i18n="nav.subtypes">Subtypes</span></button>
       <button class="drawer-btn" onclick="Nav.go('tags')"><span class="inline-flex"><svg width="18" height="18"><use href="#i-tags"/></svg></span> <span data-i18n="nav.tags">Tags</span></button>
+      <button class="drawer-btn" onclick="Nav.close(); Reports.openSearchModal()"><span class="inline-flex"><svg width="18" height="18"><use href="#i-search"/></svg></span> <span data-i18n="nav.search">Search</span></button>
       <hr class="border-dark-600 my-1">
       <button class="drawer-btn" onclick="Nav.go('settings')"><span class="inline-flex"><svg width="18" height="18"><use href="#i-settings"/></svg></span> <span data-i18n='nav.settings'>Settings</span></button>
       <button class="drawer-btn" data-action="refresh-usd-rates" onclick="Nav.close(); Settings.refreshAndSaveDollarRates()"><span class="inline-flex"><svg width="18" height="18"><use href="#i-refresh"/></svg></span> <span data-i18n='nav.refresh_usd_rates'>Refresh USD</span></button>
