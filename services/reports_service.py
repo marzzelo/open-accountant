@@ -1,6 +1,6 @@
 """Report and analytics service functions."""
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from math import sqrt
 from typing import Optional
 
@@ -611,6 +611,105 @@ def get_ledger(
         "opening_balance": account["initial_balance"],
         "closing_balance": round(running, 4),
         "entries": entries,
+    }
+
+
+LEDGER_SERIES_DEFAULT_DAYS = 365
+
+
+def _parse_series_date(value: Optional[str], fallback: date) -> date:
+    if not value:
+        return fallback
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return fallback
+
+
+def get_ledger_balance_series(
+    conn,
+    account_id: int,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    today: Optional[date] = None,
+):
+    """Daily closing balance of an account over a window (last year by default).
+
+    Unlike :func:`get_ledger`, the running balance is seeded with every movement
+    *before* the window, so the series reflects the real balance even when the
+    account already had activity earlier.
+    """
+    account = require_row(
+        conn,
+        "SELECT id, name, type_id, initial_balance FROM accounts WHERE id = ?",
+        (account_id,),
+        "Account not found",
+        NotFoundError,
+    )
+
+    end_day = _parse_series_date(to_date, today or datetime.now().date())
+    start_day = _parse_series_date(
+        from_date, end_day - timedelta(days=LEDGER_SERIES_DEFAULT_DAYS)
+    )
+    if start_day > end_day:
+        start_day = end_day
+
+    window_start = f"{start_day.isoformat()} 00:00:00"
+    window_end = f"{end_day.isoformat()} 23:59:59"
+
+    # Balance carried into the window: initial balance plus every earlier movement.
+    prior = conn.execute(
+        """SELECT COALESCE(SUM(CASE WHEN t.debit_account  = ? THEN t.amount ELSE 0 END), 0) AS debit_total,
+                  COALESCE(SUM(CASE WHEN t.credit_account = ? THEN t.amount ELSE 0 END), 0) AS credit_total
+           FROM transactions t
+           WHERE (t.debit_account = ? OR t.credit_account = ?)
+             AND t.date < ?""",
+        (account_id, account_id, account_id, account_id, window_start),
+    ).fetchone()
+
+    type_id = account["type_id"]
+    running = float(account["initial_balance"] or 0)
+    running += balance_delta(type_id, "debit", float(prior["debit_total"] or 0))
+    running += balance_delta(type_id, "credit", float(prior["credit_total"] or 0))
+    opening = round(running, 4)
+
+    rows = conn.execute(
+        """SELECT t.date, t.amount, t.debit_account, t.credit_account
+           FROM transactions t
+           WHERE (t.debit_account = ? OR t.credit_account = ?)
+             AND t.date BETWEEN ? AND ?
+           ORDER BY t.date ASC, t.id ASC""",
+        (account_id, account_id, window_start, window_end),
+    ).fetchall()
+
+    # Net balance change per calendar day inside the window.
+    daily_delta: dict[str, float] = {}
+    for row in rows:
+        day = serialize_temporal_value(row["date"])[:10]
+        delta = 0.0
+        if row["debit_account"] == account_id:
+            delta += balance_delta(type_id, "debit", row["amount"])
+        if row["credit_account"] == account_id:
+            delta += balance_delta(type_id, "credit", row["amount"])
+        daily_delta[day] = daily_delta.get(day, 0.0) + delta
+
+    points = []
+    cursor = start_day
+    while cursor <= end_day:
+        key = cursor.isoformat()
+        running += daily_delta.get(key, 0.0)
+        points.append({"date": key, "balance": round(running, 4)})
+        cursor += timedelta(days=1)
+
+    return {
+        "account_id": account["id"],
+        "account_name": account["name"],
+        "type_id": type_id,
+        "period_from": start_day.isoformat(),
+        "period_to": end_day.isoformat(),
+        "opening_balance": opening,
+        "closing_balance": round(running, 4),
+        "points": points,
     }
 
 

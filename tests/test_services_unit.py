@@ -1280,6 +1280,97 @@ def test_tags_service_crud_assignment_and_report_filters(initialized_environment
         assert [tag.name for tag in remaining] == ["Food"]
 
 
+def test_ledger_balance_series_covers_last_year_with_daily_points(
+    initialized_environment,
+):
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+        bank = accounts["Bank"]
+
+        # One movement before the window and one inside it.
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=bank.id,
+                credit_account=accounts["Salary"].id,
+                amount=500.0,
+                description="Old salary",
+                date="2024-05-10 10:00:00",
+            ),
+        )
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=bank.id,
+                credit_account=accounts["Salary"].id,
+                amount=150.0,
+                description="Salary",
+                date="2026-03-10 10:00:00",
+            ),
+        )
+
+        series = reports_service.get_ledger_balance_series(
+            conn, bank.id, today=date(2026, 6, 30)
+        )
+
+        assert series["account_id"] == bank.id
+        assert series["period_to"] == "2026-06-30"
+        assert series["period_from"] == "2025-06-30"
+        assert len(series["points"]) == 366
+        assert series["points"][0]["date"] == "2025-06-30"
+        assert series["points"][-1]["date"] == "2026-06-30"
+
+        # The pre-window movement is folded into the opening balance...
+        opening = bank.initial_balance + 500.0
+        assert series["opening_balance"] == pytest.approx(opening)
+        assert series["points"][0]["balance"] == pytest.approx(opening)
+
+        # ...and the in-window movement steps the curve up on its own day.
+        by_date = {point["date"]: point["balance"] for point in series["points"]}
+        assert by_date["2026-03-09"] == pytest.approx(opening)
+        assert by_date["2026-03-10"] == pytest.approx(opening + 150.0)
+        assert series["closing_balance"] == pytest.approx(opening + 150.0)
+
+
+def test_ledger_balance_series_honours_explicit_window(initialized_environment):
+    with get_db() as conn:
+        accounts = {item.name: item for item in accounts_service.list_accounts(conn)}
+        bank = accounts["Bank"]
+
+        transactions_service.create_transaction(
+            conn,
+            TransactionIn(
+                debit_account=accounts["Groceries"].id,
+                credit_account=bank.id,
+                amount=80.0,
+                description="Market",
+                date="2026-02-02 09:00:00",
+            ),
+        )
+
+        series = reports_service.get_ledger_balance_series(
+            conn, bank.id, from_date="2026-02-01", to_date="2026-02-03"
+        )
+
+        assert [point["date"] for point in series["points"]] == [
+            "2026-02-01",
+            "2026-02-02",
+            "2026-02-03",
+        ]
+        # Bank is debit-normal, so a credit lowers the balance.
+        assert series["points"][0]["balance"] == pytest.approx(bank.initial_balance)
+        assert series["points"][1]["balance"] == pytest.approx(
+            bank.initial_balance - 80.0
+        )
+        assert series["closing_balance"] == pytest.approx(bank.initial_balance - 80.0)
+
+
+def test_ledger_balance_series_rejects_unknown_account(initialized_environment):
+    with get_db() as conn:
+        with pytest.raises(NotFoundError):
+            reports_service.get_ledger_balance_series(conn, 999999)
+
+
 def test_account_properties_auto_infer_without_subtypes(initialized_environment):
     with get_db() as conn:
         cash_reserve = accounts_service.create_account(

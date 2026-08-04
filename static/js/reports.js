@@ -68,6 +68,138 @@ const TYPE_COLORS = {
   1: '#4fc3f7', 2: '#ef5350', 3: '#66bb6a', 4: '#ffd54f', 5: '#ce93d8'
 };
 
+/* ── Ledger balance chart ─────────────────────────────────────────────
+ * A compact strip on top of the ledger (width : height ≈ 10 : 1) that opens
+ * an enlarged, zoom/pan-enabled view when clicked.
+ * ------------------------------------------------------------------- */
+
+// Width-to-height ratio of the strip chart embedded in the ledger view.
+const LEDGER_STRIP_ASPECT = 10;
+
+// Live Chart.js instances owned by this module, keyed by canvas id.
+const _ledgerChartRegistry = {};
+
+function _ledgerChartDestroy(canvasId) {
+  const tracked = _ledgerChartRegistry[canvasId];
+  if (tracked) {
+    try { tracked.destroy(); } catch {}
+    delete _ledgerChartRegistry[canvasId];
+  }
+  // A canvas re-inserted by a previous render may still hold an instance.
+  if (typeof Chart !== 'undefined' && Chart.getChart) {
+    const orphan = Chart.getChart(canvasId);
+    if (orphan) { try { orphan.destroy(); } catch {} }
+  }
+}
+
+function _ledgerChartDestroyAll() {
+  Object.keys(_ledgerChartRegistry).forEach(_ledgerChartDestroy);
+}
+
+// chartjs-plugin-zoom is loaded from a CDN and self-registers; this both
+// verifies it is there and covers builds that expose it without registering.
+function _ledgerZoomPluginReady() {
+  if (typeof Chart === 'undefined') return false;
+  try {
+    if (Chart.registry?.plugins?.get('zoom')) return true;
+  } catch {}
+  const plugin = window.ChartZoom || window.chartjsPluginZoom;
+  if (!plugin) return false;
+  try {
+    Chart.register(plugin);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function _ledgerChartColor(typeId) {
+  return TYPE_COLORS[typeId] || '#4fc3f7';
+}
+
+function _ledgerChartFill(ctx, hexColor, height) {
+  if (!ctx || !height) return `${hexColor}22`;
+  const gradient = ctx.createLinearGradient(0, 0, 0, height);
+  gradient.addColorStop(0, `${hexColor}59`);
+  gradient.addColorStop(1, `${hexColor}05`);
+  return gradient;
+}
+
+function _isMonthStart(isoDate) {
+  return typeof isoDate === 'string' && isoDate.slice(8, 10) === '01';
+}
+
+// "2026-03-01" → "Mar" (or "Mar 26" for January, so years stay readable).
+function _ledgerMonthLabel(isoDate) {
+  if (!_isMonthStart(isoDate)) return '';
+  const [year, month] = isoDate.split('-');
+  const date = new Date(Number(year), Number(month) - 1, 1);
+  const locale = I18n.currentLanguage?.() || 'en';
+  const short = date.toLocaleDateString(locale, { month: 'short' });
+  return month === '01' ? `${short} ${year.slice(2)}` : short;
+}
+
+// Vertical rules on the 1st of every month, drawn behind the data line.
+const _ledgerMonthDividersPlugin = {
+  id: 'ledgerMonthDividers',
+  beforeDatasetsDraw(chart, _args, options) {
+    const xScale = chart.scales?.x;
+    const area = chart.chartArea;
+    if (!xScale || !area) return;
+
+    const labels = chart.data?.labels || [];
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(area.left, area.top, area.right - area.left, area.bottom - area.top);
+    ctx.clip();
+    ctx.lineWidth = options?.lineWidth ?? 1;
+    ctx.strokeStyle = options?.color || 'rgba(130, 149, 176, 0.35)';
+    if (options?.dash) ctx.setLineDash(options.dash);
+
+    labels.forEach((label, index) => {
+      if (!_isMonthStart(label)) return;
+      const x = xScale.getPixelForValue(index);
+      if (!Number.isFinite(x) || x < area.left || x > area.right) return;
+      ctx.beginPath();
+      ctx.moveTo(x, area.top);
+      ctx.lineTo(x, area.bottom);
+      ctx.stroke();
+    });
+    ctx.restore();
+  },
+};
+
+function _ledgerChartTooltip() {
+  return {
+    backgroundColor: '#111A2B',
+    borderColor: '#1E2D47',
+    borderWidth: 1,
+    titleColor: '#EAF2FB',
+    bodyColor: '#B7C4D8',
+    displayColors: false,
+    callbacks: {
+      title: items => items[0]?.label || '',
+      label: ctx => ` ${t('report.col.balance')}: ${fmt(ctx.parsed.y)}`,
+    },
+  };
+}
+
+function _ledgerChartDataset(points, color, fill) {
+  return {
+    label: t('report.col.balance'),
+    data: points.map(point => Number(point.balance) || 0),
+    borderColor: color,
+    backgroundColor: fill,
+    borderWidth: 1.75,
+    pointRadius: 0,
+    pointHoverRadius: 3,
+    pointHitRadius: 8,
+    tension: 0.15,
+    fill: true,
+  };
+}
+
 const Reports = {
   dateSort: {
     journal: 'desc',
@@ -78,6 +210,12 @@ const Reports = {
   // Active transaction search filter for the journal view, or null when off.
   // Shape: { query: string, from: string, to: string, fields: string[] }
   journalSearch: null,
+
+  // Last-year balance series backing the ledger charts (see _fetchBalanceSeries).
+  _balanceSeries: null,
+
+  // Drag behaviour of the enlarged chart: 'zoom' (window select) or 'pan'.
+  _chartMode: 'zoom',
 
   // Fields the search dialog can restrict to (all selected by default).
   SEARCH_FIELDS: [
@@ -688,10 +826,14 @@ const Reports = {
     const accId = State._ledgerAccount || State.accounts[0]?.id;
     if (!accId) { main.innerHTML = `<div class="text-dark-500 text-center py-16">${t('report.no_accounts')}</div>`; return; }
 
+    _ledgerChartDestroyAll();
     const opts    = State.accounts.map(a =>
       `<option value="${a.id}" ${a.id === accId ? 'selected' : ''}>${escapeHtml(a.name)} (${escapeHtml(a.type_name)})</option>`
     ).join('');
-    const data    = await API.get(`/reports/ledger/${accId}` + this._reportQuery());
+    const [data, series] = await Promise.all([
+      API.get(`/reports/ledger/${accId}` + this._reportQuery()),
+      this._fetchBalanceSeries(accId),
+    ]);
     const expFrom = State.filterFrom || `${new Date().getFullYear()}-01-01`;
     const expTo   = State.filterTo   || `${new Date().getFullYear()}-12-31`;
     const entries = this._sortByDate(data.entries, 'ledger');
@@ -743,6 +885,7 @@ const Reports = {
     main.innerHTML = R.view(
       `<span class="block w-full text-center text-3xl sm:text-5xl lg:text-4xl font-black tracking-tight leading-none">${escapeHtml(data.account_name)}</span>`,
       `<span class="block w-full text-center text-sm text-dark-400">📖 ${escapeHtml(t('report.ledger'))} · ${escapeHtml(t('report.ledger_summary', { count: entries.length }))}</span>`,
+      this._balanceStripMarkup(series) +
       `
       <div class="flex flex-wrap items-center gap-3 mb-4">
         <select ${htmlAttrs({
@@ -762,6 +905,286 @@ const Reports = {
         rows || `<tr><td colspan='7' class='text-center py-8 text-dark-500 text-xs'>${t('report.no_data')}</td></tr>`
       )
     );
+
+    this._renderBalanceStrip(series);
+  },
+
+  /* ── Saldo en el tiempo (strip + vista ampliada) ──────────────── */
+
+  // Last-year daily balance, independent of the global period filter so the
+  // chart always covers the same window.
+  async _fetchBalanceSeries(accountId) {
+    try {
+      const series = await API.get(`/reports/ledger/${accountId}/balance-series`);
+      this._balanceSeries = series;
+      return series;
+    } catch (error) {
+      console.warn('[reports] balance series unavailable:', error?.message || error);
+      this._balanceSeries = null;
+      return null;
+    }
+  },
+
+  _balanceStripMarkup(series) {
+    if (!series?.points?.length) return '';
+
+    const period = t('report.balance_chart_period', { from: series.period_from, to: series.period_to });
+    const label = `${t('report.balance_chart')} · ${period}`;
+    return `
+      <button ${htmlAttrs({
+        type: 'button',
+        class: 'block w-full mb-4 rounded-xl border border-dark-600 bg-dark-800/40 hover:border-blue-500/60 '
+             + 'hover:bg-dark-800/70 transition-colors cursor-zoom-in p-3 text-left',
+        'data-report-action': 'open-balance-chart',
+        title: t('report.balance_chart_expand'),
+        'aria-label': `${label} — ${t('report.balance_chart_expand')}`,
+      })}>
+        <div class="flex items-baseline justify-between gap-3 mb-1.5">
+          <span class="text-[11px] uppercase tracking-wide text-blue-400 font-semibold">${escapeHtml(t('report.balance_chart'))}</span>
+          <span class="text-[11px] text-dark-400">${escapeHtml(period)}</span>
+        </div>
+        <div class="relative w-full aspect-[${LEDGER_STRIP_ASPECT}/1] min-h-[64px]">
+          <canvas id="ledger-balance-strip" role="img" aria-label="${escapeHtml(label)}"></canvas>
+        </div>
+      </button>`;
+  },
+
+  _renderBalanceStrip(series) {
+    const canvas = document.getElementById('ledger-balance-strip');
+    if (!canvas || !series?.points?.length || typeof Chart === 'undefined') return;
+
+    _ledgerChartDestroy('ledger-balance-strip');
+    const points = series.points;
+    const color = _ledgerChartColor(series.type_id);
+    // The wrapper is sized by CSS (width / 10, floored so mobile stays legible);
+    // the canvas just fills it.
+    const fill = _ledgerChartFill(canvas.getContext('2d'), color, canvas.parentElement?.clientHeight || 90);
+
+    _ledgerChartRegistry['ledger-balance-strip'] = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: points.map(point => point.date),
+        datasets: [_ledgerChartDataset(points, color, fill)],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: 'index', intersect: false },
+        layout: { padding: { top: 2, bottom: 0, left: 2, right: 2 } },
+        plugins: {
+          legend: { display: false },
+          tooltip: _ledgerChartTooltip(),
+          ledgerMonthDividers: { color: 'rgba(130, 149, 176, 0.30)', dash: [3, 3] },
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            border: { color: '#1E2D47' },
+            ticks: {
+              color: '#8295B0',
+              font: { size: 9 },
+              autoSkip: false,
+              maxRotation: 0,
+              callback: (_value, index) => _ledgerMonthLabel(points[index]?.date),
+            },
+          },
+          y: { display: false, grace: '8%' },
+        },
+      },
+      plugins: [_ledgerMonthDividersPlugin],
+    });
+  },
+
+  openBalanceChart() {
+    View.show('ledger-chart');
+  },
+
+  // Enlarged, interactive version of the strip chart (own SPA view).
+  async ledgerChart() {
+    const main = document.getElementById('main');
+    const accId = State._ledgerAccount || State.accounts[0]?.id;
+    if (!accId) { main.innerHTML = `<div class="text-dark-500 text-center py-16">${t('report.no_accounts')}</div>`; return; }
+
+    _ledgerChartDestroyAll();
+    const series = this._balanceSeries?.account_id === accId
+      ? this._balanceSeries
+      : await this._fetchBalanceSeries(accId);
+
+    if (!series?.points?.length) {
+      main.innerHTML = R.view(
+        escapeHtml(t('report.balance_chart')),
+        escapeHtml(t('report.balance_chart_unavailable')),
+        `<div class="mb-4">${this._backToLedgerButton()}</div>`
+      );
+      return;
+    }
+
+    const zoomReady = _ledgerZoomPluginReady();
+    const period = t('report.balance_chart_period', { from: series.period_from, to: series.period_to });
+
+    main.innerHTML = R.view(
+      `<span class="block w-full text-center text-2xl sm:text-4xl font-black tracking-tight leading-none">${escapeHtml(series.account_name)}</span>`,
+      `<span class="block w-full text-center text-sm text-dark-400">📈 ${escapeHtml(t('report.balance_chart'))} · ${escapeHtml(period)}</span>`,
+      `<div class="flex flex-wrap items-center gap-2 mb-4">
+         ${this._backToLedgerButton()}
+         ${R.actionBtn(t('chart.zoom_mode'), 'tbtn px-3 py-2 text-xs disabled:opacity-40 disabled:cursor-not-allowed', {
+           'data-report-action': 'chart-mode',
+           'data-chart-mode': 'zoom',
+           'data-chart-mode-btn': 'zoom',
+           disabled: !zoomReady,
+           title: t('chart.zoom_mode_title'),
+           'aria-label': t('chart.zoom_mode_title'),
+         })}
+         ${R.actionBtn(t('chart.pan_mode'), 'tbtn px-3 py-2 text-xs disabled:opacity-40 disabled:cursor-not-allowed', {
+           'data-report-action': 'chart-mode',
+           'data-chart-mode': 'pan',
+           'data-chart-mode-btn': 'pan',
+           disabled: !zoomReady,
+           title: t('chart.pan_mode_title'),
+           'aria-label': t('chart.pan_mode_title'),
+         })}
+         ${R.actionBtn(t('chart.reset_zoom'), 'tbtn px-3 py-2 text-xs disabled:opacity-40 disabled:cursor-not-allowed', {
+           'data-report-action': 'chart-reset-zoom',
+           disabled: !zoomReady,
+           title: t('chart.reset_zoom_title'),
+           'aria-label': t('chart.reset_zoom_title'),
+         })}
+         <span class="text-base font-bold text-activo ml-auto">${t('report.closing')}: <strong class="text-lg">${fmt(series.closing_balance)}</strong></span>
+       </div>
+       <p id="ledger-chart-hint" class="text-[11px] text-dark-400 mb-2"></p>
+       <div class="rounded-xl border border-dark-600 bg-dark-800/40 p-3">
+         <div class="relative w-full h-[62vh] min-h-[320px]">
+           <canvas id="ledger-balance-full" role="img" aria-label="${escapeHtml(`${t('report.balance_chart')} · ${period}`)}"></canvas>
+         </div>
+       </div>`
+    );
+
+    this._renderBalanceChartFull(series, zoomReady);
+    this._setChartMode(zoomReady ? 'zoom' : null, zoomReady);
+  },
+
+  _backToLedgerButton() {
+    return R.actionBtn(t('report.balance_chart_back'), 'tbtn px-3 py-2 text-xs', {
+      'data-report-action': 'back-to-ledger',
+      title: t('report.balance_chart_back'),
+      'aria-label': t('report.balance_chart_back'),
+    });
+  },
+
+  _renderBalanceChartFull(series, zoomReady) {
+    const canvas = document.getElementById('ledger-balance-full');
+    if (!canvas || typeof Chart === 'undefined') return;
+
+    _ledgerChartDestroy('ledger-balance-full');
+    const points = series.points;
+    const color = _ledgerChartColor(series.type_id);
+    const fill = _ledgerChartFill(canvas.getContext('2d'), color, canvas.clientHeight || 420);
+
+    const zoomOptions = zoomReady ? {
+      zoom: {
+        wheel: { enabled: true, speed: 0.08 },
+        pinch: { enabled: true },
+        drag: { enabled: true, backgroundColor: 'rgba(0,161,255,0.15)', borderColor: '#00A1FF', borderWidth: 1 },
+        mode: 'x',
+      },
+      pan: { enabled: false, mode: 'xy' },
+      limits: { x: { minRange: 3 } },
+    } : undefined;
+
+    _ledgerChartRegistry['ledger-balance-full'] = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: points.map(point => point.date),
+        datasets: [_ledgerChartDataset(points, color, fill)],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: _ledgerChartTooltip(),
+          ledgerMonthDividers: { color: 'rgba(130, 149, 176, 0.35)', dash: [4, 4] },
+          ...(zoomOptions ? { zoom: zoomOptions } : {}),
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            border: { color: '#1E2D47' },
+            ticks: {
+              color: '#8295B0',
+              font: { size: 10 },
+              autoSkip: true,
+              maxRotation: 0,
+              // `ticks[index].value` is the data index, which follows the zoom window.
+              callback: (_value, index, ticks) => points[ticks[index]?.value]?.date || '',
+            },
+          },
+          y: {
+            grace: '8%',
+            grid: { color: '#1E2D4766' },
+            border: { display: false },
+            ticks: { color: '#8295B0', font: { size: 10 }, callback: value => '$ ' + Number(value).toLocaleString('en-US') },
+          },
+        },
+      },
+      plugins: [_ledgerMonthDividersPlugin],
+    });
+  },
+
+  _setChartMode(mode, zoomReady) {
+    const chart = _ledgerChartRegistry['ledger-balance-full'];
+    const hint = document.getElementById('ledger-chart-hint');
+
+    if (!zoomReady) {
+      if (hint) hint.textContent = t('chart.zoom_plugin_missing');
+      return;
+    }
+
+    const requested = mode || 'zoom';
+
+    if (chart?.options?.plugins?.zoom) {
+      const zoomOptions = chart.options.plugins.zoom;
+      zoomOptions.zoom.drag.enabled = requested === 'zoom';
+      zoomOptions.pan.enabled = requested === 'pan';
+      try {
+        chart.update('none');
+      } catch (error) {
+        // Pan needs Hammer.js; fall back to zoom instead of a half-applied state.
+        console.warn('[reports] chart mode unavailable:', error?.message || error);
+        if (requested === 'zoom') return;
+        zoomOptions.zoom.drag.enabled = true;
+        zoomOptions.pan.enabled = false;
+        Toast.show(t('chart.mode_unavailable'), 'err');
+        return this._setChartMode('zoom', zoomReady);
+      }
+      const canvas = document.getElementById('ledger-balance-full');
+      if (canvas) canvas.style.cursor = requested === 'pan' ? 'grab' : 'crosshair';
+    }
+
+    this._chartMode = requested;
+    document.querySelectorAll('[data-chart-mode-btn]').forEach(button => {
+      const active = button.dataset.chartModeBtn === this._chartMode;
+      button.classList.toggle('!bg-blue-600/20', active);
+      button.classList.toggle('!border-blue-500/50', active);
+      button.classList.toggle('!text-blue-300', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+
+    if (hint) {
+      hint.textContent = this._chartMode === 'pan' ? t('chart.hint_pan') : t('chart.hint_zoom');
+    }
+  },
+
+  resetChartZoom() {
+    const chart = _ledgerChartRegistry['ledger-balance-full'];
+    if (chart?.resetZoom) chart.resetZoom();
+  },
+
+  _teardownCharts() {
+    _ledgerChartDestroyAll();
   },
 
   /* ── Lista de transacciones ───────────────────────────────────── */
@@ -847,6 +1270,18 @@ document.addEventListener('click', event => {
       break;
     case 'clear-search':
       Reports.clearSearch();
+      break;
+    case 'open-balance-chart':
+      Reports.openBalanceChart();
+      break;
+    case 'back-to-ledger':
+      View.show('ledger');
+      break;
+    case 'chart-mode':
+      Reports._setChartMode(action.dataset.chartMode, true);
+      break;
+    case 'chart-reset-zoom':
+      Reports.resetChartZoom();
       break;
     default:
       break;

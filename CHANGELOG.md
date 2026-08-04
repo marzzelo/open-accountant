@@ -6,6 +6,13 @@ The format is based on Keep a Changelog, and this project is intended to follow 
 
 ## [Unreleased]
 
+### Added
+
+- **Balance-over-time chart in the General Ledger**: a full-width strip chart (width : height ≈ 10 : 1) sits between the ledger header and the ledger table, plotting the account's daily balance for the last 12 months with vertical dividers on the 1st of each month.
+- Clicking the strip opens an enlarged, interactive view of the same chart with **window zoom (drag), pan, and reset** controls; it degrades gracefully to a static chart if the zoom plugin cannot be loaded.
+- New API endpoint `GET /api/reports/ledger/{account_id}/balance-series`, which seeds the running balance with every movement before the window so the curve is correct regardless of the global period filter.
+- i18n keys for all new UI labels in English and Spanish.
+
 ## [2.0.1] - 2026-04-10
 
 ### Changed

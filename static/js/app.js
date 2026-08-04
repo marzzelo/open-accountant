@@ -530,15 +530,18 @@ const View = {
   async show(name) {
     this.current = name;
 
-    // Update toolbar active state
+    // Update toolbar active state ('ledger-chart' is a detail view of 'ledger')
+    const toolbarView = name === 'ledger-chart' ? 'ledger' : name;
     document.querySelectorAll('.tbtn[data-view]').forEach(b => {
-      b.classList.toggle('active', b.dataset.view === name);
+      b.classList.toggle('active', b.dataset.view === toolbarView);
     });
 
     const board = getBoard();
     if (typeof board?.syncGlobalControls === 'function') board.syncGlobalControls();
 
     const main = document.getElementById('main');
+    // Release Chart.js instances owned by the outgoing view before it is wiped.
+    getReports()?._teardownCharts?.();
     main.innerHTML = '<div class="spinner">⏳ Cargando...</div>';
 
     try {
@@ -554,6 +557,7 @@ const View = {
         case 'balance':  await reports.balance(); break;
         case 'journal':  await reports.journal(); break;
         case 'ledger':   await reports.ledger();  break;
+        case 'ledger-chart': await reports.ledgerChart(); break;
         case 'indicadores': await charts.panel(); break;
         case 'stats':    await charts.stats();    break;
         case 'proyecciones': await projections.render(); break;

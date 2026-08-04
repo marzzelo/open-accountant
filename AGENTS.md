@@ -34,3 +34,5 @@ Start with [CLAUDE.md](CLAUDE.md), [README.md](README.md), and [CONTRIBUTING.md]
 - Auth and runtime config: [app_config.py](app_config.py), [auth.py](auth.py), [services/auth_service.py](services/auth_service.py)
 - Database translation and schema: [database.py](database.py), [db/connection.py](db/connection.py), [db/dialect.py](db/dialect.py), [db/schema.py](db/schema.py)
 - Frontend workflow hotspots: [static/js/forms.js](static/js/forms.js), [static/js/board.js](static/js/board.js), [static/js/reports.js](static/js/reports.js), [static/js/settings.js](static/js/settings.js)
+
+## Imported Claude Cowork project instructions

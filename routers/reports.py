@@ -81,6 +81,18 @@ def get_ledger(
     )
 
 
+@router.get("/reports/ledger/{account_id}/balance-series")
+def get_ledger_balance_series(
+    account_id: int,
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
+    conn=Depends(db_dep),
+):
+    return reports_service.get_ledger_balance_series(
+        conn, account_id, from_date, to_date
+    )
+
+
 @router.get("/reports/stats", response_model=StatsData)
 def get_stats(
     from_date: Optional[str] = Query(None, alias="from"),
