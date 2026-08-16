@@ -126,6 +126,8 @@
   "search.clear_filter": "Quitar filtro",
   "search.filtered_title": "Resultados filtrados",
   "search.result_summary": "{count} resultados · filtro “{query}”",
+  "search.total_label": "Total",
+  "search.total_title": "Importe total de los resultados filtrados",
   "search.no_fields": "Seleccione al menos un campo para buscar.",
   "search.invalid_range": "La fecha inicial debe ser anterior a la final.",
   "stats.monthly_cashflow": "Ingresos vs Gastos — Mensual",

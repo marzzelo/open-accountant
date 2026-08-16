@@ -126,6 +126,8 @@
   "search.clear_filter": "Clear filter",
   "search.filtered_title": "Filtered results",
   "search.result_summary": "{count} results · filter “{query}”",
+  "search.total_label": "Total",
+  "search.total_title": "Total amount of the filtered results",
   "search.no_fields": "Select at least one field to search.",
   "search.invalid_range": "The start date must be before the end date.",
   "stats.monthly_cashflow": "Income vs Expenses — Monthly",

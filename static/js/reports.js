@@ -792,6 +792,13 @@ const Reports = {
     const filterIcon = searchActive
       ? ` <span class="inline-flex align-middle text-blue-400" title="${escapeHtml(t('search.filtered_title'))}" aria-label="${escapeHtml(t('search.filtered_title'))}"><svg width="18" height="18"><use href="#i-search"/></svg></span>`
       : '';
+    // Total of the filtered rows, shown next to the view title (same font/size).
+    const searchTotal = searchActive
+      ? sorted.reduce((sum, r) => sum + (Number(r.amount) || 0), 0)
+      : 0;
+    const totalLabel = searchActive
+      ? ` <span class="text-xl font-bold text-blue-300 whitespace-nowrap" title="${escapeHtml(t('search.total_title'))}">· ${escapeHtml(t('search.total_label'))}: ${fmt(searchTotal)}</span>`
+      : '';
     const summary = searchActive
       ? t('search.result_summary', { count: sorted.length, query: this.journalSearch.query || '—' })
       : t('report.journal_summary', { count: sorted.length, from: expFrom, to: expTo });
@@ -801,7 +808,7 @@ const Reports = {
           { 'data-report-action': 'clear-search', title: t('search.clear_filter'), 'aria-label': t('search.clear_filter') })
       : '';
 
-    main.innerHTML = R.view(`📒 ${t('report.journal')}${filterIcon}`,
+    main.innerHTML = R.view(`📒 ${t('report.journal')}${filterIcon}${totalLabel}`,
       summary,
       `<div class="flex gap-2 flex-wrap mb-4">
          ${this._sortToggleButton('journal')}
