@@ -247,6 +247,17 @@ def get_user(conn, user_id: int) -> dict:
     return _serialize_user(row)
 
 
+def get_user_by_username(conn, username: str) -> dict:
+    row = conn.execute(
+        "SELECT id, username, is_admin, is_active, created_at FROM users "
+        "WHERE LOWER(username) = LOWER(?)",
+        (username.strip(),),
+    ).fetchone()
+    if not row:
+        raise NotFoundError("User not found")
+    return _serialize_user(row)
+
+
 def _ensure_valid_username(username: str) -> str:
     normalized_username = username.strip()
     if not normalized_username:

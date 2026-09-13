@@ -89,6 +89,64 @@ def test_logout_invalidates_session_cookie(raw_client):
     assert accounts_response.status_code == 401
 
 
+def test_api_key_header_authenticates_headless_clients(raw_client, monkeypatch):
+    monkeypatch.setenv(app_config.API_KEY_ENV, "alexa-test-key")
+
+    headers = {app_config.API_KEY_HEADER: "alexa-test-key"}
+    accounts_response = raw_client.get("/api/accounts", headers=headers)
+    assert accounts_response.status_code == 200
+    assert app_config.auth_cookie_name() not in raw_client.cookies
+
+    # The key acts as the configured user, so admin-only routes work too.
+    users_response = raw_client.get("/api/auth/users", headers=headers)
+    assert users_response.status_code == 200
+
+
+def test_api_key_header_rejects_wrong_or_unconfigured_keys(raw_client, monkeypatch):
+    # No key configured: the header is never a valid credential.
+    monkeypatch.delenv(app_config.API_KEY_ENV, raising=False)
+    response = raw_client.get(
+        "/api/accounts", headers={app_config.API_KEY_HEADER: "alexa-test-key"}
+    )
+    assert response.status_code == 401
+
+    monkeypatch.setenv(app_config.API_KEY_ENV, "alexa-test-key")
+    response = raw_client.get(
+        "/api/accounts", headers={app_config.API_KEY_HEADER: "wrong-key"}
+    )
+    assert response.status_code == 401
+
+
+def test_api_key_header_fails_when_its_user_is_missing(raw_client, monkeypatch):
+    monkeypatch.setenv(app_config.API_KEY_ENV, "alexa-test-key")
+    monkeypatch.setenv(app_config.API_KEY_USERNAME_ENV, "nobody")
+
+    response = raw_client.get(
+        "/api/accounts", headers={app_config.API_KEY_HEADER: "alexa-test-key"}
+    )
+    assert response.status_code == 503
+
+
+def test_api_key_can_create_a_transaction(client, raw_client, monkeypatch):
+    accounts = _accounts_by_name(client)
+    names = list(accounts)
+    assert len(names) >= 2
+
+    monkeypatch.setenv(app_config.API_KEY_ENV, "alexa-test-key")
+    response = raw_client.post(
+        "/api/transactions",
+        headers={app_config.API_KEY_HEADER: "alexa-test-key"},
+        json={
+            "debit_account": accounts[names[0]]["id"],
+            "credit_account": accounts[names[1]]["id"],
+            "amount": 1500.0,
+            "description": "Registrado por voz",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["description"] == "Registrado por voz"
+
+
 def test_admin_can_create_deactivate_and_reset_user_password(client, raw_client):
     create_response = client.post(
         "/api/auth/users",

@@ -50,6 +50,9 @@ AUTH_SESSION_DAYS_DEFAULT_ENV = "AUTH_SESSION_DAYS_DEFAULT"
 AUTH_SESSION_DAYS_REMEMBER_ME_ENV = "AUTH_SESSION_DAYS_REMEMBER_ME"
 AUTH_COOKIE_SECURE_ENV = "AUTH_COOKIE_SECURE"
 AUTH_COOKIE_NAME_ENV = "AUTH_COOKIE_NAME"
+API_KEY_ENV = "ALEXA_API_KEY"
+API_KEY_USERNAME_ENV = "ALEXA_API_USERNAME"
+API_KEY_HEADER = "X-API-Key"
 
 
 def _load_env_file() -> dict[str, str]:
@@ -131,6 +134,20 @@ def auth_cookie_secure() -> bool:
 
 def auth_cookie_name() -> str:
     return _env_value(AUTH_COOKIE_NAME_ENV) or "open_accountant_session"
+
+
+def api_key() -> str:
+    """Shared secret accepted in the ``X-API-Key`` header (empty = disabled).
+
+    Used by headless clients such as the Alexa skill, which cannot carry the
+    browser session cookie.
+    """
+    return _env_value(API_KEY_ENV)
+
+
+def api_key_username() -> str:
+    """Username the API key impersonates. Defaults to ``admin``."""
+    return _env_value(API_KEY_USERNAME_ENV) or "admin"
 
 
 def set_language(lang: str):
